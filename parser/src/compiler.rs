@@ -76,6 +76,7 @@ impl<'a> Compiler<'a> {
                 args: fn_args,
                 instructions: vec![],
                 stack_size: 0,
+                jump_map: HashMap::new(),
             },
             target_stack: (0..args.len() + 1)
                 .map(|i| {

@@ -415,7 +415,7 @@ fn interpret_fn(
             OpCode::If => {
                 vm.block_stack.push((inst.op, ip));
                 if !truthy(&vm.get(inst.arg0)) {
-                    let jump_ip = find_end(1, ip + 1, ci).ok_or_else(|| EvalError::MissingEnd)?;
+                    let jump_ip = ci.fun.find_jump(ip)?;
                     let op = ci.fun.instructions[jump_ip].op;
                     dbg_println!("If forward jump ip: {jump_ip}: {op:?}");
                     call_stack.clast_mut()?.ip = jump_ip + 1;
@@ -433,7 +433,7 @@ fn interpret_fn(
                 if !matches!(last.0, OpCode::If) {
                     return Err(EvalError::ElseWithoutIf);
                 }
-                let jump_ip = find_end(1, ip + 1, ci).ok_or_else(|| EvalError::MissingEnd)?;
+                let jump_ip = ci.fun.find_jump(ip)?;
                 dbg_println!("Else forward jump ip: {jump_ip}");
                 call_stack.clast_mut()?.ip = jump_ip + 1;
                 continue;
@@ -490,19 +490,21 @@ fn jump_inst(
     }
     let ci = call_stack.clast()?;
     // TODO: precache forward jump map in the function since it will repeat many times in a loop.
-    let jump_ip = find_end(inst.arg1 as usize, ip, ci);
-    if let Some(ip2) = jump_ip {
-        dbg_println!("{name} found a forward jump ip: {ip2}");
-        call_stack.clast_mut()?.ip = ip2 + 1;
-        vm.block_stack
-            .resize(vm.block_stack.len() - block_offset, (OpCode::End, 0));
-    }
+    let jump_ip = ci.fun.find_jump(ip)?;
+    dbg_println!("{name} found a forward jump ip: {jump_ip}");
+    call_stack.clast_mut()?.ip = jump_ip + 1;
+    vm.block_stack
+        .resize(vm.block_stack.len() - block_offset, (OpCode::End, 0));
     Ok(())
 }
 
-fn find_end(mut blk_count: usize, ip: usize, ci: &CallInfo) -> Option<usize> {
-    for ip2 in ip..ci.fun.instructions.len() {
-        match ci.fun.instructions[ip2].op {
+pub(crate) fn find_end(
+    mut blk_count: usize,
+    ip: usize,
+    instructions: &[Instruction],
+) -> Option<usize> {
+    for ip2 in ip..instructions.len() {
+        match instructions[ip2].op {
             OpCode::End => {
                 blk_count -= 1;
                 if blk_count == 0 {

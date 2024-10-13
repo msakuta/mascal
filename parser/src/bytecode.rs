@@ -1,14 +1,14 @@
 //! The definition of bytecode data structure that is shared among the bytecode compiler and the interpreter (vm.rs)
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     convert::{TryFrom, TryInto},
     io::{Read, Write},
 };
 
 use crate::{
     find_end,
-    interpreter::{s_hex_string, s_len, s_print, s_push, s_type, EvalError},
+    interpreter::{s_hex_string, s_len, s_print, s_push, s_type, EvalError, EvalResult},
     parser::ReadError,
     value::Value,
 };
@@ -364,13 +364,15 @@ impl BytecodeArg {
     }
 }
 
+pub(crate) type JumpMap = HashMap<usize, usize>;
+
 #[derive(Debug, Clone)]
 pub struct FnBytecode {
     pub(crate) literals: Vec<Value>,
     pub(crate) args: Vec<BytecodeArg>,
     pub(crate) instructions: Vec<Instruction>,
     pub(crate) stack_size: usize,
-    pub(crate) jump_map: HashMap<usize, usize>,
+    pub(crate) jump_map: JumpMap,
 }
 
 impl FnBytecode {
@@ -387,6 +389,7 @@ impl FnBytecode {
                 .collect(),
             instructions: vec![],
             stack_size: 0,
+            jump_map: HashMap::new(),
         }
     }
 
@@ -442,11 +445,14 @@ impl FnBytecode {
         let instructions = (0..instructions)
             .map(|_| Instruction::deserialize(reader))
             .collect::<Result<Vec<_>, _>>()?;
+        // Cache the corresponding end instructions
+        let jump_map = cache_bytecode_fn(&instructions)?;
         Ok(Self {
             literals,
             args,
             instructions,
             stack_size: usize::from_le_bytes(stack_size),
+            jump_map,
         })
     }
 
@@ -467,8 +473,20 @@ impl FnBytecode {
             i: usize,
             inst: &Instruction,
             level: usize,
+            jump_map: &JumpMap,
         ) -> std::io::Result<()> {
-            writeln!(f, "  [{:3}] {}{}", i, "  ".repeat(level), inst)
+            if let Some(jump_ip) = jump_map.get(&i) {
+                writeln!(
+                    f,
+                    "  [{:3}] {}{}   -> {}",
+                    i,
+                    "  ".repeat(level),
+                    inst,
+                    *jump_ip
+                )
+            } else {
+                writeln!(f, "  [{:3}] {}{}", i, "  ".repeat(level), inst)
+            }
         }
 
         let mut blk_nest = 0;
@@ -487,16 +505,84 @@ impl FnBytecode {
                     }
                 }
                 OpCode::If | OpCode::Loop | OpCode::Block => {
-                    format_inst(f, i, inst, blk_nest)?;
+                    format_inst(f, i, inst, blk_nest, &self.jump_map)?;
                     blk_nest += 1;
                 }
                 OpCode::End => {
-                    format_inst(f, i, inst, blk_nest)?;
                     blk_nest -= 1;
+                    format_inst(f, i, inst, blk_nest, &self.jump_map)?;
                 }
-                _ => format_inst(f, i, inst, blk_nest)?,
+                _ => format_inst(f, i, inst, blk_nest, &self.jump_map)?,
             }
         }
         Ok(())
     }
+
+    pub fn find_jump(&self, ip: usize) -> EvalResult<usize> {
+        self.jump_map
+            .get(&ip)
+            .cloned()
+            .ok_or_else(|| EvalError::MissingEnd)
+    }
+}
+
+pub fn cache_bytecode(bytecode: &mut Bytecode) -> Result<(), EvalError> {
+    for (_, f) in bytecode.functions.iter_mut() {
+        if let FnProto::Code(code) = f {
+            code.jump_map = cache_bytecode_fn(&code.instructions)?;
+        }
+    }
+    Ok(())
+}
+
+fn cache_bytecode_fn(instructions: &[Instruction]) -> Result<JumpMap, EvalError> {
+    let mut jump_map = JumpMap::new();
+
+    // Simulated VM block stack
+    let mut block_stack: Vec<(OpCode, usize, HashSet<usize>)> = vec![];
+
+    for ip in 0..instructions.len() {
+        let inst = instructions[ip];
+        match inst.op {
+            OpCode::If | OpCode::Else | OpCode::Loop | OpCode::Block => {
+                if matches!(inst.op, OpCode::If | OpCode::Else) {
+                    let jump_ip =
+                        find_end(1, ip + 1, &instructions).ok_or_else(|| EvalError::MissingEnd)?;
+                    jump_map.insert(ip, jump_ip);
+                }
+                if !matches!(inst.op, OpCode::Else) {
+                    block_stack.push((inst.op, ip, HashSet::new()));
+                }
+            }
+            OpCode::End => {
+                if let Some((_, _, last_block)) = block_stack.pop() {
+                    for fix in last_block {
+                        jump_map.insert(fix, ip);
+                    }
+                }
+            }
+            OpCode::Jmp | OpCode::Jt | OpCode::Jf => {
+                let block_offset = inst.arg1 as usize;
+                if block_stack.len() < block_offset {
+                    return Err(EvalError::BlockStackUnderflow);
+                }
+                let blk_idx = block_stack.len() - block_offset;
+                let block = block_stack
+                    .get_mut(blk_idx)
+                    .ok_or_else(|| EvalError::BlockStackUnderflow)?;
+                if matches!(block.0, OpCode::Loop) {
+                    dbg_println!(
+                        "{name:?} is a backward jump ip: {ip}",
+                        name = inst.op,
+                        ip = block.1
+                    );
+                    jump_map.insert(ip, block.1);
+                } else {
+                    block.2.insert(ip);
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(jump_map)
 }

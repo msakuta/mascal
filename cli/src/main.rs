@@ -72,6 +72,7 @@ fn main() -> Result<(), String> {
                     .map_err(|e| e.to_string())?;
             }
             if args.disasm {
+                cache_bytecode(&mut bytecode).map_err(|e| e.to_string())?;
                 bytecode
                     .disasm(&mut std::io::stdout())
                     .map_err(|e| e.to_string())?;
@@ -83,6 +84,7 @@ fn main() -> Result<(), String> {
             }
             if args.compile_and_run {
                 bytecode.add_std_fn();
+                cache_bytecode(&mut bytecode).map_err(|e| e.to_string())?;
                 interpret(&bytecode).map_err(|e| e.to_string())?;
             }
         } else {

@@ -1,6 +1,6 @@
 use crate::{
     type_decl::{ArraySize, TypeDecl},
-    Value,
+    EvalError, Value,
 };
 
 use nom::{
@@ -26,6 +26,7 @@ pub enum ReadError {
     FromUtf8(FromUtf8Error),
     NoMainFound,
     UndefinedOpCode(u8),
+    EvalError(EvalError),
 }
 
 impl From<std::io::Error> for ReadError {
@@ -40,16 +41,25 @@ impl From<FromUtf8Error> for ReadError {
     }
 }
 
+impl From<EvalError> for ReadError {
+    fn from(value: EvalError) -> Self {
+        Self::EvalError(value)
+    }
+}
+
 impl std::fmt::Display for ReadError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ReadError::IO(e) => write!(f, "{e}"),
-            ReadError::FromUtf8(e) => write!(f, "{e}"),
-            ReadError::NoMainFound => write!(f, "No main function found"),
-            ReadError::UndefinedOpCode(code) => write!(f, "Opcode \"{code:02X}\" unrecognized!"),
+            Self::IO(e) => write!(f, "{e}"),
+            Self::FromUtf8(e) => write!(f, "{e}"),
+            Self::NoMainFound => write!(f, "No main function found"),
+            Self::UndefinedOpCode(code) => write!(f, "Opcode \"{code:02X}\" unrecognized!"),
+            Self::EvalError(e) => e.fmt(f),
         }
     }
 }
+
+impl std::error::Error for ReadError {}
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct ArgDecl<'a> {
