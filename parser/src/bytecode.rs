@@ -323,6 +323,15 @@ impl Bytecode {
         }
         Ok(())
     }
+
+    pub fn cache_bytecode(&mut self) -> Result<(), EvalError> {
+        for (_, f) in self.functions.iter_mut() {
+            if let FnProto::Code(code) = f {
+                code.jump_map = cache_bytecode_fn(&code.instructions)?;
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Add standard common functions, such as `print`, `len` and `push`, to this bytecode.
@@ -524,15 +533,6 @@ impl FnBytecode {
             .cloned()
             .ok_or_else(|| EvalError::MissingEnd)
     }
-}
-
-pub fn cache_bytecode(bytecode: &mut Bytecode) -> Result<(), EvalError> {
-    for (_, f) in bytecode.functions.iter_mut() {
-        if let FnProto::Code(code) = f {
-            code.jump_map = cache_bytecode_fn(&code.instructions)?;
-        }
-    }
-    Ok(())
 }
 
 fn cache_bytecode_fn(instructions: &[Instruction]) -> Result<JumpMap, EvalError> {

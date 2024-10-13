@@ -192,6 +192,7 @@ pub fn compile_and_run(src: &str) -> Result<(), JsValue> {
     let mut bytecode = mascal::compile(&parse_result.1, functions)
         .map_err(|e| JsValue::from_str(&format!("Error: {}", e)))?;
     bytecode.add_std_fn();
+    bytecode.cache_bytecode();
     extra_functions(&mut |name, f| {
         bytecode.add_ext_fn(name, f);
     });
