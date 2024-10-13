@@ -1,6 +1,6 @@
 //! Bytecode interpreter, aka a Virtual Machine.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, convert::TryInto};
 
 use crate::{
     bytecode::{Bytecode, FnBytecode, FnProto, OpCode},
@@ -9,14 +9,16 @@ use crate::{
         EvalError, EvalResult,
     },
     type_decl::TypeDecl,
-    Instruction, Value,
+    Value,
 };
 
 macro_rules! dbg_println {
-    ($($rest:tt)*) => {
+    ($($rest:tt)*) => {{
         #[cfg(debug_assertions)]
-        std::println!($($rest)*)
-    }
+        {
+            std::println!($($rest)*)
+        }
+    }}
 }
 
 pub fn interpret(bytecode: &Bytecode) -> Result<Value, EvalError> {
@@ -134,19 +136,51 @@ fn interpret_fn(
     }];
 
     while call_stack.clast()?.has_next_inst() {
-        let ci = call_stack.clast()?;
+        let ci = call_stack.clast_mut()?;
         let ip = ci.ip;
-        let inst = ci.fun.instructions[ip];
+        let op: OpCode = ci.fun.instructions[ip].try_into().unwrap();
+        ci.ip += 1;
 
-        dbg_println!("inst[{ip}]: {inst:?}");
+        let read_arg0 = |ci: &mut CallInfo| {
+            let ret = ci.fun.instructions[ci.ip];
+            ci.ip += 1;
+            ret
+        };
 
-        match inst.op {
+        let read_arg1 = |ci: &mut CallInfo| {
+            let ret = u16::from_le_bytes(ci.fun.instructions[ci.ip..ci.ip + 2].try_into().unwrap());
+            ci.ip += 2;
+            ret
+        };
+
+        let arg0;
+        let arg1;
+        match op.arity() {
+            0 => (arg0, arg1) = (None, None),
+            1 => (arg0, arg1) = (Some(read_arg0(ci)), None),
+            2 => (arg0, arg1) = (Some(read_arg0(ci)), Some(read_arg1(ci))),
+            _ => unreachable!(),
+        }
+
+        let ip = ci.ip;
+
+        #[cfg(debug_assertions)]
+        match (arg0, arg1) {
+            (Some(arg0), Some(arg1)) => dbg_println!("inst[{ip}]: {op:?} {arg0} {arg1}"),
+            (Some(arg0), None) => dbg_println!("inst[{ip}]: {op:?} {arg0}"),
+            _ => dbg_println!("inst[{ip}]: {op:?}"),
+        }
+
+        match op {
             OpCode::LoadLiteral => {
-                vm.set(inst.arg1, ci.fun.literals[inst.arg0 as usize].clone());
+                vm.set(
+                    arg1.unwrap(),
+                    ci.fun.literals[arg0.unwrap() as usize].clone(),
+                );
             }
             OpCode::Move => {
                 if let (Value::Array(lhs), Value::Array(rhs)) =
-                    (vm.get(inst.arg0), vm.get(inst.arg1))
+                    (vm.get(arg0.unwrap()), vm.get(arg1.unwrap()))
                 {
                     if lhs as *const _ == rhs as *const _ {
                         println!("Self-assignment!");
@@ -154,11 +188,11 @@ fn interpret_fn(
                         continue;
                     }
                 }
-                let val = vm.get(inst.arg0).clone();
-                vm.set(inst.arg1, val);
+                let val = vm.get(arg0.unwrap()).clone();
+                vm.set(arg1.unwrap(), val);
             }
             OpCode::Incr => {
-                let val = vm.get_mut(inst.arg0);
+                let val = vm.get_mut(arg0.unwrap());
                 fn incr(val: &mut Value) -> Result<(), String> {
                     match val {
                         Value::I64(i) => *i += 1,
@@ -178,133 +212,142 @@ fn interpret_fn(
             }
             OpCode::Add => {
                 let result = binary_op_str(
-                    &vm.get(inst.arg0),
-                    &vm.get(inst.arg1),
+                    &vm.get(arg0.unwrap()),
+                    &vm.get(arg1.unwrap()),
                     |lhs, rhs| Ok(lhs + rhs),
                     |lhs, rhs| lhs + rhs,
                     |lhs: &str, rhs: &str| Ok(lhs.to_string() + rhs),
                 )?;
-                vm.set(inst.arg0, result);
+                vm.set(arg0.unwrap(), result);
             }
             OpCode::Sub => {
                 let result = binary_op(
-                    &vm.get(inst.arg0),
-                    &vm.get(inst.arg1),
+                    &vm.get(arg0.unwrap()),
+                    &vm.get(arg1.unwrap()),
                     |lhs, rhs| lhs - rhs,
                     |lhs, rhs| lhs - rhs,
                 )?;
-                vm.set(inst.arg0, result);
+                vm.set(arg0.unwrap(), result);
             }
             OpCode::Mul => {
                 let result = binary_op(
-                    &vm.get(inst.arg0),
-                    &vm.get(inst.arg1),
+                    &vm.get(arg0.unwrap()),
+                    &vm.get(arg1.unwrap()),
                     |lhs, rhs| lhs * rhs,
                     |lhs, rhs| lhs * rhs,
                 )?;
-                vm.set(inst.arg0, result);
+                vm.set(arg0.unwrap(), result);
             }
             OpCode::Div => {
                 let result = binary_op(
-                    &vm.get(inst.arg0),
-                    &vm.get(inst.arg1),
+                    &vm.get(arg0.unwrap()),
+                    &vm.get(arg1.unwrap()),
                     |lhs, rhs| lhs / rhs,
                     |lhs, rhs| lhs / rhs,
                 )?;
-                vm.set(inst.arg0, result);
+                vm.set(arg0.unwrap(), result);
             }
             OpCode::BitAnd => {
-                let result =
-                    binary_op_int(&vm.get(inst.arg0), &vm.get(inst.arg1), |lhs, rhs| lhs & rhs)?;
-                vm.set(inst.arg0, result);
+                let result = binary_op_int(
+                    &vm.get(arg0.unwrap()),
+                    &vm.get(arg1.unwrap()),
+                    |lhs, rhs| lhs & rhs,
+                )?;
+                vm.set(arg0.unwrap(), result);
             }
             OpCode::BitXor => {
-                let result =
-                    binary_op_int(&vm.get(inst.arg0), &vm.get(inst.arg1), |lhs, rhs| lhs ^ rhs)?;
-                vm.set(inst.arg0, result);
+                let result = binary_op_int(
+                    &vm.get(arg0.unwrap()),
+                    &vm.get(arg1.unwrap()),
+                    |lhs, rhs| lhs ^ rhs,
+                )?;
+                vm.set(arg0.unwrap(), result);
             }
             OpCode::BitOr => {
-                let result =
-                    binary_op_int(&vm.get(inst.arg0), &vm.get(inst.arg1), |lhs, rhs| lhs | rhs)?;
-                vm.set(inst.arg0, result);
+                let result = binary_op_int(
+                    &vm.get(arg0.unwrap()),
+                    &vm.get(arg1.unwrap()),
+                    |lhs, rhs| lhs | rhs,
+                )?;
+                vm.set(arg0.unwrap(), result);
             }
             OpCode::And => {
-                let result = truthy(&vm.get(inst.arg0)) && truthy(&vm.get(inst.arg1));
-                vm.set(inst.arg0, Value::I32(result as i32));
+                let result = truthy(&vm.get(arg0.unwrap())) && truthy(&vm.get(arg1.unwrap()));
+                vm.set(arg0.unwrap(), Value::I32(result as i32));
             }
             OpCode::Or => {
-                let result = truthy(&vm.get(inst.arg0)) || truthy(&vm.get(inst.arg1));
-                vm.set(inst.arg0, Value::I32(result as i32));
+                let result = truthy(&vm.get(arg0.unwrap())) || truthy(&vm.get(arg1.unwrap()));
+                vm.set(arg0.unwrap(), Value::I32(result as i32));
             }
             OpCode::Not => {
-                let result = !truthy(&vm.get(inst.arg0));
-                vm.set(inst.arg0, Value::I32(result as i32));
+                let result = !truthy(&vm.get(arg0.unwrap()));
+                vm.set(arg0.unwrap(), Value::I32(result as i32));
             }
             OpCode::BitNot => {
-                let val = vm.get(inst.arg0);
+                let val = vm.get(arg0.unwrap());
                 let result = match val {
                     Value::I32(i) => Value::I32(!i),
                     Value::I64(i) => Value::I64(!i),
                     _ => return Err(EvalError::NonIntegerBitwise(format!("{val:?}"))),
                 };
-                vm.set(inst.arg0, result);
+                vm.set(arg0.unwrap(), result);
             }
             OpCode::Get => {
-                let target_collection = &vm.get(inst.arg0);
-                let target_index = &vm.get(inst.arg1);
+                let target_collection = &vm.get(arg0.unwrap());
+                let target_index = &vm.get(arg1.unwrap());
                 let index = coerce_i64(target_index)? as u64;
                 let new_val = target_collection.array_get(index).or_else(|_| {
                     target_collection.tuple_get(index)
                 }).map_err(|e| {
                     format!("Get instruction failed with {target_collection:?} and {target_index:?}: {e:?}")
                 })?;
-                vm.set(inst.arg1, new_val);
+                vm.set(arg1.unwrap(), new_val);
             }
             OpCode::Set => {
-                let target_collection = &vm.get(inst.arg0);
-                let value = vm.get(inst.arg1);
+                let target_collection = &vm.get(arg0.unwrap());
+                let value = vm.get(arg1.unwrap());
                 let index = vm.set_register;
                 target_collection.array_assign(index, value.clone())?;
             }
             OpCode::SetReg => {
-                vm.set_register = coerce_i64(vm.get(inst.arg0 as usize))? as usize;
+                vm.set_register = coerce_i64(vm.get(arg0.unwrap() as usize))? as usize;
             }
             OpCode::Lt => {
                 let result = compare_op(
-                    &vm.get(inst.arg0),
-                    &vm.get(inst.arg1),
+                    &vm.get(arg0.unwrap()),
+                    &vm.get(arg1.unwrap()),
                     |lhs, rhs| lhs.lt(&rhs),
                     |lhs, rhs| lhs.lt(&rhs),
                 )?;
-                vm.set(inst.arg0, Value::I64(result as i64));
+                vm.set(arg0.unwrap(), Value::I64(result as i64));
             }
             OpCode::Gt => {
                 let result = compare_op(
-                    &vm.get(inst.arg0),
-                    &vm.get(inst.arg1),
+                    &vm.get(arg0.unwrap()),
+                    &vm.get(arg1.unwrap()),
                     |lhs, rhs| lhs.gt(&rhs),
                     |lhs, rhs| lhs.gt(&rhs),
                 )?;
-                vm.set(inst.arg0, Value::I64(result as i64));
+                vm.set(arg0.unwrap(), Value::I64(result as i64));
             }
             OpCode::Jmp => {
-                jump_inst("Jmp", &inst, ip, &mut call_stack)?;
+                jump_inst("Jmp", op, arg1, ip, &mut call_stack)?;
                 continue;
             }
             OpCode::Jt => {
-                if truthy(&vm.get(inst.arg0)) {
-                    jump_inst("Jt", &inst, ip, &mut call_stack)?;
+                if truthy(&vm.get(arg0.unwrap())) {
+                    jump_inst("Jt", op, arg1, ip, &mut call_stack)?;
                     continue;
                 }
             }
             OpCode::Jf => {
-                if !truthy(&vm.get(inst.arg0)) {
-                    jump_inst("Jf", &inst, ip, &mut call_stack)?;
+                if !truthy(&vm.get(arg0.unwrap())) {
+                    jump_inst("Jf", op, arg1, ip, &mut call_stack)?;
                     continue;
                 }
             }
             OpCode::Call => {
-                let arg_name = vm.get(inst.arg1);
+                let arg_name = vm.get(arg1.unwrap());
                 let arg_name = if let Value::Str(s) = arg_name {
                     s
                 } else {
@@ -314,11 +357,11 @@ fn interpret_fn(
                 if let Some((_, fun)) = fun {
                     match fun {
                         FnProto::Code(fun) => {
-                            dbg_println!("Calling code function with stack size (base:{}) + (fn: 1) + (params: {}) + (cur stack:{})", inst.arg1, inst.arg0, fun.stack_size);
+                            dbg_println!("Calling code function with stack size (base:{:?}) + (fn: 1) + (params: {:?}) + (cur stack:{})", arg1, arg0, fun.stack_size);
                             // +1 for function name and return slot
-                            vm.stack_base += inst.arg1 as usize;
+                            vm.stack_base += arg1.unwrap() as usize;
                             vm.stack.resize(
-                                vm.stack_base + inst.arg0 as usize + fun.stack_size + 1,
+                                vm.stack_base + arg0.unwrap() as usize + fun.stack_size + 1,
                                 Value::default(),
                             );
                             call_stack.push(CallInfo {
@@ -331,10 +374,10 @@ fn interpret_fn(
                         }
                         FnProto::Native(nat) => {
                             let ret = nat(&vm.slice(
-                                inst.arg1 as usize + 1,
-                                inst.arg1 as usize + 1 + inst.arg0 as usize,
+                                arg1.unwrap() as usize + 1,
+                                arg1.unwrap() as usize + 1 + arg0.unwrap() as usize,
                             ));
-                            vm.set(inst.arg1, ret?);
+                            vm.set(arg1.unwrap(), ret?);
                         }
                     }
                 } else {
@@ -342,10 +385,10 @@ fn interpret_fn(
                 }
             }
             OpCode::Ret => {
-                let retval = vm.stack_base + inst.arg1 as usize;
+                let retval = vm.stack_base + arg1.unwrap() as usize;
                 if let Some(prev_ci) = call_stack.pop() {
                     if call_stack.is_empty() {
-                        return Ok(vm.get(inst.arg1).clone());
+                        return Ok(vm.get(arg1.unwrap()).clone());
                     } else {
                         let ci = call_stack.clast()?;
                         vm.stack_base = ci.stack_base;
@@ -358,19 +401,19 @@ fn interpret_fn(
                 }
             }
             OpCode::Cast => {
-                let target_var = &vm.get(inst.arg0);
-                let target_type = coerce_i64(vm.get(inst.arg1))
+                let target_var = &vm.get(arg0.unwrap());
+                let target_type = coerce_i64(vm.get(arg1.unwrap()))
                     .map_err(|e| format!("arg1 of Cast was not a number: {e:?}"))?;
                 let tt_buf = target_type.to_le_bytes();
                 let tt = TypeDecl::deserialize(&mut &tt_buf[..])
                     .map_err(|e| format!("arg1 of Cast was not a TypeDecl: {e:?}"))?;
                 let new_val = coerce_type(target_var, &tt)?;
-                vm.set(inst.arg0, new_val);
+                vm.set(arg0.unwrap(), new_val);
             }
             OpCode::If => {
-                if !truthy(&vm.get(inst.arg0)) {
+                if !truthy(&vm.get(arg0.unwrap())) {
                     let jump_ip = ci.fun.find_jump(ip)?;
-                    let _op = ci.fun.instructions[jump_ip].op;
+                    let _op = ci.fun.instructions[jump_ip];
                     dbg_println!("If forward jump ip: {jump_ip}: {_op:?}");
                     call_stack.clast_mut()?.ip = jump_ip + 1;
                     continue;
@@ -387,8 +430,6 @@ fn interpret_fn(
         }
 
         vm.dump_stack();
-
-        call_stack.clast_mut()?.ip += 1;
     }
 
     dbg_println!("Final stack: {:?}", vm.stack);
@@ -400,11 +441,12 @@ fn interpret_fn(
 /// no absolute instruction address in the bytecode to fixup.
 fn jump_inst(
     _name: &str,
-    inst: &Instruction,
+    _op: OpCode,
+    _arg1: Option<u16>,
     ip: usize,
     call_stack: &mut Vec<CallInfo>,
 ) -> EvalResult<()> {
-    dbg_println!("[{ip}] Jumping by {_name} to block: {}", inst.arg1);
+    dbg_println!("[{ip}] Jumping by {_name} to block: {:?}", _arg1);
     let ci = call_stack.clast()?;
     let jump_ip = ci.fun.find_jump(ip)?;
     dbg_println!("{_name} found a forward jump ip: {jump_ip}");
@@ -412,13 +454,10 @@ fn jump_inst(
     Ok(())
 }
 
-pub(crate) fn find_end(
-    mut blk_count: usize,
-    ip: usize,
-    instructions: &[Instruction],
-) -> Option<usize> {
+pub(crate) fn find_end(mut blk_count: usize, ip: usize, instructions: &[u8]) -> Option<usize> {
     for ip2 in ip..instructions.len() {
-        match instructions[ip2].op {
+        let op: OpCode = instructions[ip2].try_into().unwrap();
+        match op {
             OpCode::End => {
                 blk_count -= 1;
                 if blk_count == 0 {

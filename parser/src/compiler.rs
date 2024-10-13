@@ -9,9 +9,7 @@ use self::{
 };
 
 use crate::{
-    bytecode::{
-        std_functions, Bytecode, BytecodeArg, FnBytecode, FnProto, Instruction, NativeFn, OpCode,
-    },
+    bytecode::{std_functions, Bytecode, BytecodeArg, FnBytecode, FnProto, NativeFn, OpCode},
     interpreter::{eval, EvalContext, RunResult},
     parser::{ExprEnum, Expression, Statement},
     value::{ArrayInt, TupleEntry},
@@ -140,11 +138,10 @@ impl<'a> Compiler<'a> {
 
         let stk_target = self.target_stack.len();
         self.target_stack.push(Target::Literal(literal));
-        bytecode.instructions.push(Instruction::new(
-            OpCode::LoadLiteral,
-            literal as u8,
-            stk_target as u16,
-        ));
+        bytecode.instructions.push(OpCode::LoadLiteral as u8);
+        bytecode.instructions.push(literal as u8);
+        let arg1 = (stk_target as u16).to_le_bytes();
+        bytecode.instructions.extend_from_slice(&arg1);
         stk_target
     }
 
@@ -200,10 +197,10 @@ fn compile_int<'src, 'ast>(
 
     let mut compiler = Compiler::new(vec![], vec![], &mut env);
     if let Some(last_target) = emit_stmts(stmts, &mut compiler)? {
-        compiler
-            .bytecode
-            .instructions
-            .push(Instruction::new(OpCode::Ret, 0, last_target as u16));
+        compiler.bytecode.instructions.push(OpCode::Ret as u8);
+        compiler.bytecode.instructions.push(0);
+        let arg1 = (last_target as u16).to_le_bytes();
+        compiler.bytecode.instructions.extend_from_slice(&arg1);
     }
     compiler.bytecode.stack_size = compiler.target_stack.len();
 
@@ -234,10 +231,10 @@ fn compile_fn<'src, 'ast>(
 ) -> CompileResult<'src, FnProto> {
     let mut compiler = Compiler::new(args, fn_args, env);
     if let Some(last_target) = emit_stmts(stmts, &mut compiler)? {
-        compiler
-            .bytecode
-            .instructions
-            .push(Instruction::new(OpCode::Ret, 0, last_target as u16));
+        compiler.bytecode.instructions.push(OpCode::Ret as u8);
+        compiler.bytecode.instructions.push(0);
+        let arg1 = (last_target as u16).to_le_bytes();
+        compiler.bytecode.instructions.extend_from_slice(&arg1);
     }
     compiler.bytecode.stack_size = compiler.target_stack.len();
 
@@ -659,13 +656,10 @@ fn emit_expr<'src>(expr: &Expression<'src>, compiler: &mut Compiler) -> CompileR
         ExprEnum::Or(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::Or, lhs, rhs)?),
         ExprEnum::Conditional(cond, true_branch, false_branch) => {
             let cond = emit_expr(cond, compiler)?;
-            let cond_inst_idx = compiler.bytecode.instructions.len();
             compiler.push_if(cond);
             let true_branch = emit_stmts(true_branch, compiler)?;
             if let Some(false_branch) = false_branch {
                 compiler.bytecode.push_inst(OpCode::Else, 0, 0);
-                compiler.bytecode.instructions[cond_inst_idx].arg1 =
-                    compiler.bytecode.instructions.len() as u16;
                 if let Some((false_branch, true_branch)) =
                     emit_stmts(false_branch, compiler)?.zip(true_branch)
                 {
@@ -707,10 +701,17 @@ fn emit_binary_op<'src>(
     } else {
         lhs
     };
-    compiler.bytecode.instructions.push(Instruction {
-        op,
-        arg0: lhs as u8,
-        arg1: rhs as u16,
-    });
+    compiler.bytecode.instructions.push(op as u8);
+    if 1 <= op.arity() {
+        compiler.bytecode.instructions.push(lhs as u8);
+    } else {
+        unreachable!("Logic error: Binary op with arity less than 2")
+    }
+    if 2 <= op.arity() {
+        let arg1 = (rhs as u16).to_le_bytes();
+        compiler.bytecode.instructions.extend_from_slice(&arg1);
+    } else {
+        unreachable!("Logic error: Binary op with arity less than 2")
+    }
     Ok(lhs)
 }

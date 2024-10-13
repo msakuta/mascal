@@ -40,16 +40,13 @@ struct Args {
     signatures: bool,
 }
 
-fn main() -> Result<(), String> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
-    let parse_source = |code, source_file| -> Result<(), String> {
+    let parse_source = |code, source_file| -> Result<(), Box<dyn std::error::Error>> {
         let result = source(code).map_err(|e| format!("{:#?}", e))?;
         if !result.0.is_empty() {
-            return Err(format!(
-                "Input has terminated unexpectedly: {:#?}",
-                result.0
-            ));
+            return Err(format!("Input has terminated unexpectedly: {:#?}", result.0).into());
         }
         if args.ast_pretty {
             println!("Match: {:#?}", result.1);
@@ -67,16 +64,13 @@ fn main() -> Result<(), String> {
             let mut bytecode = compile(&result.1, HashMap::new())
                 .map_err(|e| format!("Error: {}:{}", source_file.unwrap_or("<Unknown>"), e))?;
             if args.signatures {
-                bytecode
-                    .signatures(&mut std::io::stdout())
-                    .map_err(|e| e.to_string())?;
+                bytecode.signatures(&mut std::io::stdout())?;
             }
             if args.disasm {
-                bytecode.cache_bytecode().map_err(|e| e.to_string())?;
-                bytecode
-                    .disasm(&mut std::io::stdout())
-                    .map_err(|e| e.to_string())?;
+                bytecode.cache_bytecode()?;
+                bytecode.disasm(&mut std::io::stdout())?;
             }
+            println!("Compile ok");
             if let Ok(writer) = std::fs::File::create("out.cdragon") {
                 bytecode
                     .write(&mut BufWriter::new(writer))
@@ -122,7 +116,7 @@ fn main() -> Result<(), String> {
             };
         }
     } else {
-        return Err("Error: can't open file".to_string());
+        return Err("Error: can't open file".into());
     }
 
     Ok(())

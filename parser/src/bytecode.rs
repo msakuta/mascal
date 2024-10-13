@@ -96,7 +96,7 @@ macro_rules! impl_op_from {
         }
 
         impl OpCode {
-            const fn arity(&self) -> usize {
+            pub const fn arity(&self) -> usize {
                 match self {
                     $(Self::$op => $arity,)*
                 }
@@ -137,66 +137,6 @@ impl_op_from!(
     Loop: 0,
     End: 0
 );
-
-/// A single instruction in a bytecode. OpCodes can have 0 to 2 arguments.
-#[derive(Debug, Clone, Copy)]
-pub struct Instruction {
-    pub(crate) op: OpCode,
-    pub(crate) arg0: u8,
-    pub(crate) arg1: u16,
-}
-
-impl Instruction {
-    pub(crate) fn new(op: OpCode, arg0: u8, arg1: u16) -> Self {
-        Self { op, arg0, arg1 }
-    }
-    pub(crate) fn serialize(&self, writer: &mut impl Write) -> std::io::Result<()> {
-        writer.write_all(&(self.op as u8).to_le_bytes())?;
-        if 1 <= self.op.arity() {
-            writer.write_all(&self.arg0.to_le_bytes())?;
-        }
-        if 2 <= self.op.arity() {
-            writer.write_all(&self.arg1.to_le_bytes())?;
-        }
-        Ok(())
-    }
-
-    pub(crate) fn deserialize(reader: &mut impl Read) -> Result<Self, ReadError> {
-        let mut op = [0u8; std::mem::size_of::<u8>()];
-        reader.read_exact(&mut op)?;
-        let op: OpCode = u8::from_le_bytes(op).try_into()?;
-        let arity = op.arity();
-        let arg0 = if 1 <= arity {
-            let mut arg0 = [0u8; std::mem::size_of::<u8>()];
-            reader.read_exact(&mut arg0)?;
-            u8::from_le_bytes(arg0)
-        } else {
-            0
-        };
-        let arg1 = if 2 <= arity {
-            let mut arg1 = [0u8; std::mem::size_of::<u16>()];
-            reader.read_exact(&mut arg1)?;
-            u16::from_le_bytes(arg1)
-        } else {
-            0
-        };
-        Ok(Self {
-            op,
-            arg0,
-            arg1,
-        })
-    }
-}
-
-impl std::fmt::Display for Instruction {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.op.arity() {
-            0 => write!(f, "{:?}", self.op),
-            1 => write!(f, "{:?} {}", self.op, self.arg0),
-            _ => write!(f, "{:?} {} {}", self.op, self.arg0, self.arg1),
-        }
-    }
-}
 
 fn write_str(s: &str, writer: &mut impl Write) -> std::io::Result<()> {
     writer.write_all(&s.len().to_le_bytes())?;
@@ -410,7 +350,7 @@ pub(crate) type JumpMap = HashMap<usize, usize>;
 pub struct FnBytecode {
     pub(crate) literals: Vec<Value>,
     pub(crate) args: Vec<BytecodeArg>,
-    pub(crate) instructions: Vec<Instruction>,
+    pub(crate) instructions: Vec<u8>,
     pub(crate) stack_size: usize,
     pub(crate) jump_map: JumpMap,
 }
@@ -435,7 +375,13 @@ impl FnBytecode {
 
     pub(crate) fn push_inst(&mut self, op: OpCode, arg0: u8, arg1: u16) -> usize {
         let ret = self.instructions.len();
-        self.instructions.push(Instruction::new(op, arg0, arg1));
+        self.instructions.push(op as u8);
+        if 1 <= op.arity() {
+            self.instructions.push(arg0);
+        }
+        if 2 <= op.arity() {
+            self.instructions.extend_from_slice(&arg1.to_le_bytes());
+        }
         ret
     }
 
@@ -451,9 +397,7 @@ impl FnBytecode {
             write_opt_value(&arg.init, writer)?;
         }
         writer.write_all(&self.instructions.len().to_le_bytes())?;
-        for inst in &self.instructions {
-            inst.serialize(writer)?;
-        }
+        writer.write_all(&self.instructions)?;
         Ok(())
     }
 
@@ -479,12 +423,11 @@ impl FnBytecode {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        let mut instructions = [0u8; std::mem::size_of::<usize>()];
+        let mut inst_bytes = [0u8; std::mem::size_of::<usize>()];
+        reader.read_exact(&mut inst_bytes)?;
+        let inst_bytes = usize::from_le_bytes(inst_bytes);
+        let mut instructions = vec![0; inst_bytes];
         reader.read_exact(&mut instructions)?;
-        let instructions = usize::from_le_bytes(instructions);
-        let instructions = (0..instructions)
-            .map(|_| Instruction::deserialize(reader))
-            .collect::<Result<Vec<_>, _>>()?;
         // Cache the corresponding end instructions
         let jump_map = cache_bytecode_fn(&instructions)?;
         Ok(Self {
@@ -511,48 +454,92 @@ impl FnBytecode {
         fn format_inst(
             f: &mut impl std::io::Write,
             i: usize,
-            inst: &Instruction,
+            op: OpCode,
+            arg0: Option<u8>,
+            arg1: Option<u16>,
             level: usize,
             jump_map: &JumpMap,
         ) -> std::io::Result<()> {
+            let inst = match (arg0, arg1) {
+                (Some(arg0), Some(arg1)) => format!("{arg0} {arg1}"),
+                (Some(arg0), None) => format!("{arg0}"),
+                _ => "".to_string(),
+            };
             if let Some(jump_ip) = jump_map.get(&i) {
                 writeln!(
                     f,
-                    "  [{:3}] {}{}   -> {}",
+                    "  [{:3}] {}{op:?} {}   -> {}",
                     i,
                     "  ".repeat(level),
                     inst,
                     *jump_ip
                 )
             } else {
-                writeln!(f, "  [{:3}] {}{}", i, "  ".repeat(level), inst)
+                writeln!(f, "  [{:3}] {}{op:?} {}", i, "  ".repeat(level), inst)
             }
         }
 
         let mut blk_nest = 0;
-        for (i, inst) in self.instructions.iter().enumerate() {
-            match inst.op {
+        let mut i = 0;
+
+        let read_arg0 = |i: &mut usize| {
+            let ret = self.instructions[*i];
+            *i += 1;
+            ret
+        };
+
+        let read_arg1 = |i: &mut usize| {
+            let ret = u16::from_le_bytes(self.instructions[*i..*i + 2].try_into().unwrap());
+            *i += 2;
+            ret
+        };
+
+        while i < self.instructions.len() {
+            let op: OpCode = self.instructions[i]
+                .try_into()
+                .map_err(|e| std::io::Error::other(e))?;
+            i += 1;
+
+            let arg0 = if 1 <= op.arity() {
+                Some(read_arg0(&mut i))
+            } else {
+                None
+            };
+            let arg1 = if 2 <= op.arity() {
+                Some(read_arg1(&mut i))
+            } else {
+                None
+            };
+
+            match op {
                 OpCode::LoadLiteral => {
                     let indent = "  ".repeat(blk_nest);
-                    if let Some(literal) = self.literals.get(inst.arg0 as usize) {
-                        writeln!(f, "  [{:3}] {indent}{} ({:?})", i, inst, literal)?;
+                    let arg0 = arg0.unwrap();
+                    if let Some(literal) = self.literals.get(arg0 as usize) {
+                        writeln!(f, "  [{:3}] {indent}{:?} {arg0:?} ({:?})", i, op, literal)?;
                     } else {
                         writeln!(
                             f,
-                            "  [{:3}] {indent}{} ? (Literal index out of bound)",
-                            i, inst
+                            "  [{:3}] {indent}{:?} ? (Literal index out of bound)",
+                            i, op
                         )?;
                     }
                 }
-                OpCode::If | OpCode::Loop | OpCode::Block => {
-                    format_inst(f, i, inst, blk_nest, &self.jump_map)?;
+                OpCode::If => {
+                    format_inst(f, i, op, arg0, None, blk_nest, &self.jump_map)?;
+                    blk_nest += 1;
+                }
+                OpCode::Loop | OpCode::Block => {
+                    format_inst(f, i, op, None, None, blk_nest, &self.jump_map)?;
                     blk_nest += 1;
                 }
                 OpCode::End => {
                     blk_nest -= 1;
-                    format_inst(f, i, inst, blk_nest, &self.jump_map)?;
+                    format_inst(f, i, op, None, None, blk_nest, &self.jump_map)?;
                 }
-                _ => format_inst(f, i, inst, blk_nest, &self.jump_map)?,
+                _ => {
+                    format_inst(f, i, op, arg0, arg1, blk_nest, &self.jump_map)?;
+                }
             }
         }
         Ok(())
@@ -566,23 +553,49 @@ impl FnBytecode {
     }
 }
 
-fn cache_bytecode_fn(instructions: &[Instruction]) -> Result<JumpMap, EvalError> {
+fn cache_bytecode_fn(instructions: &[u8]) -> Result<JumpMap, EvalError> {
     let mut jump_map = JumpMap::new();
 
     // Simulated VM block stack
     let mut block_stack: Vec<(OpCode, usize, HashSet<usize>)> = vec![];
 
-    for ip in 0..instructions.len() {
-        let inst = instructions[ip];
-        match inst.op {
+    let mut ip = 0;
+    while ip < instructions.len() {
+        let op: OpCode = instructions[ip]
+            .try_into()
+            .map_err(|e: ReadError| EvalError::Other(e.to_string()))?;
+        ip += 1;
+
+        let read_arg0 = |i: &mut usize| {
+            let ret = instructions[*i + 1];
+            *i += 1;
+            ret
+        };
+
+        let read_arg1 = |i: &mut usize| {
+            let ret = u16::from_le_bytes(instructions[*i..*i + 2].try_into().unwrap());
+            *i += 2;
+            ret
+        };
+
+        let _arg0;
+        let arg1;
+        match op.arity() {
+            0 => (_arg0, arg1) = (None, None),
+            1 => (_arg0, arg1) = (Some(read_arg0(&mut ip)), None),
+            2 => (_arg0, arg1) = (Some(read_arg0(&mut ip)), Some(read_arg1(&mut ip))),
+            _ => unreachable!(),
+        }
+
+        match op {
             OpCode::If | OpCode::Else | OpCode::Loop | OpCode::Block => {
-                if matches!(inst.op, OpCode::If | OpCode::Else) {
+                if matches!(op, OpCode::If | OpCode::Else) {
                     let jump_ip =
-                        find_end(1, ip + 1, &instructions).ok_or_else(|| EvalError::MissingEnd)?;
+                        find_end(1, ip, &instructions).ok_or_else(|| EvalError::MissingEnd)?;
                     jump_map.insert(ip, jump_ip);
                 }
-                if !matches!(inst.op, OpCode::Else) {
-                    block_stack.push((inst.op, ip, HashSet::new()));
+                if !matches!(op, OpCode::Else) {
+                    block_stack.push((op, ip, HashSet::new()));
                 }
             }
             OpCode::End => {
@@ -593,7 +606,7 @@ fn cache_bytecode_fn(instructions: &[Instruction]) -> Result<JumpMap, EvalError>
                 }
             }
             OpCode::Jmp | OpCode::Jt | OpCode::Jf => {
-                let block_offset = inst.arg1 as usize;
+                let block_offset = arg1.unwrap() as usize;
                 if block_stack.len() < block_offset {
                     return Err(EvalError::BlockStackUnderflow);
                 }
@@ -604,7 +617,7 @@ fn cache_bytecode_fn(instructions: &[Instruction]) -> Result<JumpMap, EvalError>
                 if matches!(block.0, OpCode::Loop) {
                     dbg_println!(
                         "{name:?} is a backward jump ip: {ip}",
-                        name = inst.op,
+                        name = op,
                         ip = block.1
                     );
                     jump_map.insert(ip, block.1);
