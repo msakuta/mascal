@@ -138,10 +138,7 @@ impl<'a> Compiler<'a> {
 
         let stk_target = self.target_stack.len();
         self.target_stack.push(Target::Literal(literal));
-        bytecode.instructions.push(OpCode::LoadLiteral as u8);
-        bytecode.instructions.push(literal as u8);
-        let arg1 = (stk_target as u16).to_le_bytes();
-        bytecode.instructions.extend_from_slice(&arg1);
+        bytecode.push_inst(OpCode::LoadLiteral, literal as u8, stk_target as u16);
         stk_target
     }
 
@@ -197,10 +194,9 @@ fn compile_int<'src, 'ast>(
 
     let mut compiler = Compiler::new(vec![], vec![], &mut env);
     if let Some(last_target) = emit_stmts(stmts, &mut compiler)? {
-        compiler.bytecode.instructions.push(OpCode::Ret as u8);
-        compiler.bytecode.instructions.push(0);
-        let arg1 = (last_target as u16).to_le_bytes();
-        compiler.bytecode.instructions.extend_from_slice(&arg1);
+        compiler
+            .bytecode
+            .push_inst(OpCode::Ret, 0, last_target as u16);
     }
     compiler.bytecode.stack_size = compiler.target_stack.len();
 
@@ -231,10 +227,9 @@ fn compile_fn<'src, 'ast>(
 ) -> CompileResult<'src, FnProto> {
     let mut compiler = Compiler::new(args, fn_args, env);
     if let Some(last_target) = emit_stmts(stmts, &mut compiler)? {
-        compiler.bytecode.instructions.push(OpCode::Ret as u8);
-        compiler.bytecode.instructions.push(0);
-        let arg1 = (last_target as u16).to_le_bytes();
-        compiler.bytecode.instructions.extend_from_slice(&arg1);
+        compiler
+            .bytecode
+            .push_inst(OpCode::Ret, 0, last_target as u16);
     }
     compiler.bytecode.stack_size = compiler.target_stack.len();
 
@@ -701,17 +696,6 @@ fn emit_binary_op<'src>(
     } else {
         lhs
     };
-    compiler.bytecode.instructions.push(op as u8);
-    if 1 <= op.arity() {
-        compiler.bytecode.instructions.push(lhs as u8);
-    } else {
-        unreachable!("Logic error: Binary op with arity less than 2")
-    }
-    if 2 <= op.arity() {
-        let arg1 = (rhs as u16).to_le_bytes();
-        compiler.bytecode.instructions.extend_from_slice(&arg1);
-    } else {
-        unreachable!("Logic error: Binary op with arity less than 2")
-    }
+    compiler.bytecode.push_inst(op, lhs as u8, rhs as u16);
     Ok(lhs)
 }

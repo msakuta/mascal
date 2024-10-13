@@ -8,6 +8,7 @@ use crate::{
         binary_op, binary_op_int, binary_op_str, coerce_f64, coerce_i64, coerce_type, truthy,
         EvalError, EvalResult,
     },
+    leb128::decode_leb128,
     type_decl::TypeDecl,
     Value,
 };
@@ -119,7 +120,6 @@ fn interpret_fn(
     bytecode: &FnBytecode,
     functions: &HashMap<String, FnProto>,
 ) -> Result<Value, EvalError> {
-    dbg_println!("size inst: {}", std::mem::size_of::<crate::Instruction>());
     dbg_println!("size value: {}", std::mem::size_of::<Value>());
     dbg_println!(
         "size RefCell<Value>: {}",
@@ -141,15 +141,11 @@ fn interpret_fn(
         let op: OpCode = ci.fun.instructions[ip].try_into().unwrap();
         ci.ip += 1;
 
-        let read_arg0 = |ci: &mut CallInfo| {
-            let ret = ci.fun.instructions[ci.ip];
-            ci.ip += 1;
-            ret
-        };
-
-        let read_arg1 = |ci: &mut CallInfo| {
-            let ret = u16::from_le_bytes(ci.fun.instructions[ci.ip..ci.ip + 2].try_into().unwrap());
-            ci.ip += 2;
+        let read_arg = |ci: &mut CallInfo| {
+            let start = &ci.fun.instructions[ci.ip..];
+            let mut cursor = start;
+            let ret = decode_leb128(&mut cursor).unwrap();
+            ci.ip += cursor.as_ptr() as usize - start.as_ptr() as usize;
             ret
         };
 
@@ -157,8 +153,8 @@ fn interpret_fn(
         let arg1;
         match op.arity() {
             0 => (arg0, arg1) = (None, None),
-            1 => (arg0, arg1) = (Some(read_arg0(ci)), None),
-            2 => (arg0, arg1) = (Some(read_arg0(ci)), Some(read_arg1(ci))),
+            1 => (arg0, arg1) = (Some(read_arg(ci) as u8), None),
+            2 => (arg0, arg1) = (Some(read_arg(ci) as u8), Some(read_arg(ci) as u16)),
             _ => unreachable!(),
         }
 

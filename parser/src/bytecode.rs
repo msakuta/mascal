@@ -9,6 +9,7 @@ use std::{
 use crate::{
     find_end,
     interpreter::{s_hex_string, s_len, s_print, s_push, s_type, EvalError, EvalResult},
+    leb128::{decode_leb128, encode_leb128},
     parser::ReadError,
     value::Value,
 };
@@ -377,10 +378,10 @@ impl FnBytecode {
         let ret = self.instructions.len();
         self.instructions.push(op as u8);
         if 1 <= op.arity() {
-            self.instructions.push(arg0);
+            encode_leb128(&mut self.instructions, arg0 as u32).unwrap();
         }
         if 2 <= op.arity() {
-            self.instructions.extend_from_slice(&arg1.to_le_bytes());
+            encode_leb128(&mut self.instructions, arg1 as u32).unwrap();
         }
         ret
     }
@@ -455,8 +456,8 @@ impl FnBytecode {
             f: &mut impl std::io::Write,
             i: usize,
             op: OpCode,
-            arg0: Option<u8>,
-            arg1: Option<u16>,
+            arg0: Option<u32>,
+            arg1: Option<u32>,
             level: usize,
             jump_map: &JumpMap,
         ) -> std::io::Result<()> {
@@ -482,15 +483,11 @@ impl FnBytecode {
         let mut blk_nest = 0;
         let mut i = 0;
 
-        let read_arg0 = |i: &mut usize| {
-            let ret = self.instructions[*i];
-            *i += 1;
-            ret
-        };
-
-        let read_arg1 = |i: &mut usize| {
-            let ret = u16::from_le_bytes(self.instructions[*i..*i + 2].try_into().unwrap());
-            *i += 2;
+        let read_arg = |i: &mut usize| {
+            let start = &self.instructions[*i..];
+            let mut cursor = start;
+            let ret = decode_leb128(&mut cursor).unwrap();
+            *i += cursor.as_ptr() as usize - start.as_ptr() as usize;
             ret
         };
 
@@ -501,12 +498,12 @@ impl FnBytecode {
             i += 1;
 
             let arg0 = if 1 <= op.arity() {
-                Some(read_arg0(&mut i))
+                Some(read_arg(&mut i))
             } else {
                 None
             };
             let arg1 = if 2 <= op.arity() {
-                Some(read_arg1(&mut i))
+                Some(read_arg(&mut i))
             } else {
                 None
             };
@@ -566,15 +563,11 @@ fn cache_bytecode_fn(instructions: &[u8]) -> Result<JumpMap, EvalError> {
             .map_err(|e: ReadError| EvalError::Other(e.to_string()))?;
         ip += 1;
 
-        let read_arg0 = |i: &mut usize| {
-            let ret = instructions[*i + 1];
-            *i += 1;
-            ret
-        };
-
-        let read_arg1 = |i: &mut usize| {
-            let ret = u16::from_le_bytes(instructions[*i..*i + 2].try_into().unwrap());
-            *i += 2;
+        let read_arg = |i: &mut usize| {
+            let start = &instructions[*i..];
+            let mut cursor = start;
+            let ret = decode_leb128(&mut cursor).unwrap();
+            *i += cursor.as_ptr() as usize - start.as_ptr() as usize;
             ret
         };
 
@@ -582,8 +575,8 @@ fn cache_bytecode_fn(instructions: &[u8]) -> Result<JumpMap, EvalError> {
         let arg1;
         match op.arity() {
             0 => (_arg0, arg1) = (None, None),
-            1 => (_arg0, arg1) = (Some(read_arg0(&mut ip)), None),
-            2 => (_arg0, arg1) = (Some(read_arg0(&mut ip)), Some(read_arg1(&mut ip))),
+            1 => (_arg0, arg1) = (Some(read_arg(&mut ip)), None),
+            2 => (_arg0, arg1) = (Some(read_arg(&mut ip)), Some(read_arg(&mut ip))),
             _ => unreachable!(),
         }
 
