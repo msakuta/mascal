@@ -406,7 +406,6 @@ fn jump_inst(
 ) -> EvalResult<()> {
     dbg_println!("[{ip}] Jumping by {_name} to block: {}", inst.arg1);
     let ci = call_stack.clast()?;
-    // TODO: precache forward jump map in the function since it will repeat many times in a loop.
     let jump_ip = ci.fun.find_jump(ip)?;
     dbg_println!("{_name} found a forward jump ip: {jump_ip}");
     call_stack.clast_mut()?.ip = jump_ip + 1;
