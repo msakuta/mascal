@@ -401,7 +401,6 @@ fn emit_stmts<'src>(
                 compiler.pop_loop();
             }
             Statement::Break(span) => {
-                dbg!(&compiler.block_stack);
                 if let Some((nest_level, _)) = compiler
                     .block_stack
                     .iter()

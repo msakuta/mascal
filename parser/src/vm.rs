@@ -469,20 +469,20 @@ fn interpret_fn(
 /// The destination address is calculated from block stack (structural control flow), so that there is
 /// no absolute instruction address in the bytecode to fixup.
 fn jump_inst(
-    name: &str,
+    _name: &str,
     inst: &Instruction,
     ip: usize,
     call_stack: &mut Vec<CallInfo>,
     vm: &mut Vm,
 ) -> EvalResult<()> {
-    dbg_println!("[{ip}] Jumping by {name} to block: {}", inst.arg1);
+    dbg_println!("[{ip}] Jumping by {_name} to block: {}", inst.arg1);
     let block_offset = inst.arg1 as usize;
     if vm.block_stack.len() < block_offset {
         return Err(EvalError::Other("Block stack underflow".to_string()));
     }
     let block = &vm.block_stack[vm.block_stack.len() - block_offset];
     if matches!(block.0, OpCode::Loop) {
-        dbg_println!("{name} is a backward jump ip: {}", block.1);
+        dbg_println!("{_name} is a backward jump ip: {}", block.1);
         call_stack.clast_mut()?.ip = block.1;
         vm.block_stack
             .resize(vm.block_stack.len() - block_offset, (OpCode::End, 0));
@@ -491,7 +491,7 @@ fn jump_inst(
     let ci = call_stack.clast()?;
     // TODO: precache forward jump map in the function since it will repeat many times in a loop.
     let jump_ip = ci.fun.find_jump(ip)?;
-    dbg_println!("{name} found a forward jump ip: {jump_ip}");
+    dbg_println!("{_name} found a forward jump ip: {jump_ip}");
     call_stack.clast_mut()?.ip = jump_ip + 1;
     vm.block_stack
         .resize(vm.block_stack.len() - block_offset, (OpCode::End, 0));
