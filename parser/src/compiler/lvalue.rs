@@ -50,12 +50,12 @@ pub(super) fn emit_lvalue<'src, 'env, 'c>(
                     // First, copy the index to be overwritten by Get instruction
                     compiler
                         .bytecode
-                        .push_inst(OpCode::Move, subidx as u8, subidx_copy as u16);
+                        .push_inst(OpCode::Move, subidx as u32, subidx_copy as u32);
 
                     // Second, get the element from the array reference
                     compiler
                         .bytecode
-                        .push_inst(OpCode::Get, arr as u8, subidx_copy as u16);
+                        .push_inst(OpCode::Get, arr as u32, subidx_copy as u32);
 
                     Ok(LValue::ArrayRef(subidx_copy, idx))
                 }

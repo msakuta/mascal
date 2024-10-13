@@ -139,6 +139,58 @@ impl_op_from!(
     End: 0
 );
 
+/// A single instruction in a bytecode. OpCodes can have 0 to 2 arguments.
+#[derive(Debug, Clone, Copy)]
+pub struct Instruction {
+    pub(crate) op: OpCode,
+    pub(crate) arg0: u32,
+    pub(crate) arg1: u32,
+}
+
+impl Instruction {
+    pub(crate) fn new(op: OpCode, arg0: u32, arg1: u32) -> Self {
+        Self { op, arg0, arg1 }
+    }
+    pub(crate) fn serialize(&self, writer: &mut impl Write) -> std::io::Result<()> {
+        writer.write_all(&(self.op as u8).to_le_bytes())?;
+        if 1 <= self.op.arity() {
+            encode_leb128(writer, self.arg0)?;
+        }
+        if 2 <= self.op.arity() {
+            encode_leb128(writer, self.arg1)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn deserialize(reader: &mut impl Read) -> Result<Self, ReadError> {
+        let mut op = [0u8; std::mem::size_of::<u8>()];
+        reader.read_exact(&mut op)?;
+        let op: OpCode = u8::from_le_bytes(op).try_into()?;
+        let arity = op.arity();
+        let arg0 = if 1 <= arity {
+            decode_leb128(reader)?
+        } else {
+            0
+        };
+        let arg1 = if 2 <= arity {
+            decode_leb128(reader)?
+        } else {
+            0
+        };
+        Ok(Self { op, arg0, arg1 })
+    }
+}
+
+impl std::fmt::Display for Instruction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.op.arity() {
+            0 => write!(f, "{:?}", self.op),
+            1 => write!(f, "{:?} {}", self.op, self.arg0),
+            _ => write!(f, "{:?} {} {}", self.op, self.arg0, self.arg1),
+        }
+    }
+}
+
 fn write_str(s: &str, writer: &mut impl Write) -> std::io::Result<()> {
     writer.write_all(&s.len().to_le_bytes())?;
     writer.write_all(&s.as_bytes())?;
@@ -351,7 +403,7 @@ pub(crate) type JumpMap = HashMap<usize, usize>;
 pub struct FnBytecode {
     pub(crate) literals: Vec<Value>,
     pub(crate) args: Vec<BytecodeArg>,
-    pub(crate) instructions: Vec<u8>,
+    pub(crate) instructions: Vec<Instruction>,
     pub(crate) stack_size: usize,
     pub(crate) jump_map: JumpMap,
 }
@@ -374,15 +426,9 @@ impl FnBytecode {
         }
     }
 
-    pub(crate) fn push_inst(&mut self, op: OpCode, arg0: u8, arg1: u16) -> usize {
+    pub(crate) fn push_inst(&mut self, op: OpCode, arg0: u32, arg1: u32) -> usize {
         let ret = self.instructions.len();
-        self.instructions.push(op as u8);
-        if 1 <= op.arity() {
-            encode_leb128(&mut self.instructions, arg0 as u32).unwrap();
-        }
-        if 2 <= op.arity() {
-            encode_leb128(&mut self.instructions, arg1 as u32).unwrap();
-        }
+        self.instructions.push(Instruction { op, arg0, arg1 });
         ret
     }
 
@@ -398,7 +444,9 @@ impl FnBytecode {
             write_opt_value(&arg.init, writer)?;
         }
         writer.write_all(&self.instructions.len().to_le_bytes())?;
-        writer.write_all(&self.instructions)?;
+        for inst in &self.instructions {
+            inst.serialize(writer)?;
+        }
         Ok(())
     }
 
@@ -424,11 +472,12 @@ impl FnBytecode {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        let mut inst_bytes = [0u8; std::mem::size_of::<usize>()];
-        reader.read_exact(&mut inst_bytes)?;
-        let inst_bytes = usize::from_le_bytes(inst_bytes);
-        let mut instructions = vec![0; inst_bytes];
-        reader.read_exact(&mut instructions)?;
+        let mut inst_count = [0u8; std::mem::size_of::<usize>()];
+        reader.read_exact(&mut inst_count)?;
+        let inst_count = usize::from_le_bytes(inst_count);
+        let instructions = (0..inst_count)
+            .map(|_| Instruction::deserialize(reader))
+            .collect::<Result<Vec<_>, _>>()?;
         // Cache the corresponding end instructions
         let jump_map = cache_bytecode_fn(&instructions)?;
         Ok(Self {
@@ -483,27 +532,18 @@ impl FnBytecode {
         let mut blk_nest = 0;
         let mut i = 0;
 
-        let read_arg = |i: &mut usize| {
-            let start = &self.instructions[*i..];
-            let mut cursor = start;
-            let ret = decode_leb128(&mut cursor).unwrap();
-            *i += cursor.as_ptr() as usize - start.as_ptr() as usize;
-            ret
-        };
-
         while i < self.instructions.len() {
-            let op: OpCode = self.instructions[i]
-                .try_into()
-                .map_err(|e| std::io::Error::other(e))?;
+            let inst = self.instructions[i];
+            let op = self.instructions[i].op;
             i += 1;
 
             let arg0 = if 1 <= op.arity() {
-                Some(read_arg(&mut i))
+                Some(inst.arg0)
             } else {
                 None
             };
             let arg1 = if 2 <= op.arity() {
-                Some(read_arg(&mut i))
+                Some(inst.arg1)
             } else {
                 None
             };
@@ -550,7 +590,7 @@ impl FnBytecode {
     }
 }
 
-fn cache_bytecode_fn(instructions: &[u8]) -> Result<JumpMap, EvalError> {
+fn cache_bytecode_fn(instructions: &[Instruction]) -> Result<JumpMap, EvalError> {
     let mut jump_map = JumpMap::new();
 
     // Simulated VM block stack
@@ -558,25 +598,16 @@ fn cache_bytecode_fn(instructions: &[u8]) -> Result<JumpMap, EvalError> {
 
     let mut ip = 0;
     while ip < instructions.len() {
-        let op: OpCode = instructions[ip]
-            .try_into()
-            .map_err(|e: ReadError| EvalError::Other(e.to_string()))?;
+        let inst = instructions[ip];
+        let op: OpCode = instructions[ip].op;
         ip += 1;
-
-        let read_arg = |i: &mut usize| {
-            let start = &instructions[*i..];
-            let mut cursor = start;
-            let ret = decode_leb128(&mut cursor).unwrap();
-            *i += cursor.as_ptr() as usize - start.as_ptr() as usize;
-            ret
-        };
 
         let _arg0;
         let arg1;
         match op.arity() {
             0 => (_arg0, arg1) = (None, None),
-            1 => (_arg0, arg1) = (Some(read_arg(&mut ip)), None),
-            2 => (_arg0, arg1) = (Some(read_arg(&mut ip)), Some(read_arg(&mut ip))),
+            1 => (_arg0, arg1) = (Some(inst.arg0), None),
+            2 => (_arg0, arg1) = (Some(inst.arg0), Some(inst.arg1)),
             _ => unreachable!(),
         }
 
