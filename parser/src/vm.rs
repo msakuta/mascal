@@ -32,7 +32,6 @@ struct CallInfo<'a> {
     ip: usize,
     stack_size: usize,
     stack_base: usize,
-    block_stack_base: usize,
 }
 
 impl<'a> CallInfo<'a> {
@@ -51,38 +50,6 @@ struct Vm {
     /// Similar to x64's RSI or RDI, it indicates the index of the array to set, because we need more arguments than
     /// a fixed length arguments in an instruction for Set operation.
     set_register: usize,
-    /// The stack for control blocks, pushed each time by Block or Loop instruction and popped by End.
-    /// Jump instructions jump forward in Block and back in Loop.
-    //
-    /// We follow the WebAssembly VM model, where loops and branches are implemented as blocks (structured control flow).
-    /// The block can be one of the following:
-    ///
-    /// * Block (jump forward)
-    ///
-    ///     Block
-    ///         ...
-    ///     End
-    ///
-    /// * Loop (jump backward)
-    ///
-    ///     Loop
-    ///         ...
-    ///     End
-    ///
-    /// * If (skip forward conditionally)
-    ///
-    ///     If
-    ///         ...
-    ///     End
-    ///
-    /// * If/Else (skip to else clause conditionally)
-    ///
-    ///     If
-    ///         ...
-    ///     Else
-    ///         ...
-    ///     End
-    block_stack: Vec<(OpCode, usize)>,
 }
 
 impl Vm {
@@ -91,7 +58,6 @@ impl Vm {
             stack: vec![Value::I64(0); stack_size],
             stack_base: 0,
             set_register: 0,
-            block_stack: vec![],
         }
     }
 
@@ -165,7 +131,6 @@ fn interpret_fn(
         ip: 0,
         stack_size: vm.stack.len(),
         stack_base: vm.stack_base,
-        block_stack_base: 0,
     }];
 
     while call_stack.clast()?.has_next_inst() {
@@ -323,18 +288,18 @@ fn interpret_fn(
                 vm.set(inst.arg0, Value::I64(result as i64));
             }
             OpCode::Jmp => {
-                jump_inst("Jmp", &inst, ip, &mut call_stack, &mut vm)?;
+                jump_inst("Jmp", &inst, ip, &mut call_stack)?;
                 continue;
             }
             OpCode::Jt => {
                 if truthy(&vm.get(inst.arg0)) {
-                    jump_inst("Jt", &inst, ip, &mut call_stack, &mut vm)?;
+                    jump_inst("Jt", &inst, ip, &mut call_stack)?;
                     continue;
                 }
             }
             OpCode::Jf => {
                 if !truthy(&vm.get(inst.arg0)) {
-                    jump_inst("Jf", &inst, ip, &mut call_stack, &mut vm)?;
+                    jump_inst("Jf", &inst, ip, &mut call_stack)?;
                     continue;
                 }
             }
@@ -361,15 +326,7 @@ fn interpret_fn(
                                 ip: 0,
                                 stack_size: vm.stack.len(),
                                 stack_base: vm.stack_base,
-                                block_stack_base: vm.block_stack.len(),
                             });
-                            dbg_println!(
-                                "block_stack: {:?}",
-                                call_stack
-                                    .iter()
-                                    .map(|ci| ci.block_stack_base)
-                                    .collect::<Vec<_>>()
-                            );
                             continue;
                         }
                         FnProto::Native(nat) => {
@@ -394,8 +351,6 @@ fn interpret_fn(
                         vm.stack_base = ci.stack_base;
                         vm.stack[prev_ci.stack_base] = vm.stack[retval].clone();
                         vm.stack.resize(ci.stack_size, Value::default());
-                        vm.block_stack
-                            .resize(prev_ci.block_stack_base, Default::default());
                         vm.dump_stack();
                     }
                 } else {
@@ -413,47 +368,22 @@ fn interpret_fn(
                 vm.set(inst.arg0, new_val);
             }
             OpCode::If => {
-                vm.block_stack.push((inst.op, ip));
                 if !truthy(&vm.get(inst.arg0)) {
                     let jump_ip = ci.fun.find_jump(ip)?;
-                    let op = ci.fun.instructions[jump_ip].op;
-                    dbg_println!("If forward jump ip: {jump_ip}: {op:?}");
+                    let _op = ci.fun.instructions[jump_ip].op;
+                    dbg_println!("If forward jump ip: {jump_ip}: {_op:?}");
                     call_stack.clast_mut()?.ip = jump_ip + 1;
-                    if !matches!(op, OpCode::Else) {
-                        vm.block_stack.pop();
-                    }
                     continue;
                 }
             }
             OpCode::Else => {
-                let last = vm
-                    .block_stack
-                    .last_mut()
-                    .ok_or_else(|| EvalError::MissingEnd)?;
-                if !matches!(last.0, OpCode::If) {
-                    return Err(EvalError::ElseWithoutIf);
-                }
                 let jump_ip = ci.fun.find_jump(ip)?;
                 dbg_println!("Else forward jump ip: {jump_ip}");
                 call_stack.clast_mut()?.ip = jump_ip + 1;
                 continue;
             }
-            OpCode::Block | OpCode::Loop => {
-                vm.block_stack.push((inst.op, ip));
-                dbg_println!(
-                    "block[{}] pushed: {:?}",
-                    vm.block_stack.len(),
-                    vm.block_stack
-                );
-            }
-            OpCode::End => {
-                vm.block_stack.pop();
-                dbg_println!(
-                    "block[{}] popped: {:?}",
-                    vm.block_stack.len(),
-                    vm.block_stack
-                );
-            }
+            OpCode::Block | OpCode::Loop => {}
+            OpCode::End => {}
         }
 
         vm.dump_stack();
@@ -473,28 +403,13 @@ fn jump_inst(
     inst: &Instruction,
     ip: usize,
     call_stack: &mut Vec<CallInfo>,
-    vm: &mut Vm,
 ) -> EvalResult<()> {
     dbg_println!("[{ip}] Jumping by {_name} to block: {}", inst.arg1);
-    let block_offset = inst.arg1 as usize;
-    if vm.block_stack.len() < block_offset {
-        return Err(EvalError::Other("Block stack underflow".to_string()));
-    }
-    let block = &vm.block_stack[vm.block_stack.len() - block_offset];
-    if matches!(block.0, OpCode::Loop) {
-        dbg_println!("{_name} is a backward jump ip: {}", block.1);
-        call_stack.clast_mut()?.ip = block.1;
-        vm.block_stack
-            .resize(vm.block_stack.len() - block_offset, (OpCode::End, 0));
-        return Ok(());
-    }
     let ci = call_stack.clast()?;
     // TODO: precache forward jump map in the function since it will repeat many times in a loop.
     let jump_ip = ci.fun.find_jump(ip)?;
     dbg_println!("{_name} found a forward jump ip: {jump_ip}");
     call_stack.clast_mut()?.ip = jump_ip + 1;
-    vm.block_stack
-        .resize(vm.block_stack.len() - block_offset, (OpCode::End, 0));
     Ok(())
 }
 
