@@ -122,6 +122,8 @@ impl_op_from!(
     Call,
     Ret,
     Cast,
+    If,
+    Else,
     Block,
     Loop,
     End
