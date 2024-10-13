@@ -350,7 +350,6 @@ fn emit_stmts<'src>(
                 // Form a double block to jump either forward or backward
                 compiler.push_loop();
                 compiler.push_block();
-                compiler.bytecode.push_inst(OpCode::Block, 0, 0);
                 let stk_cond = emit_expr(cond, compiler)?;
                 compiler.bytecode.push_inst(OpCode::Jf, stk_cond as u8, 1);
                 last_target = emit_stmts(stmts, compiler)?;
