@@ -61,7 +61,7 @@ pub enum OpCode {
     Jf,
     /// Call a function with arg0 aruguments on the stack with index arg1.
     Call,
-    /// Returns from current call stack.
+    /// Returns from current call stack with value at arg1.
     Ret,
     /// Casts a value at arg0 to a type indicated by arg1. I'm feeling this should be a standard library function
     /// rather than a opcode, but let's finish implementation compatible with AST interpreter first.
@@ -80,7 +80,7 @@ pub enum OpCode {
 }
 
 macro_rules! impl_op_from {
-    ($($op:ident),*) => {
+    ($($op:ident: $arity:expr),*) => {
         impl TryFrom<u8> for OpCode {
             type Error = ReadError;
 
@@ -94,39 +94,48 @@ macro_rules! impl_op_from {
                 }
             }
         }
+
+        impl OpCode {
+            const fn arity(&self) -> usize {
+                match self {
+                    $(Self::$op => $arity,)*
+                }
+            }
+        }
     }
 }
 
 impl_op_from!(
-    LoadLiteral,
-    Move,
-    Incr,
-    Add,
-    Sub,
-    Mul,
-    Div,
-    BitAnd,
-    BitXor,
-    BitOr,
-    And,
-    Or,
-    Not,
-    BitNot,
-    Get,
-    Set,
-    Lt,
-    Gt,
-    Jmp,
-    Jt,
-    Jf,
-    Call,
-    Ret,
-    Cast,
-    If,
-    Else,
-    Block,
-    Loop,
-    End
+    LoadLiteral: 2,
+    Move: 2,
+    Incr: 1,
+    Add: 2,
+    Sub: 2,
+    Mul: 2,
+    Div: 2,
+    BitAnd: 2,
+    BitXor: 2,
+    BitOr: 2,
+    And: 2,
+    Or: 2,
+    Not: 2,
+    BitNot: 2,
+    Get: 2,
+    Set: 2,
+    SetReg: 2,
+    Lt: 2,
+    Gt: 2,
+    Jmp: 2,
+    Jt: 2,
+    Jf: 2,
+    Call: 2,
+    Ret: 2,
+    Cast: 2,
+    If: 1,
+    Else: 0,
+    Block: 0,
+    Loop: 0,
+    End: 0
 );
 
 /// A single instruction in a bytecode. OpCodes can have 0 to 2 arguments.
@@ -143,29 +152,49 @@ impl Instruction {
     }
     pub(crate) fn serialize(&self, writer: &mut impl Write) -> std::io::Result<()> {
         writer.write_all(&(self.op as u8).to_le_bytes())?;
-        writer.write_all(&self.arg0.to_le_bytes())?;
-        writer.write_all(&self.arg1.to_le_bytes())?;
+        if 1 <= self.op.arity() {
+            writer.write_all(&self.arg0.to_le_bytes())?;
+        }
+        if 2 <= self.op.arity() {
+            writer.write_all(&self.arg1.to_le_bytes())?;
+        }
         Ok(())
     }
 
     pub(crate) fn deserialize(reader: &mut impl Read) -> Result<Self, ReadError> {
         let mut op = [0u8; std::mem::size_of::<u8>()];
         reader.read_exact(&mut op)?;
-        let mut arg0 = [0u8; std::mem::size_of::<u8>()];
-        reader.read_exact(&mut arg0)?;
-        let mut arg1 = [0u8; std::mem::size_of::<u16>()];
-        reader.read_exact(&mut arg1)?;
+        let op: OpCode = u8::from_le_bytes(op).try_into()?;
+        let arity = op.arity();
+        let arg0 = if 1 <= arity {
+            let mut arg0 = [0u8; std::mem::size_of::<u8>()];
+            reader.read_exact(&mut arg0)?;
+            u8::from_le_bytes(arg0)
+        } else {
+            0
+        };
+        let arg1 = if 2 <= arity {
+            let mut arg1 = [0u8; std::mem::size_of::<u16>()];
+            reader.read_exact(&mut arg1)?;
+            u16::from_le_bytes(arg1)
+        } else {
+            0
+        };
         Ok(Self {
-            op: u8::from_le_bytes(op).try_into()?,
-            arg0: u8::from_le_bytes(arg0),
-            arg1: u16::from_le_bytes(arg1),
+            op,
+            arg0,
+            arg1,
         })
     }
 }
 
 impl std::fmt::Display for Instruction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?} {} {}", self.op, self.arg0, self.arg1)
+        match self.op.arity() {
+            0 => write!(f, "{:?}", self.op),
+            1 => write!(f, "{:?} {}", self.op, self.arg0),
+            _ => write!(f, "{:?} {} {}", self.op, self.arg0, self.arg1),
+        }
     }
 }
 
