@@ -1,6 +1,6 @@
 use crate::{
     type_decl::{ArraySize, TypeDecl},
-    Value,
+    EvalError, Value,
 };
 
 use nom::{
@@ -26,6 +26,7 @@ pub enum ReadError {
     FromUtf8(FromUtf8Error),
     NoMainFound,
     UndefinedOpCode(u8),
+    EvalError(EvalError),
 }
 
 impl From<std::io::Error> for ReadError {
@@ -40,16 +41,25 @@ impl From<FromUtf8Error> for ReadError {
     }
 }
 
+impl From<EvalError> for ReadError {
+    fn from(value: EvalError) -> Self {
+        Self::EvalError(value)
+    }
+}
+
 impl std::fmt::Display for ReadError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ReadError::IO(e) => write!(f, "{e}"),
-            ReadError::FromUtf8(e) => write!(f, "{e}"),
-            ReadError::NoMainFound => write!(f, "No main function found"),
-            ReadError::UndefinedOpCode(code) => write!(f, "Opcode \"{code:02X}\" unrecognized!"),
+            Self::IO(e) => write!(f, "{e}"),
+            Self::FromUtf8(e) => write!(f, "{e}"),
+            Self::NoMainFound => write!(f, "No main function found"),
+            Self::UndefinedOpCode(code) => write!(f, "Opcode \"{code:02X}\" unrecognized!"),
+            Self::EvalError(e) => e.fmt(f),
         }
     }
 }
+
+impl std::error::Error for ReadError {}
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct ArgDecl<'a> {
@@ -82,7 +92,7 @@ pub enum Statement<'a> {
     Loop(Vec<Statement<'a>>),
     While(Expression<'a>, Vec<Statement<'a>>),
     For(Span<'a>, Expression<'a>, Expression<'a>, Vec<Statement<'a>>),
-    Break,
+    Break(Span<'a>),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -782,7 +792,7 @@ fn for_stmt(input: Span) -> IResult<Span, Statement> {
 
 fn break_stmt(input: Span) -> IResult<Span, Statement> {
     let (r, _) = ws(tag("break"))(input)?;
-    Ok((r, Statement::Break))
+    Ok((r, Statement::Break(calc_offset(input, r))))
 }
 
 fn general_statement<'a>(last: bool) -> impl Fn(Span<'a>) -> IResult<Span<'a>, Statement> {

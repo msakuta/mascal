@@ -54,70 +54,77 @@ pub enum EvalError {
     AssignToLiteral(String),
     IndexNonNum,
     NonLValue(String),
+    ElseWithoutIf,
+    MissingEnd,
+    BlockStackUnderflow,
 }
 
 impl std::error::Error for EvalError {}
 
 impl std::fmt::Display for EvalError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use EvalError::*;
         match self {
-            Self::Other(e) => write!(f, "Unknown error: {e}"),
-            Self::CoerceError(from, to) => {
+            Other(e) => write!(f, "Unknown error: {e}"),
+            CoerceError(from, to) => {
                 write!(f, "Coercing from {from:?} to {to:?} is disallowed")
             }
-            Self::OpError(lhs, rhs) => {
+            OpError(lhs, rhs) => {
                 write!(f, "Unsupported operation between {lhs:?} and {rhs:?}")
             }
-            Self::CmpError(lhs, rhs) => {
+            CmpError(lhs, rhs) => {
                 write!(f, "Unsupported comparison between {lhs:?} and {rhs:?}",)
             }
-            Self::FloatOpError(lhs, rhs) => {
+            FloatOpError(lhs, rhs) => {
                 write!(f, "Unsupported float operation between {lhs:?} and {rhs:?}")
             }
-            Self::StrOpError(lhs, rhs) => write!(
+            StrOpError(lhs, rhs) => write!(
                 f,
                 "Unsupported string operation between {lhs:?} and {rhs:?}"
             ),
-            Self::DisallowedBreak => write!(f, "Break in array literal not supported"),
-            Self::VarNotFound(name) => write!(f, "Variable {name} not found in scope"),
-            Self::FnNotFound(name) => write!(f, "Function {name} not found in scope"),
-            Self::ArrayOutOfBounds(idx, len) => write!(
+            DisallowedBreak => write!(f, "Break in array literal not supported"),
+            VarNotFound(name) => write!(f, "Variable {name} not found in scope"),
+            FnNotFound(name) => write!(f, "Function {name} not found in scope"),
+            ArrayOutOfBounds(idx, len) => write!(
                 f,
                 "ArrayRef index out of range: {idx} is larger than array length {len}"
             ),
-            Self::TupleOutOfBounds(idx, len) => write!(
+            TupleOutOfBounds(idx, len) => write!(
                 f,
                 "Tuple index out of range: {idx} is larger than tuple length {len}"
             ),
-            Self::IndexNonArray => write!(f, "array index must be called for an array"),
-            Self::NeedRef(name) => write!(
+            IndexNonArray => write!(f, "array index must be called for an array"),
+            NeedRef(name) => write!(
                 f,
                 "We need variable reference on lhs to assign. Actually we got {name:?}"
             ),
-            Self::NoMatchingArg(arg, fun) => write!(
+            NoMatchingArg(arg, fun) => write!(
                 f,
                 "No matching named parameter \"{arg}\" is found in function \"{fun}\""
             ),
-            Self::MissingArg(arg) => write!(f, "No argument is given to \"{arg}\""),
-            Self::BreakInToplevel => write!(f, "break in function toplevel"),
-            Self::BreakInFnArg => write!(f, "Break in function argument is not supported yet!"),
-            Self::NonIntegerIndex => write!(f, "Subscript type should be integer types"),
-            Self::NonIntegerBitwise(val) => {
+            MissingArg(arg) => write!(f, "No argument is given to \"{arg}\""),
+            BreakInToplevel => write!(f, "break in function toplevel"),
+            BreakInFnArg => write!(f, "Break in function argument is not supported yet!"),
+            NonIntegerIndex => write!(f, "Subscript type should be integer types"),
+            NonIntegerBitwise(val) => {
                 write!(f, "Bitwise operation is not supported for {val}")
             }
-            Self::NoMainFound => write!(f, "No main function found"),
-            Self::NonNameFnRef(val) => write!(
+            NoMainFound => write!(f, "No main function found"),
+            NonNameFnRef(val) => write!(
                 f,
                 "Function can be only specified by a name (yet), but got {val}"
             ),
-            Self::CallStackUndeflow => write!(f, "Call stack underflow!"),
-            Self::IncompatibleArrayLength(dst, src) => write!(
+            CallStackUndeflow => write!(f, "Call stack underflow!"),
+            IncompatibleArrayLength(dst, src) => write!(
                 f,
                 "Array length is incompatible; tried to assign {src} to {dst}"
             ),
-            Self::AssignToLiteral(name) => write!(f, "Cannot assign to a literal: {}", name),
-            Self::IndexNonNum => write!(f, "Indexed an array with a non-number"),
-            Self::NonLValue(ex) => write!(f, "Expression {} is not an lvalue.", ex),
+            AssignToLiteral(name) => write!(f, "Cannot assign to a literal: {}", name),
+            IndexNonNum => write!(f, "Indexed an array with a non-number"),
+            NonLValue(ex) => write!(f, "Expression {} is not an lvalue.", ex),
+            ElseWithoutIf => write!(f, "Else instruction showed up without corresponding if"),
+            MissingEnd => write!(f, "Missing expected End instruction"),
+            BlockStackUnderflow => write!(f, "Block stack underflow"),
         }
     }
 }
@@ -1033,7 +1040,7 @@ where
                     res = RunResult::Yield(unwrap_break!(run(e, ctx)?));
                 }
             }
-            Statement::Break => {
+            Statement::Break(_) => {
                 return Ok(RunResult::Break);
             }
             _ => {}

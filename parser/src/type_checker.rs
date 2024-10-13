@@ -566,7 +566,7 @@ where
                 ctx.variables.insert(iter, TypeDecl::I64);
                 res = type_check(e, ctx)?;
             }
-            Statement::Break => {
+            Statement::Break(_) => {
                 // TODO: check types in break out site. For now we disallow break with values like Rust.
             }
             Statement::Comment(_) => (),

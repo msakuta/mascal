@@ -40,7 +40,9 @@ fn parens_eval_test() {
 }
 
 fn compile_and_run(src: &str) -> Result<Value, EvalError> {
-    interpret(&compile(&span_source(src).unwrap().1, HashMap::new()).unwrap())
+    let mut code = compile(&span_source(src).unwrap().1, HashMap::new()).unwrap();
+    code.cache_bytecode()?;
+    interpret(&code)
 }
 
 #[test]
@@ -133,6 +135,7 @@ fn compile_and_run_with(src: &str, fun: impl Fn(&[Value]) + 'static) -> Result<V
             Ok(Value::I64(0))
         }),
     );
+    bytecode.cache_bytecode()?;
     interpret(&bytecode)
 }
 
@@ -167,7 +170,7 @@ fn define_func() {
 
 #[test]
 fn factorial() {
-    let res = compile_and_run_with(
+    compile_and_run_with(
         r#"
 fn fact(n) {
     if n < 1 {
@@ -180,8 +183,8 @@ fn fact(n) {
 print(fact(10));
 "#,
         |vals| assert_eq!(vals[0], Value::I64(3628800)),
-    );
-    assert!(res.is_ok());
+    )
+    .unwrap();
 }
 
 #[test]
@@ -221,7 +224,7 @@ print(res);
 
 #[test]
 fn while_test() {
-    let res = compile_and_run_with(
+    compile_and_run_with(
         r#"var i = 0;
 
 while i < 10 {
@@ -231,8 +234,8 @@ while i < 10 {
 print(i);
 "#,
         |vals| assert_eq!(vals[0], Value::I64(10)),
-    );
-    assert!(res.is_ok());
+    )
+    .unwrap();
 }
 
 #[test]

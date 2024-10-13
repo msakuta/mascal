@@ -906,7 +906,7 @@ fn loop_test() {
                     ),
                     span.subslice(3, 7)
                 )),
-                vec![Statement::Break],
+                vec![Statement::Break(span.subslice("if i < 10 { ".len(), 6))],
                 None,
             ),
             span.subslice(0, 19)
@@ -947,7 +947,7 @@ fn loop_test() {
                             ),
                             span.subslice(36, 7)
                         )),
-                        vec![Statement::Break],
+                        vec![Statement::Break(span.subslice(45, 6))],
                         None
                     ),
                     span.subslice(33, 19)

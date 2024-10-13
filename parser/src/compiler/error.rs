@@ -30,6 +30,10 @@ impl<'src> CompileError<'src> {
             kind,
         }
     }
+
+    pub fn new_nospan(kind: CompileErrorKind) -> Self {
+        Self { span: None, kind }
+    }
 }
 
 impl<'src> std::error::Error for CompileError<'src> {}
