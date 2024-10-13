@@ -7,6 +7,7 @@ use std::{
 };
 
 use crate::{
+    find_end,
     interpreter::{s_hex_string, s_len, s_print, s_push, s_type, EvalError},
     parser::ReadError,
     value::Value,
@@ -369,6 +370,7 @@ pub struct FnBytecode {
     pub(crate) args: Vec<BytecodeArg>,
     pub(crate) instructions: Vec<Instruction>,
     pub(crate) stack_size: usize,
+    pub(crate) jump_map: HashMap<usize, usize>,
 }
 
 impl FnBytecode {
@@ -459,16 +461,40 @@ impl FnBytecode {
             writeln!(f, "  [{}] {} = {:?}", i, arg.name, arg.init)?;
         }
         writeln!(f, "Instructions({}):", self.instructions.len())?;
+
+        fn format_inst(
+            f: &mut impl std::io::Write,
+            i: usize,
+            inst: &Instruction,
+            level: usize,
+        ) -> std::io::Result<()> {
+            writeln!(f, "  [{:3}] {}{}", i, "  ".repeat(level), inst)
+        }
+
+        let mut blk_nest = 0;
         for (i, inst) in self.instructions.iter().enumerate() {
             match inst.op {
                 OpCode::LoadLiteral => {
+                    let indent = "  ".repeat(blk_nest);
                     if let Some(literal) = self.literals.get(inst.arg0 as usize) {
-                        writeln!(f, "  [{}] {} ({:?})", i, inst, literal)?;
+                        writeln!(f, "  [{:3}] {indent}{} ({:?})", i, inst, literal)?;
                     } else {
-                        writeln!(f, "  [{}] {} ? (Literal index out of bound)", i, inst)?;
+                        writeln!(
+                            f,
+                            "  [{:3}] {indent}{} ? (Literal index out of bound)",
+                            i, inst
+                        )?;
                     }
                 }
-                _ => writeln!(f, "  [{}] {}", i, inst)?,
+                OpCode::If | OpCode::Loop | OpCode::Block => {
+                    format_inst(f, i, inst, blk_nest)?;
+                    blk_nest += 1;
+                }
+                OpCode::End => {
+                    format_inst(f, i, inst, blk_nest)?;
+                    blk_nest -= 1;
+                }
+                _ => format_inst(f, i, inst, blk_nest)?,
             }
         }
         Ok(())
