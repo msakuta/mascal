@@ -2,7 +2,7 @@
 
 use std::cell::RefCell;
 
-use mascal::{interpret, Vm};
+use mascal::{interpret, FnBytecode, Vm};
 use ratatui::{
     buffer::Buffer,
     crossterm::event::{self, KeyCode, KeyEventKind},
@@ -88,6 +88,14 @@ impl<'a> App<'a> {
                         match vm.next_inst() {
                             Ok(_) => *error.borrow_mut() = None,
                             Err(e) => *error.borrow_mut() = Some(e.to_string()),
+                        }
+                        if let Some(ref mut disasm) = self.disasm {
+                            if let Some(ci) = vm.top_call_info() {
+                                let res = disasm.update(ci.bytecode(), ci.instuction_ptr());
+                                if let Err(e) = res {
+                                    *error.borrow_mut() = Some(e.to_string());
+                                }
+                            }
                         }
                         if let Some(ref mut stack_trace) = self.stack_trace {
                             if let Err(e) = stack_trace.update(vm) {
@@ -227,6 +235,21 @@ impl DisasmWidget {
             text: String::from_utf8(temp)?,
             scroll: 0,
         })
+    }
+
+    fn update(
+        &mut self,
+        bytecode: &FnBytecode,
+        ip: usize,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut temp = String::new();
+        for (i, inst) in bytecode.iter_instructions().enumerate() {
+            let current = if i == ip { "*" } else { " " };
+            temp += &format!("{current}  [{}] {}\n", i, inst);
+        }
+        self.text = temp;
+        self.scroll = ip.saturating_sub(3); // Leave 3 lines before
+        Ok(())
     }
 }
 

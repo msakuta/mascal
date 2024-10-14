@@ -290,6 +290,17 @@ impl Bytecode {
         Ok(())
     }
 
+    /// Returns a FnBytecode of a named function if it is included in this bytecode.
+    pub fn fn_bytecode(&self, name: &str) -> Option<&FnBytecode> {
+        self.functions.get(name).and_then(|f| {
+            if let FnProto::Code(code) = f {
+                Some(code)
+            } else {
+                None
+            }
+        })
+    }
+
     pub fn signatures(&self, out: &mut impl Write) -> std::io::Result<()> {
         for (fname, fnproto) in &self.functions {
             match fnproto {
@@ -467,5 +478,9 @@ impl FnBytecode {
             }
         }
         Ok(())
+    }
+
+    pub fn iter_instructions(&self) -> impl Iterator<Item = &Instruction> {
+        self.instructions.iter()
     }
 }

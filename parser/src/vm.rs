@@ -35,6 +35,10 @@ pub struct CallInfo<'a> {
 }
 
 impl<'a> CallInfo<'a> {
+    pub fn bytecode(&self) -> &'a FnBytecode {
+        self.fun
+    }
+
     pub fn instuction_ptr(&self) -> usize {
         self.ip
     }
