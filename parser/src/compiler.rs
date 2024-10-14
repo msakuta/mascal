@@ -72,6 +72,8 @@ impl<'a> Compiler<'a> {
         Self {
             env,
             bytecode: FnBytecode {
+                // By convention, the toplevel function (entry point) has an empty name
+                name: "".to_string(),
                 literals: vec![],
                 args: fn_args,
                 instructions: vec![],
@@ -207,6 +209,7 @@ fn compile_int<'src, 'ast>(
 
 fn compile_fn<'src, 'ast>(
     env: &mut CompilerEnv,
+    name: String,
     stmts: &'ast [Statement<'src>],
     args: Vec<LocalVar>,
     fn_args: Vec<BytecodeArg>,
@@ -219,6 +222,7 @@ fn compile_fn<'src, 'ast>(
             .push(Instruction::new(OpCode::Ret, 0, last_target as u16));
     }
     compiler.bytecode.stack_size = compiler.target_stack.len();
+    compiler.bytecode.name = name;
 
     Ok(FnProto::Code(compiler.bytecode))
 }
@@ -230,7 +234,7 @@ fn retrieve_fn_signatures(stmts: &[Statement], env: &mut CompilerEnv) {
                 name, args, stmts, ..
             } => {
                 let args = args.iter().map(|arg| arg.name.to_string()).collect();
-                let bytecode = FnBytecode::proto(args);
+                let bytecode = FnBytecode::proto(name.to_string(), args);
                 env.functions
                     .insert(name.to_string(), FnProto::Code(bytecode));
                 retrieve_fn_signatures(stmts, env);
@@ -310,7 +314,7 @@ fn emit_stmts<'src>(
                     })
                     .collect::<Result<_, _>>()?;
                 dbg_println!("FnDecl actual args: {:?} fn_args: {:?}", a_args, fn_args);
-                let fun = compile_fn(&mut compiler.env, stmts, a_args, fn_args)?;
+                let fun = compile_fn(&mut compiler.env, name.to_string(), stmts, a_args, fn_args)?;
                 compiler.env.functions.insert(name.to_string(), fun);
             }
             Statement::Expression(ref ex) => {

@@ -7,7 +7,7 @@ use ratatui::{
     buffer::Buffer,
     crossterm::event::{self, KeyCode, KeyEventKind},
     layout::{Alignment, Rect},
-    style::Stylize,
+    style::{Style, Stylize},
     symbols::border,
     text::{Line, Text},
     widgets::{
@@ -32,6 +32,7 @@ struct App<'a> {
     bytecode: &'a Bytecode,
     mode: AppMode<'a>,
     disasm: Option<DisasmWidget>,
+    stack_trace: Option<StackTraceWidget>,
     exit: bool,
 }
 
@@ -41,6 +42,7 @@ impl<'a> App<'a> {
             bytecode,
             mode: Default::default(),
             disasm: None,
+            stack_trace: None,
             exit: false,
         }
     }
@@ -67,6 +69,13 @@ impl<'a> App<'a> {
                         self.disasm = DisasmWidget::new(self.bytecode).ok();
                     }
                 }
+                (KeyEventKind::Press, KeyCode::Char('t')) => {
+                    if self.stack_trace.is_some() {
+                        self.stack_trace = None;
+                    } else {
+                        self.stack_trace = StackTraceWidget::new().ok();
+                    }
+                }
                 (KeyEventKind::Press, KeyCode::Char('r')) => {
                     interpret(self.bytecode)?;
                 }
@@ -79,6 +88,11 @@ impl<'a> App<'a> {
                         match vm.next_inst() {
                             Ok(_) => *error.borrow_mut() = None,
                             Err(e) => *error.borrow_mut() = Some(e.to_string()),
+                        }
+                        if let Some(ref mut stack_trace) = self.stack_trace {
+                            if let Err(e) = stack_trace.update(vm) {
+                                *error.borrow_mut() = Some(e.to_string());
+                            }
                         }
                     } else {
                         self.mode = AppMode::StepRun {
@@ -115,14 +129,16 @@ impl<'a> Widget for &App<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let title = Title::from(" Interactive debugger ".bold());
         let instructions = Title::from(Line::from(vec![
-            " disassemble current code: ".into(),
+            " disassemby: ".into(),
             "d".blue().bold(),
+            " stack trace: ".into(),
+            "t".blue().bold(),
             "  run current code: ".into(),
             "r".blue().bold(),
             "  Step execution mode: ".into(),
             "s".blue().bold(),
             "  quit: ".into(),
-            "q".blue().bold(),
+            "q ".blue().bold(),
         ]));
         let block = Block::bordered()
             .title(title.alignment(Alignment::Center))
@@ -168,11 +184,23 @@ impl<'a> Widget for &App<'a> {
 
         Paragraph::new(inner_text).block(block).render(area, buf);
 
-        let mut disasm_area = area;
-        disasm_area.y = disasm_area.height / 2;
-        disasm_area.height /= 2;
+        let mut widget_area = area;
+        widget_area.y = widget_area.height / 2;
+        widget_area.height /= 2;
 
-        self.disasm.as_ref().map(|d| d.render(disasm_area, buf));
+        let widget_count = self.disasm.is_some() as u16 + self.stack_trace.is_some() as u16;
+
+        if widget_count != 0 {
+            widget_area.width /= widget_count;
+        }
+
+        if let Some(d) = self.disasm.as_ref() {
+            d.render(widget_area, buf);
+            widget_area.x += widget_area.width;
+        }
+        self.stack_trace
+            .as_ref()
+            .map(|d| d.render(widget_area, buf));
     }
 }
 
@@ -207,13 +235,60 @@ impl Widget for &DisasmWidget {
     where
         Self: Sized,
     {
-        let title = Title::from(" Disassembly ".bold());
+        let text_lines: Vec<_> = self.text.split('\n').collect();
+        let title =
+            Title::from(format!(" Disassembly {}/{} ", self.scroll, text_lines.len()).bold());
         let block = Block::bordered()
             .title(title.alignment(Alignment::Center))
+            .border_style(Style::new().yellow())
             .border_set(border::THICK);
 
+        let mut lines = vec![];
+        if self.scroll < text_lines.len() {
+            lines.extend(text_lines[self.scroll..].iter().map(|v| Line::from(*v)));
+        }
+
+        Paragraph::new(Text::from(lines))
+            .block(block)
+            .render(area, buf);
+    }
+}
+
+struct StackTraceWidget {
+    text: String,
+    scroll: usize,
+}
+
+impl StackTraceWidget {
+    fn new() -> Result<Self, Box<dyn std::error::Error>> {
+        Ok(Self {
+            text: String::new(),
+            scroll: 0,
+        })
+    }
+
+    fn update(&mut self, vm: &Vm) -> Result<(), Box<dyn std::error::Error>> {
+        let mut buf = vec![];
+        vm.stack_trace(&mut buf)?;
+        self.text = String::from_utf8(buf)?;
+        Ok(())
+    }
+}
+
+impl Widget for &StackTraceWidget {
+    fn render(self, area: Rect, buf: &mut Buffer)
+    where
+        Self: Sized,
+    {
         let text_lines: Vec<_> = self.text.split('\n').collect();
-        let mut lines = vec![format!("{}/{}", self.scroll, text_lines.len()).into()];
+        let title =
+            Title::from(format!(" Stack trace {}/{} ", self.scroll, text_lines.len()).bold());
+        let block = Block::bordered()
+            .title(title.alignment(Alignment::Center))
+            .border_style(Style::new().blue())
+            .border_set(border::THICK);
+
+        let mut lines = vec![];
         if self.scroll < text_lines.len() {
             lines.extend(text_lines[self.scroll..].iter().map(|v| Line::from(*v)));
         }

@@ -122,6 +122,32 @@ impl<'a> Vm<'a> {
     pub fn top_call_info(&self) -> Option<&CallInfo> {
         self.call_stack.last()
     }
+
+    pub fn format_current_inst(
+        &self,
+        f: &mut impl Write,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let ci = self.call_stack.clast()?;
+        if !self.call_stack.clast()?.has_next_inst() {
+            return Err("PrematureEnd".into());
+        }
+        let ip = ci.ip;
+        let inst = ci.fun.instructions[ip];
+        writeln!(f, "inst[{ip}]: {inst}")?;
+        Ok(())
+    }
+
+    pub fn stack_trace(&self, f: &mut impl Write) -> std::io::Result<()> {
+        for (i, frame) in self.call_stack.iter().enumerate() {
+            let name = if frame.fun.name.is_empty() {
+                "<toplevel>"
+            } else {
+                &frame.fun.name
+            };
+            writeln!(f, "  [{i}]: {name} ip: {}", frame.ip)?;
+        }
+        Ok(())
+    }
 }
 
 /// An extension trait for `Vec` to write a shorthand for
@@ -164,20 +190,6 @@ fn interpret_fn(
 }
 
 impl<'a> Vm<'a> {
-    pub fn format_current_inst(
-        &self,
-        f: &mut impl Write,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let ci = self.call_stack.clast()?;
-        if !self.call_stack.clast()?.has_next_inst() {
-            return Err("PrematureEnd".into());
-        }
-        let ip = ci.ip;
-        let inst = ci.fun.instructions[ip];
-        writeln!(f, "inst[{ip}]: {inst:?}")?;
-        Ok(())
-    }
-
     pub fn next_inst(&mut self) -> Result<Option<Value>, EvalError> {
         if !self.call_stack.clast()?.has_next_inst() {
             return Err(EvalError::PrematureEnd);
@@ -366,7 +378,7 @@ impl<'a> Vm<'a> {
                 if let Some((_, fun)) = fun {
                     match fun {
                         FnProto::Code(fun) => {
-                            dbg_println!("Calling code function with stack size (base:{}) + (fn: 1) + (params: {}) + (cur stack:{})", inst.arg1, inst.arg0, fun.stack_size);
+                            // dbg_println!("Calling code function with stack size (base:{}) + (fn: 1) + (params: {}) + (cur stack:{})", inst.arg1, inst.arg0, fun.stack_size);
                             // +1 for function name and return slot
                             self.stack_base += inst.arg1 as usize;
                             self.stack.resize(

@@ -259,7 +259,8 @@ impl Bytecode {
         let ret = Bytecode {
             functions: (0..len)
                 .map(|_| -> Result<(String, FnProto), ReadError> {
-                    Ok((read_str(reader)?, FnProto::Code(FnBytecode::read(reader)?)))
+                    let name = read_str(reader)?;
+                    Ok((name.clone(), FnProto::Code(FnBytecode::read(name, reader)?)))
                 })
                 .collect::<Result<HashMap<_, _>, ReadError>>()?,
         };
@@ -354,6 +355,9 @@ impl BytecodeArg {
 
 #[derive(Debug, Clone)]
 pub struct FnBytecode {
+    /// Name is technically not required here, since it is also the key to a hash map,
+    /// but it is convenient to have this in bytecode for debugging.
+    pub(crate) name: String,
     pub(crate) literals: Vec<Value>,
     pub(crate) args: Vec<BytecodeArg>,
     pub(crate) instructions: Vec<Instruction>,
@@ -362,8 +366,9 @@ pub struct FnBytecode {
 
 impl FnBytecode {
     /// Create a placeholder entry that will be filled later.
-    pub(crate) fn proto(args: Vec<String>) -> Self {
+    pub(crate) fn proto(name: String, args: Vec<String>) -> Self {
         Self {
+            name,
             literals: vec![],
             args: args
                 .into_iter()
@@ -401,7 +406,7 @@ impl FnBytecode {
         Ok(())
     }
 
-    pub fn read(reader: &mut impl Read) -> Result<Self, ReadError> {
+    pub fn read(name: String, reader: &mut impl Read) -> Result<Self, ReadError> {
         let mut stack_size = [0u8; std::mem::size_of::<usize>()];
         reader.read_exact(&mut stack_size)?;
 
@@ -430,6 +435,7 @@ impl FnBytecode {
             .map(|_| Instruction::deserialize(reader))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Self {
+            name,
             literals,
             args,
             instructions,
