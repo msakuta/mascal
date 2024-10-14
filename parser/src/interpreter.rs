@@ -54,6 +54,7 @@ pub enum EvalError {
     AssignToLiteral(String),
     IndexNonNum,
     NonLValue(String),
+    PrematureEnd,
 }
 
 impl std::error::Error for EvalError {}
@@ -118,6 +119,9 @@ impl std::fmt::Display for EvalError {
             Self::AssignToLiteral(name) => write!(f, "Cannot assign to a literal: {}", name),
             Self::IndexNonNum => write!(f, "Indexed an array with a non-number"),
             Self::NonLValue(ex) => write!(f, "Expression {} is not an lvalue.", ex),
+            Self::PrematureEnd => {
+                write!(f, "End of input bytecode encountered before seeing a Ret")
+            }
         }
     }
 }

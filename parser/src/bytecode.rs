@@ -199,6 +199,9 @@ pub(crate) fn read_opt_value(reader: &mut impl Read) -> Result<Option<Value>, Re
 
 pub type NativeFn = Box<dyn Fn(&[Value]) -> Result<Value, EvalError>>;
 
+/// A mapping from function name to function prototypes, which can be a bytecode or a native extension.
+pub(crate) type FnProtos = HashMap<String, FnProto>;
+
 pub(crate) enum FnProto {
     Code(FnBytecode),
     Native(NativeFn),

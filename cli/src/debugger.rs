@@ -1,5 +1,6 @@
 //! Implementation of the interactive debugger.
 
+use mascal::{interpret, Vm};
 use ratatui::{
     buffer::Buffer,
     crossterm::event::{self, KeyCode, KeyEventKind},
@@ -27,7 +28,7 @@ pub(crate) fn run_debugger(bytecode: &Bytecode) -> Result<(), Box<dyn std::error
 
 struct App<'a> {
     bytecode: &'a Bytecode,
-    mode: AppMode,
+    mode: AppMode<'a>,
     exit: bool,
 }
 
@@ -54,35 +55,41 @@ impl<'a> App<'a> {
 
     fn handle_events(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if let event::Event::Key(key) = event::read()? {
-            if key.kind == KeyEventKind::Press && key.code == KeyCode::Char('d') {
-                let mut temp = vec![];
-                self.bytecode.disasm(&mut temp)?;
-                self.mode = AppMode::Disasm {
-                    text: String::from_utf8(temp)?,
-                    scroll: 0,
-                };
-            }
-            if key.kind == KeyEventKind::Press && matches!(key.code, KeyCode::Char('q' | 'Q')) {
-                if !matches!(self.mode, AppMode::None) {
-                    self.mode = AppMode::None;
-                } else {
-                    self.exit = true;
+            match (key.kind, key.code) {
+                (KeyEventKind::Press, KeyCode::Char('d')) => {
+                    let mut temp = vec![];
+                    self.bytecode.disasm(&mut temp)?;
+                    self.mode = AppMode::Disasm {
+                        text: String::from_utf8(temp)?,
+                        scroll: 0,
+                    };
                 }
-            }
-            if key.kind == KeyEventKind::Press {
-                match key.code {
-                    KeyCode::Up => {
-                        if let AppMode::Disasm { ref mut scroll, .. } = self.mode {
-                            *scroll = scroll.saturating_sub(1)
-                        }
-                    }
-                    KeyCode::Down => {
-                        if let AppMode::Disasm { ref mut scroll, .. } = self.mode {
-                            *scroll += 1
-                        }
-                    }
-                    _ => {}
+                (KeyEventKind::Press, KeyCode::Char('r')) => {
+                    interpret(self.bytecode)?;
                 }
+                (KeyEventKind::Press, KeyCode::Char('s')) => {
+                    self.mode = AppMode::StepRun {
+                        vm: Vm::start_main(self.bytecode)?,
+                    };
+                }
+                (KeyEventKind::Press, KeyCode::Char('q' | 'Q')) => {
+                    if !matches!(self.mode, AppMode::None) {
+                        self.mode = AppMode::None;
+                    } else {
+                        self.exit = true;
+                    }
+                }
+                (KeyEventKind::Press, KeyCode::Up) => {
+                    if let AppMode::Disasm { ref mut scroll, .. } = self.mode {
+                        *scroll = scroll.saturating_sub(1)
+                    }
+                }
+                (KeyEventKind::Press, KeyCode::Down) => {
+                    if let AppMode::Disasm { ref mut scroll, .. } = self.mode {
+                        *scroll += 1
+                    }
+                }
+                _ => {}
             }
         }
         Ok(())
@@ -97,6 +104,8 @@ impl<'a> Widget for &App<'a> {
             "d".blue().bold(),
             "  run current code: ".into(),
             "r".blue().bold(),
+            "  Step execution mode: ".into(),
+            "s".blue().bold(),
             "  quit: ".into(),
             "q".blue().bold(),
         ]));
@@ -121,6 +130,17 @@ impl<'a> Widget for &App<'a> {
                 }
                 Text::from(lines)
             }
+            AppMode::StepRun { vm } => {
+                if let Some(call_info) = vm.top_call_info() {
+                    Text::from(vec![format!(
+                        "Execution state at {}",
+                        call_info.instuction_ptr()
+                    )
+                    .into()])
+                } else {
+                    Text::from("Step exection has not started yet.")
+                }
+            }
         };
 
         Paragraph::new(inner_text).block(block).render(area, buf);
@@ -128,11 +148,14 @@ impl<'a> Widget for &App<'a> {
 }
 
 #[derive(Default)]
-enum AppMode {
+enum AppMode<'a> {
     #[default]
     None,
     Disasm {
         text: String,
         scroll: usize,
+    },
+    StepRun {
+        vm: Vm<'a>,
     },
 }
