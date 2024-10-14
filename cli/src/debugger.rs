@@ -1,13 +1,15 @@
 //! Implementation of the interactive debugger.
 
+mod disasm;
+mod stack_trace;
+
 use std::cell::RefCell;
 
-use mascal::{interpret, FnBytecode, Vm};
 use ratatui::{
     buffer::Buffer,
     crossterm::event::{self, KeyCode, KeyEventKind},
     layout::{Alignment, Rect},
-    style::{Style, Stylize},
+    style::Stylize,
     symbols::border,
     text::{Line, Text},
     widgets::{
@@ -17,7 +19,9 @@ use ratatui::{
     DefaultTerminal, Frame,
 };
 
-use ::mascal::Bytecode;
+use ::mascal::{interpret, Bytecode, Vm};
+
+use self::{disasm::DisasmWidget, stack_trace::StackTraceWidget};
 
 pub(crate) fn run_debugger(bytecode: &Bytecode) -> Result<(), Box<dyn std::error::Error>> {
     let mut terminal = ratatui::init();
@@ -220,104 +224,4 @@ enum AppMode<'a> {
         vm: Vm<'a>,
         error: RefCell<Option<String>>,
     },
-}
-
-struct DisasmWidget {
-    text: String,
-    scroll: usize,
-}
-
-impl DisasmWidget {
-    fn new(bytecode: &Bytecode) -> Result<Self, Box<dyn std::error::Error>> {
-        let mut temp = vec![];
-        bytecode.disasm(&mut temp)?;
-        Ok(Self {
-            text: String::from_utf8(temp)?,
-            scroll: 0,
-        })
-    }
-
-    fn update(
-        &mut self,
-        bytecode: &FnBytecode,
-        ip: usize,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut temp = String::new();
-        for (i, inst) in bytecode.iter_instructions().enumerate() {
-            let current = if i == ip { "*" } else { " " };
-            temp += &format!("{current}  [{}] {}\n", i, inst);
-        }
-        self.text = temp;
-        self.scroll = ip.saturating_sub(3); // Leave 3 lines before
-        Ok(())
-    }
-}
-
-impl Widget for &DisasmWidget {
-    fn render(self, area: Rect, buf: &mut Buffer)
-    where
-        Self: Sized,
-    {
-        let text_lines: Vec<_> = self.text.split('\n').collect();
-        let title =
-            Title::from(format!(" Disassembly {}/{} ", self.scroll, text_lines.len()).bold());
-        let block = Block::bordered()
-            .title(title.alignment(Alignment::Center))
-            .border_style(Style::new().yellow())
-            .border_set(border::THICK);
-
-        let mut lines = vec![];
-        if self.scroll < text_lines.len() {
-            lines.extend(text_lines[self.scroll..].iter().map(|v| Line::from(*v)));
-        }
-
-        Paragraph::new(Text::from(lines))
-            .block(block)
-            .render(area, buf);
-    }
-}
-
-struct StackTraceWidget {
-    text: String,
-    scroll: usize,
-}
-
-impl StackTraceWidget {
-    fn new() -> Result<Self, Box<dyn std::error::Error>> {
-        Ok(Self {
-            text: String::new(),
-            scroll: 0,
-        })
-    }
-
-    fn update(&mut self, vm: &Vm) -> Result<(), Box<dyn std::error::Error>> {
-        let mut buf = vec![];
-        vm.stack_trace(&mut buf)?;
-        self.text = String::from_utf8(buf)?;
-        Ok(())
-    }
-}
-
-impl Widget for &StackTraceWidget {
-    fn render(self, area: Rect, buf: &mut Buffer)
-    where
-        Self: Sized,
-    {
-        let text_lines: Vec<_> = self.text.split('\n').collect();
-        let title =
-            Title::from(format!(" Stack trace {}/{} ", self.scroll, text_lines.len()).bold());
-        let block = Block::bordered()
-            .title(title.alignment(Alignment::Center))
-            .border_style(Style::new().blue())
-            .border_set(border::THICK);
-
-        let mut lines = vec![];
-        if self.scroll < text_lines.len() {
-            lines.extend(text_lines[self.scroll..].iter().map(|v| Line::from(*v)));
-        }
-
-        Paragraph::new(Text::from(lines))
-            .block(block)
-            .render(area, buf);
-    }
 }
