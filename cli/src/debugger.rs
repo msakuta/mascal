@@ -1,5 +1,7 @@
 //! Implementation of the interactive debugger.
 
+use std::cell::RefCell;
+
 use mascal::{interpret, Vm};
 use ratatui::{
     buffer::Buffer,
@@ -68,9 +70,21 @@ impl<'a> App<'a> {
                     interpret(self.bytecode)?;
                 }
                 (KeyEventKind::Press, KeyCode::Char('s')) => {
-                    self.mode = AppMode::StepRun {
-                        vm: Vm::start_main(self.bytecode)?,
-                    };
+                    if let AppMode::StepRun {
+                        ref mut vm,
+                        ref mut error,
+                    } = self.mode
+                    {
+                        match vm.next_inst() {
+                            Ok(_) => *error.borrow_mut() = None,
+                            Err(e) => *error.borrow_mut() = Some(e.to_string()),
+                        }
+                    } else {
+                        self.mode = AppMode::StepRun {
+                            vm: Vm::start_main(self.bytecode)?,
+                            error: RefCell::new(None),
+                        };
+                    }
                 }
                 (KeyEventKind::Press, KeyCode::Char('q' | 'Q')) => {
                     if !matches!(self.mode, AppMode::None) {
@@ -130,13 +144,31 @@ impl<'a> Widget for &App<'a> {
                 }
                 Text::from(lines)
             }
-            AppMode::StepRun { vm } => {
+            AppMode::StepRun { vm, error } => {
                 if let Some(call_info) = vm.top_call_info() {
-                    Text::from(vec![format!(
-                        "Execution state at {}",
-                        call_info.instuction_ptr()
-                    )
-                    .into()])
+                    let mut lines =
+                        vec![format!("Execution state at {}", call_info.instuction_ptr()).into()];
+
+                    let mut buf = vec![];
+                    if let Err(e) = vm.dump_stack(&mut buf) {
+                        *error.borrow_mut() = Some(e.to_string());
+                    }
+                    if let Ok(s) = String::from_utf8(buf) {
+                        lines.push(s.into());
+                    }
+
+                    let mut buf = vec![];
+                    if let Err(e) = vm.format_current_inst(&mut buf) {
+                        *error.borrow_mut() = Some(e.to_string());
+                    }
+                    if let Ok(s) = String::from_utf8(buf) {
+                        lines.push(s.into());
+                    }
+
+                    if let Some(error) = error.borrow().as_ref() {
+                        lines.push(format!("Error: {error}").into());
+                    }
+                    Text::from(lines)
                 } else {
                     Text::from("Step exection has not started yet.")
                 }
@@ -157,5 +189,6 @@ enum AppMode<'a> {
     },
     StepRun {
         vm: Vm<'a>,
+        error: RefCell<Option<String>>,
     },
 }

@@ -1,6 +1,6 @@
 //! Bytecode interpreter, aka a Virtual Machine.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, io::Write};
 
 use crate::{
     bytecode::{Bytecode, FnBytecode, FnProto, FnProtos, OpCode},
@@ -101,8 +101,9 @@ impl<'a> Vm<'a> {
         &self.stack[self.stack_base + from..self.stack_base + to]
     }
 
-    fn dump_stack(&self) {
-        dbg_println!(
+    pub fn dump_stack(&self, f: &mut impl Write) -> std::io::Result<()> {
+        writeln!(
+            f,
             "stack[{}..{}]: {}",
             self.stack_base,
             self.stack.len(),
@@ -115,7 +116,7 @@ impl<'a> Vm<'a> {
                         acc + ", " + &cur.to_string()
                     }
                 })
-        );
+        )
     }
 
     pub fn top_call_info(&self) -> Option<&CallInfo> {
@@ -163,6 +164,20 @@ fn interpret_fn(
 }
 
 impl<'a> Vm<'a> {
+    pub fn format_current_inst(
+        &self,
+        f: &mut impl Write,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let ci = self.call_stack.clast()?;
+        if !self.call_stack.clast()?.has_next_inst() {
+            return Err("PrematureEnd".into());
+        }
+        let ip = ci.ip;
+        let inst = ci.fun.instructions[ip];
+        writeln!(f, "inst[{ip}]: {inst:?}")?;
+        Ok(())
+    }
+
     pub fn next_inst(&mut self) -> Result<Option<Value>, EvalError> {
         if !self.call_stack.clast()?.has_next_inst() {
             return Err(EvalError::PrematureEnd);
@@ -170,8 +185,6 @@ impl<'a> Vm<'a> {
         let ci = self.call_stack.clast()?;
         let ip = ci.ip;
         let inst = ci.fun.instructions[ip];
-
-        dbg_println!("inst[{ip}]: {inst:?}");
 
         match inst.op {
             OpCode::LoadLiteral => {
@@ -327,20 +340,17 @@ impl<'a> Vm<'a> {
                 self.set(inst.arg0, Value::I64(result as i64));
             }
             OpCode::Jmp => {
-                dbg_println!("[{ip}] Jumping by Jmp to {}", inst.arg1);
                 self.call_stack.clast_mut()?.ip = inst.arg1 as usize;
                 return Ok(None);
             }
             OpCode::Jt => {
                 if truthy(&self.get(inst.arg0)) {
-                    dbg_println!("[{ip}] Jumping by Jt to {}", inst.arg1);
                     self.call_stack.clast_mut()?.ip = inst.arg1 as usize;
                     return Ok(None);
                 }
             }
             OpCode::Jf => {
                 if !truthy(&self.get(inst.arg0)) {
-                    dbg_println!("[{ip}] Jumping by Jf to {}", inst.arg1);
                     self.call_stack.clast_mut()?.ip = inst.arg1 as usize;
                     return Ok(None);
                 }
@@ -393,7 +403,7 @@ impl<'a> Vm<'a> {
                         self.stack_base = ci.stack_base;
                         self.stack[prev_ci.stack_base] = self.stack[retval].clone();
                         self.stack.resize(ci.stack_size, Value::default());
-                        self.dump_stack();
+                        // self.dump_stack();
                     }
                 } else {
                     return Err(EvalError::CallStackUndeflow);
@@ -411,15 +421,12 @@ impl<'a> Vm<'a> {
             }
         }
 
-        self.dump_stack();
+        // self.dump_stack();
 
         self.call_stack.clast_mut()?.ip += 1;
 
         Ok(None)
     }
-
-    // dbg_println!("Final stack: {:?}", self.stack);
-    // Ok(Some(Value::I64(0))
 }
 
 fn compare_op(
