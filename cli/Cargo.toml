@@ -10,5 +10,6 @@ edition = "2018"
 mascal = { path = "../parser" }
 clap = { version = "3.2.22", features = ["derive"] }
 colored = "2.0.0"
+ratatui = "0.28.1"
 
 

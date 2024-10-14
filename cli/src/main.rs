@@ -1,4 +1,7 @@
+mod debugger;
+
 use clap::Parser;
+use debugger::run_debugger;
 use mascal::*;
 
 use ::colored::Colorize;
@@ -11,10 +14,7 @@ use std::{
 #[derive(Parser, Debug)]
 #[clap(author, version, about = "A CLI interpreter of dragon language")]
 struct Args {
-    #[clap(
-        default_value = "Go_Logo.png",
-        help = "Input source file name or one-linear program"
-    )]
+    #[clap(help = "Input source file name or one-linear program")]
     input: String,
     #[clap(short, long, help = "Evaluate one line program")]
     eval: bool,
@@ -38,18 +38,17 @@ struct Args {
     disasm: bool,
     #[clap(short, long, help = "Show signatures of functions")]
     signatures: bool,
+    #[clap(short = 'D', long, help = "Enable interactive debugger")]
+    debugger: bool,
 }
 
-fn main() -> Result<(), String> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
-    let parse_source = |code, source_file| -> Result<(), String> {
+    let parse_source = |code, source_file| -> Result<(), Box<dyn std::error::Error>> {
         let result = source(code).map_err(|e| format!("{:#?}", e))?;
         if !result.0.is_empty() {
-            return Err(format!(
-                "Input has terminated unexpectedly: {:#?}",
-                result.0
-            ));
+            return Err(format!("Input has terminated unexpectedly: {:#?}", result.0).into());
         }
         if args.ast_pretty {
             println!("Match: {:#?}", result.1);
@@ -83,7 +82,11 @@ fn main() -> Result<(), String> {
             }
             if args.compile_and_run {
                 bytecode.add_std_fn();
-                interpret(&bytecode).map_err(|e| e.to_string())?;
+                if args.debugger {
+                    run_debugger(&bytecode)?;
+                } else {
+                    interpret(&bytecode)?;
+                }
             }
         } else {
             run(&result.1, &mut EvalContext::new())
@@ -120,7 +123,7 @@ fn main() -> Result<(), String> {
             };
         }
     } else {
-        return Err("Error: can't open file".to_string());
+        return Err("Error: can't open file".into());
     }
 
     Ok(())
