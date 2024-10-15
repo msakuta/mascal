@@ -35,6 +35,14 @@ impl Widget for &HelpWidget {
             Line::from(vec!["  Step execution mode: ".into(), "s".blue().bold()]),
             Line::from(vec!["  Move up stack frame: ".into(), "u".blue().bold()]),
             Line::from(vec!["  Move down stack frame: ".into(), "d".blue().bold()]),
+            Line::from(vec![
+                "  Previous state in time travel debugger: ".into(),
+                "p".blue().bold(),
+            ]),
+            Line::from(vec![
+                "  Next state in time travel debugger: ".into(),
+                "n".blue().bold(),
+            ]),
             Line::from(vec!["  quit: ".into(), "q ".blue().bold()]),
         ]);
         let title = Title::from(" Help ".bold());

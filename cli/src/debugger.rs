@@ -5,7 +5,7 @@ mod help;
 mod stack;
 mod stack_trace;
 
-use std::cell::RefCell;
+use std::{cell::RefCell, collections::VecDeque};
 
 use ratatui::{
     buffer::Buffer,
@@ -39,6 +39,7 @@ pub(crate) fn run_debugger(bytecode: &Bytecode) -> Result<(), Box<dyn std::error
 struct App<'a> {
     bytecode: &'a Bytecode,
     mode: AppMode<'a>,
+    error: RefCell<Option<String>>,
     widgets: Widgets,
     exit: bool,
 }
@@ -55,6 +56,7 @@ impl<'a> App<'a> {
         Self {
             bytecode,
             mode: Default::default(),
+            error: RefCell::new(None),
             widgets: Widgets {
                 disasm: DisasmWidget::new(bytecode).ok(),
                 stack_trace: StackTraceWidget::new().ok(),
@@ -78,6 +80,14 @@ impl<'a> App<'a> {
     }
 
     fn handle_events(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        // Consume the error and store it to a message variable, since TUI has no stdout to log the error.
+        if let Err(e) = self.inner_events() {
+            *self.error.get_mut() = Some(e.to_string());
+        }
+        return Ok(());
+    }
+
+    fn inner_events(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if let event::Event::Key(key) = event::read()? {
             match (key.kind, key.code) {
                 (KeyEventKind::Press, KeyCode::Char('D')) => {
@@ -113,45 +123,88 @@ impl<'a> App<'a> {
                 }
                 (KeyEventKind::Press, KeyCode::Char('s')) => {
                     if let AppMode::StepRun {
-                        ref mut vm,
-                        ref mut error,
+                        ref mut vm_history,
                         btrace_level,
+                        ref mut selected_history,
                     } = self.mode
                     {
-                        match vm.next_inst() {
-                            Ok(_) => *error.borrow_mut() = None,
-                            Err(e) => *error.borrow_mut() = Some(e.to_string()),
+                        let Some(last_vm) = vm_history.front() else {
+                            return Err("Missing Vm".into());
+                        };
+                        let mut next_vm = last_vm.clone();
+                        next_vm.next_inst()?;
+                        self.widgets.update(&mut next_vm, btrace_level)?;
+                        vm_history.push_front(next_vm);
+                        if 100 < vm_history.len() {
+                            vm_history.pop_back();
                         }
-                        self.widgets.update(vm, error, btrace_level);
+
+                        // Reset history to most recent to reflect real time state
+                        *selected_history = 0;
                     } else {
+                        let mut vm_history = VecDeque::new();
+                        vm_history.push_front(Vm::start_main(self.bytecode)?);
                         self.mode = AppMode::StepRun {
-                            vm: Vm::start_main(self.bytecode)?,
+                            vm_history,
                             btrace_level: 0,
-                            error: RefCell::new(None),
+                            selected_history: 0,
                         };
                     }
                 }
                 (KeyEventKind::Press, KeyCode::Char('u')) => {
                     if let AppMode::StepRun {
-                        ref mut vm,
+                        ref mut vm_history,
                         ref mut btrace_level,
-                        ref mut error,
+                        selected_history,
                     } = self.mode
                     {
+                        let Some(vm) = vm_history.get(selected_history) else {
+                            return Err("Missing Vm".into());
+                        };
                         *btrace_level =
                             (*btrace_level + 1).min(vm.call_stack().len().saturating_sub(1));
-                        self.widgets.update(vm, error, *btrace_level);
+                        self.widgets.update(vm, *btrace_level)?;
                     }
                 }
                 (KeyEventKind::Press, KeyCode::Char('d')) => {
                     if let AppMode::StepRun {
-                        ref mut vm,
+                        ref mut vm_history,
                         ref mut btrace_level,
-                        ref mut error,
+                        selected_history,
                     } = self.mode
                     {
+                        let Some(vm) = vm_history.get(selected_history) else {
+                            return Err("Missing Vm".into());
+                        };
                         *btrace_level = btrace_level.saturating_sub(1);
-                        self.widgets.update(vm, error, *btrace_level);
+                        self.widgets.update(vm, *btrace_level)?;
+                    }
+                }
+                (KeyEventKind::Press, KeyCode::Char('p')) => {
+                    if let AppMode::StepRun {
+                        ref vm_history,
+                        btrace_level,
+                        ref mut selected_history,
+                    } = self.mode
+                    {
+                        *selected_history =
+                            selected_history.saturating_add(1).min(vm_history.len() - 1);
+                        if let Some(vm) = vm_history.get(*selected_history) {
+                            self.widgets.update(vm, btrace_level)?;
+                        }
+                    }
+                }
+                (KeyEventKind::Press, KeyCode::Char('n')) => {
+                    if let AppMode::StepRun {
+                        ref vm_history,
+                        btrace_level,
+                        ref mut selected_history,
+                    } = self.mode
+                    {
+                        *selected_history = selected_history.saturating_sub(1);
+                        if let Some(vm) = vm_history.get(*selected_history) {
+                            self.widgets.update(vm, btrace_level)?;
+                        }
                     }
                 }
                 (KeyEventKind::Press, KeyCode::Char('q' | 'Q')) => {
@@ -176,28 +229,68 @@ impl<'a> App<'a> {
         }
         Ok(())
     }
+
+    fn render_inner_text(&self) -> Result<Text, Box<dyn std::error::Error>> {
+        let text = match &self.mode {
+            AppMode::None => Text::from(vec![
+                Line::from("Press Q to exit"),
+                Line::from("Press H for help"),
+            ]),
+            AppMode::StepRun {
+                vm_history,
+                selected_history,
+                ..
+            } => {
+                let Some(vm) = vm_history.get(*selected_history) else {
+                    return Err("Missing Vm".into());
+                };
+                let mut lines = vec![format!(
+                    "Running debugger with history {}/{}",
+                    selected_history,
+                    vm_history.len()
+                )
+                .into()];
+
+                let mut buf = vec![];
+                if let Err(e) = vm.dump_stack(&mut buf) {
+                    *self.error.borrow_mut() = Some(e.to_string());
+                }
+                if let Ok(s) = String::from_utf8(buf) {
+                    lines.push(s.into());
+                }
+
+                let mut buf = vec![];
+                if let Err(e) = vm.format_current_inst(&mut buf) {
+                    *self.error.borrow_mut() = Some(e.to_string());
+                }
+                if let Ok(s) = String::from_utf8(buf) {
+                    lines.push(s.into());
+                }
+
+                if let Some(error) = self.error.borrow().as_ref() {
+                    lines.push(format!("Error: {error}").bold().red().into());
+                }
+                Text::from(lines)
+            }
+        };
+        Ok(text)
+    }
 }
 
 impl Widgets {
-    fn update(&mut self, vm: &mut Vm, error: &mut RefCell<Option<String>>, level: usize) {
+    fn update(&mut self, vm: &Vm, level: usize) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(ref mut disasm) = self.disasm {
             if let Some(ci) = vm.call_info(level) {
-                let res = disasm.update(ci.bytecode(), ci.instuction_ptr());
-                if let Err(e) = res {
-                    *error.borrow_mut() = Some(e.to_string());
-                }
+                disasm.update(ci.bytecode(), ci.instuction_ptr())?;
             }
         }
         if let Some(ref mut stack_trace) = self.stack_trace {
-            if let Err(e) = stack_trace.update(vm, level) {
-                *error.borrow_mut() = Some(e.to_string());
-            }
+            stack_trace.update(vm, level)?;
         }
         if let Some(ref mut stack) = self.stack {
-            if let Err(e) = stack.update(vm, level) {
-                *error.borrow_mut() = Some(e.to_string());
-            }
+            stack.update(vm, level)?;
         }
+        Ok(())
     }
 }
 
@@ -228,43 +321,11 @@ impl<'a> Widget for &App<'a> {
                 )
                 .border_set(border::THICK);
 
-            let inner_text = match &self.mode {
-                AppMode::None => Text::from(vec![
-                    Line::from("Press Q to exit"),
-                    Line::from("Press H for help"),
-                ]),
-                AppMode::StepRun { vm, error, .. } => {
-                    if let Some(call_info) = vm.call_info(0) {
-                        let mut lines =
-                            vec![
-                                format!("Execution state at {}", call_info.instuction_ptr()).into()
-                            ];
-
-                        let mut buf = vec![];
-                        if let Err(e) = vm.dump_stack(&mut buf) {
-                            *error.borrow_mut() = Some(e.to_string());
-                        }
-                        if let Ok(s) = String::from_utf8(buf) {
-                            lines.push(s.into());
-                        }
-
-                        let mut buf = vec![];
-                        if let Err(e) = vm.format_current_inst(&mut buf) {
-                            *error.borrow_mut() = Some(e.to_string());
-                        }
-                        if let Ok(s) = String::from_utf8(buf) {
-                            lines.push(s.into());
-                        }
-
-                        if let Some(error) = error.borrow().as_ref() {
-                            lines.push(format!("Error: {error}").into());
-                        }
-                        Text::from(lines)
-                    } else {
-                        Text::from("Step exection has not started yet.")
-                    }
-                }
-            };
+            let inner_text = self.render_inner_text().unwrap_or_else(|e| {
+                let e = e.to_string();
+                *self.error.borrow_mut() = Some(e.clone());
+                Text::from(format!("Error: {e}"))
+            });
 
             Paragraph::new(inner_text).block(block).render(area, buf);
 
@@ -307,9 +368,10 @@ enum AppMode<'a> {
     #[default]
     None,
     StepRun {
-        vm: Vm<'a>,
+        vm_history: VecDeque<Vm<'a>>,
         /// The level of backtrace, 0 means the latest.
         btrace_level: usize,
-        error: RefCell<Option<String>>,
+        /// Time-travel debugger offset, 0 means the latest.
+        selected_history: usize,
     },
 }

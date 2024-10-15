@@ -27,6 +27,7 @@ pub fn interpret(bytecode: &Bytecode) -> Result<Value, EvalError> {
     }
 }
 
+#[derive(Clone)]
 pub struct CallInfo<'a> {
     fun: &'a FnBytecode,
     ip: usize,
@@ -48,6 +49,7 @@ impl<'a> CallInfo<'a> {
     }
 }
 
+#[derive(Clone)]
 /// The virtual machine state run by the bytecode.
 /// Now it is a full state machine that has complete information to suspend and resume at any time,
 /// given that the lifetime of the functions are valid.
