@@ -39,11 +39,15 @@ pub(crate) fn run_debugger(bytecode: &Bytecode) -> Result<(), Box<dyn std::error
 struct App<'a> {
     bytecode: &'a Bytecode,
     mode: AppMode<'a>,
+    widgets: Widgets,
+    exit: bool,
+}
+
+struct Widgets {
     disasm: Option<DisasmWidget>,
     stack_trace: Option<StackTraceWidget>,
     stack: Option<StackWidget>,
     help: Option<HelpWidget>,
-    exit: bool,
 }
 
 impl<'a> App<'a> {
@@ -51,10 +55,12 @@ impl<'a> App<'a> {
         Self {
             bytecode,
             mode: Default::default(),
-            disasm: DisasmWidget::new(bytecode).ok(),
-            stack_trace: StackTraceWidget::new().ok(),
-            stack: StackWidget::new().ok(),
-            help: None,
+            widgets: Widgets {
+                disasm: DisasmWidget::new(bytecode).ok(),
+                stack_trace: StackTraceWidget::new().ok(),
+                stack: StackWidget::new().ok(),
+                help: None,
+            },
             exit: false,
         }
     }
@@ -74,32 +80,32 @@ impl<'a> App<'a> {
     fn handle_events(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if let event::Event::Key(key) = event::read()? {
             match (key.kind, key.code) {
-                (KeyEventKind::Press, KeyCode::Char('d')) => {
-                    if self.disasm.is_some() {
-                        self.disasm = None;
+                (KeyEventKind::Press, KeyCode::Char('D')) => {
+                    if self.widgets.disasm.is_some() {
+                        self.widgets.disasm = None;
                     } else {
-                        self.disasm = DisasmWidget::new(self.bytecode).ok();
+                        self.widgets.disasm = DisasmWidget::new(self.bytecode).ok();
                     }
                 }
                 (KeyEventKind::Press, KeyCode::Char('t')) => {
-                    if self.stack_trace.is_some() {
-                        self.stack_trace = None;
+                    if self.widgets.stack_trace.is_some() {
+                        self.widgets.stack_trace = None;
                     } else {
-                        self.stack_trace = StackTraceWidget::new().ok();
+                        self.widgets.stack_trace = StackTraceWidget::new().ok();
                     }
                 }
                 (KeyEventKind::Press, KeyCode::Char('l')) => {
-                    if self.stack.is_some() {
-                        self.stack = None;
+                    if self.widgets.stack.is_some() {
+                        self.widgets.stack = None;
                     } else {
-                        self.stack = StackWidget::new().ok();
+                        self.widgets.stack = StackWidget::new().ok();
                     }
                 }
                 (KeyEventKind::Press, KeyCode::Char('h')) => {
-                    if self.help.is_some() {
-                        self.help = None;
+                    if self.widgets.help.is_some() {
+                        self.widgets.help = None;
                     } else {
-                        self.help = HelpWidget::new().ok();
+                        self.widgets.help = HelpWidget::new().ok();
                     }
                 }
                 (KeyEventKind::Press, KeyCode::Char('r')) => {
@@ -109,35 +115,43 @@ impl<'a> App<'a> {
                     if let AppMode::StepRun {
                         ref mut vm,
                         ref mut error,
+                        btrace_level,
                     } = self.mode
                     {
                         match vm.next_inst() {
                             Ok(_) => *error.borrow_mut() = None,
                             Err(e) => *error.borrow_mut() = Some(e.to_string()),
                         }
-                        if let Some(ref mut disasm) = self.disasm {
-                            if let Some(ci) = vm.top_call_info() {
-                                let res = disasm.update(ci.bytecode(), ci.instuction_ptr());
-                                if let Err(e) = res {
-                                    *error.borrow_mut() = Some(e.to_string());
-                                }
-                            }
-                        }
-                        if let Some(ref mut stack_trace) = self.stack_trace {
-                            if let Err(e) = stack_trace.update(vm) {
-                                *error.borrow_mut() = Some(e.to_string());
-                            }
-                        }
-                        if let Some(ref mut stack) = self.stack {
-                            if let Err(e) = stack.update(vm) {
-                                *error.borrow_mut() = Some(e.to_string());
-                            }
-                        }
+                        self.widgets.update(vm, error, btrace_level);
                     } else {
                         self.mode = AppMode::StepRun {
                             vm: Vm::start_main(self.bytecode)?,
+                            btrace_level: 0,
                             error: RefCell::new(None),
                         };
+                    }
+                }
+                (KeyEventKind::Press, KeyCode::Char('u')) => {
+                    if let AppMode::StepRun {
+                        ref mut vm,
+                        ref mut btrace_level,
+                        ref mut error,
+                    } = self.mode
+                    {
+                        *btrace_level =
+                            (*btrace_level + 1).min(vm.call_stack().len().saturating_sub(1));
+                        self.widgets.update(vm, error, *btrace_level);
+                    }
+                }
+                (KeyEventKind::Press, KeyCode::Char('d')) => {
+                    if let AppMode::StepRun {
+                        ref mut vm,
+                        ref mut btrace_level,
+                        ref mut error,
+                    } = self.mode
+                    {
+                        *btrace_level = btrace_level.saturating_sub(1);
+                        self.widgets.update(vm, error, *btrace_level);
                     }
                 }
                 (KeyEventKind::Press, KeyCode::Char('q' | 'Q')) => {
@@ -148,12 +162,12 @@ impl<'a> App<'a> {
                     }
                 }
                 (KeyEventKind::Press, KeyCode::Up) => {
-                    if let Some(ref mut da) = self.disasm {
+                    if let Some(ref mut da) = self.widgets.disasm {
                         da.scroll = da.scroll.saturating_sub(1)
                     }
                 }
                 (KeyEventKind::Press, KeyCode::Down) => {
-                    if let Some(ref mut da) = self.disasm {
+                    if let Some(ref mut da) = self.widgets.disasm {
                         da.scroll += 1
                     }
                 }
@@ -164,11 +178,34 @@ impl<'a> App<'a> {
     }
 }
 
+impl Widgets {
+    fn update(&mut self, vm: &mut Vm, error: &mut RefCell<Option<String>>, level: usize) {
+        if let Some(ref mut disasm) = self.disasm {
+            if let Some(ci) = vm.call_info(level) {
+                let res = disasm.update(ci.bytecode(), ci.instuction_ptr());
+                if let Err(e) = res {
+                    *error.borrow_mut() = Some(e.to_string());
+                }
+            }
+        }
+        if let Some(ref mut stack_trace) = self.stack_trace {
+            if let Err(e) = stack_trace.update(vm, level) {
+                *error.borrow_mut() = Some(e.to_string());
+            }
+        }
+        if let Some(ref mut stack) = self.stack {
+            if let Err(e) = stack.update(vm, level) {
+                *error.borrow_mut() = Some(e.to_string());
+            }
+        }
+    }
+}
+
 impl<'a> Widget for &App<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let title = Title::from(" Interactive debugger ".bold());
         // Help shows on top of all widgets
-        if let Some(ref help) = self.help {
+        if let Some(ref help) = self.widgets.help {
             let mut help_area = area;
             help_area.x += help_area.width / 4;
             help_area.width /= 2;
@@ -196,8 +233,8 @@ impl<'a> Widget for &App<'a> {
                     Line::from("Press Q to exit"),
                     Line::from("Press H for help"),
                 ]),
-                AppMode::StepRun { vm, error } => {
-                    if let Some(call_info) = vm.top_call_info() {
+                AppMode::StepRun { vm, error, .. } => {
+                    if let Some(call_info) = vm.call_info(0) {
                         let mut lines =
                             vec![
                                 format!("Execution state at {}", call_info.instuction_ptr()).into()
@@ -237,7 +274,7 @@ impl<'a> Widget for &App<'a> {
                 tr_area.width /= 2;
                 tr_area.y += 1;
                 tr_area.height = (tr_area.height - 1) / 2;
-                self.stack.as_ref().map(|d| d.render(tr_area, buf));
+                self.widgets.stack.as_ref().map(|d| d.render(tr_area, buf));
             }
 
             let mut widget_area = area;
@@ -245,17 +282,19 @@ impl<'a> Widget for &App<'a> {
                 widget_area.y = widget_area.height / 2;
                 widget_area.height = (widget_area.height - 1) / 2;
 
-                let widget_count = self.disasm.is_some() as u16 + self.stack_trace.is_some() as u16;
+                let widget_count = self.widgets.disasm.is_some() as u16
+                    + self.widgets.stack_trace.is_some() as u16;
 
                 if widget_count != 0 {
                     widget_area.width /= widget_count;
                 }
 
-                if let Some(d) = self.disasm.as_ref() {
+                if let Some(d) = self.widgets.disasm.as_ref() {
                     d.render(widget_area, buf);
                     widget_area.x += widget_area.width;
                 }
-                self.stack_trace
+                self.widgets
+                    .stack_trace
                     .as_ref()
                     .map(|d| d.render(widget_area, buf));
             }
@@ -269,6 +308,8 @@ enum AppMode<'a> {
     None,
     StepRun {
         vm: Vm<'a>,
+        /// The level of backtrace, 0 means the latest.
+        btrace_level: usize,
         error: RefCell<Option<String>>,
     },
 }

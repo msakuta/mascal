@@ -21,9 +21,13 @@ impl StackWidget {
         })
     }
 
-    pub(super) fn update(&mut self, vm: &Vm) -> Result<(), Box<dyn std::error::Error>> {
+    pub(super) fn update(
+        &mut self,
+        vm: &Vm,
+        level: usize,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let mut buf = vec![];
-        vm.print_stack(&mut buf)?;
+        vm.print_stack(&mut buf, level)?;
         self.text = String::from_utf8(buf)?;
         Ok(())
     }

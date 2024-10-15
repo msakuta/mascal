@@ -25,7 +25,7 @@ impl Widget for &HelpWidget {
                 "  Toggle help (this window): ".into(),
                 "h".blue().bold(),
             ]),
-            Line::from(vec!["  Toggle disassembly: ".into(), "d".blue().bold()]),
+            Line::from(vec!["  Toggle disassembly: ".into(), "D".blue().bold()]),
             Line::from(vec!["  Toggle stack trace: ".into(), "t".blue().bold()]),
             Line::from(vec![
                 "  Toggle local stack values: ".into(),
@@ -33,6 +33,8 @@ impl Widget for &HelpWidget {
             ]),
             Line::from(vec!["  run current code: ".into(), "r".blue().bold()]),
             Line::from(vec!["  Step execution mode: ".into(), "s".blue().bold()]),
+            Line::from(vec!["  Move up stack frame: ".into(), "u".blue().bold()]),
+            Line::from(vec!["  Move down stack frame: ".into(), "d".blue().bold()]),
             Line::from(vec!["  quit: ".into(), "q ".blue().bold()]),
         ]);
         let title = Title::from(" Help ".bold());

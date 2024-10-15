@@ -123,8 +123,12 @@ impl<'a> Vm<'a> {
         )
     }
 
-    pub fn top_call_info(&self) -> Option<&CallInfo> {
-        self.call_stack.last()
+    pub fn call_stack(&self) -> &[CallInfo] {
+        &self.call_stack
+    }
+
+    pub fn call_info(&self, level: usize) -> Option<&CallInfo> {
+        self.call_stack.get(self.call_stack.len().saturating_sub(level + 1))
     }
 
     pub fn format_current_inst(
@@ -141,20 +145,25 @@ impl<'a> Vm<'a> {
         Ok(())
     }
 
-    pub fn stack_trace(&self, f: &mut impl Write) -> std::io::Result<()> {
+    pub fn stack_trace(&self, level: usize, f: &mut impl Write) -> std::io::Result<()> {
         for (i, frame) in self.call_stack.iter().enumerate() {
             let name = if frame.fun.name.is_empty() {
                 "<toplevel>"
             } else {
                 &frame.fun.name
             };
-            writeln!(f, "  [{i}]: {name} ip: {}", frame.ip)?;
+            let current = if level == self.call_stack.len().saturating_sub(i + 1) {
+                ">"
+            } else {
+                " "
+            };
+            writeln!(f, "{current}  [{i}]: {name} ip: {}", frame.ip)?;
         }
         Ok(())
     }
 
-    pub fn print_stack(&self, f: &mut impl Write) -> std::io::Result<()> {
-        let Some(ci) = self.call_stack.last() else {
+    pub fn print_stack(&self, f: &mut impl Write, level: usize) -> std::io::Result<()> {
+        let Some(ci) = self.call_info(level) else {
             // Empty call stack is not an error
             return Ok(());
         };

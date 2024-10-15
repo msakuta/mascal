@@ -21,9 +21,13 @@ impl StackTraceWidget {
         })
     }
 
-    pub(super) fn update(&mut self, vm: &Vm) -> Result<(), Box<dyn std::error::Error>> {
+    pub(super) fn update(
+        &mut self,
+        vm: &Vm,
+        level: usize,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let mut buf = vec![];
-        vm.stack_trace(&mut buf)?;
+        vm.stack_trace(level, &mut buf)?;
         self.text = String::from_utf8(buf)?;
         Ok(())
     }
@@ -35,8 +39,14 @@ impl Widget for &StackTraceWidget {
         Self: Sized,
     {
         let text_lines: Vec<_> = self.text.split('\n').collect();
-        let title =
-            Title::from(format!(" Stack trace {}/{} ", self.scroll, text_lines.len()).bold());
+        let title = Title::from(
+            format!(
+                " Stack trace (most recent last) {}/{} ",
+                self.scroll,
+                text_lines.len()
+            )
+            .bold(),
+        );
         let block = Block::bordered()
             .title(title.alignment(Alignment::Center))
             .border_style(Style::new().blue())
