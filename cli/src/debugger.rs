@@ -1,6 +1,7 @@
 //! Implementation of the interactive debugger.
 
 mod disasm;
+mod stack;
 mod stack_trace;
 
 use std::cell::RefCell;
@@ -21,7 +22,7 @@ use ratatui::{
 
 use ::mascal::{interpret, Bytecode, Vm};
 
-use self::{disasm::DisasmWidget, stack_trace::StackTraceWidget};
+use self::{disasm::DisasmWidget, stack::StackWidget, stack_trace::StackTraceWidget};
 
 pub(crate) fn run_debugger(bytecode: &Bytecode) -> Result<(), Box<dyn std::error::Error>> {
     let mut terminal = ratatui::init();
@@ -37,6 +38,7 @@ struct App<'a> {
     mode: AppMode<'a>,
     disasm: Option<DisasmWidget>,
     stack_trace: Option<StackTraceWidget>,
+    stack: Option<StackWidget>,
     exit: bool,
 }
 
@@ -45,8 +47,9 @@ impl<'a> App<'a> {
         Self {
             bytecode,
             mode: Default::default(),
-            disasm: None,
-            stack_trace: None,
+            disasm: DisasmWidget::new(bytecode).ok(),
+            stack_trace: StackTraceWidget::new().ok(),
+            stack: StackWidget::new().ok(),
             exit: false,
         }
     }
@@ -80,6 +83,13 @@ impl<'a> App<'a> {
                         self.stack_trace = StackTraceWidget::new().ok();
                     }
                 }
+                (KeyEventKind::Press, KeyCode::Char('l')) => {
+                    if self.stack.is_some() {
+                        self.stack = None;
+                    } else {
+                        self.stack = StackWidget::new().ok();
+                    }
+                }
                 (KeyEventKind::Press, KeyCode::Char('r')) => {
                     interpret(self.bytecode)?;
                 }
@@ -103,6 +113,11 @@ impl<'a> App<'a> {
                         }
                         if let Some(ref mut stack_trace) = self.stack_trace {
                             if let Err(e) = stack_trace.update(vm) {
+                                *error.borrow_mut() = Some(e.to_string());
+                            }
+                        }
+                        if let Some(ref mut stack) = self.stack {
+                            if let Err(e) = stack.update(vm) {
                                 *error.borrow_mut() = Some(e.to_string());
                             }
                         }
@@ -141,10 +156,12 @@ impl<'a> Widget for &App<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let title = Title::from(" Interactive debugger ".bold());
         let instructions = Title::from(Line::from(vec![
-            " disassemby: ".into(),
+            "  disassemby: ".into(),
             "d".blue().bold(),
-            " stack trace: ".into(),
+            "  stack trace: ".into(),
             "t".blue().bold(),
+            "  Show local stack values: ".into(),
+            "l".blue().bold(),
             "  run current code: ".into(),
             "r".blue().bold(),
             "  Step execution mode: ".into(),
@@ -196,23 +213,34 @@ impl<'a> Widget for &App<'a> {
 
         Paragraph::new(inner_text).block(block).render(area, buf);
 
+        let mut tr_area = area;
+        if 0 < tr_area.height {
+            tr_area.x = area.width / 2;
+            tr_area.width /= 2;
+            tr_area.y += 1;
+            tr_area.height = (tr_area.height - 1) / 2;
+            self.stack.as_ref().map(|d| d.render(tr_area, buf));
+        }
+
         let mut widget_area = area;
-        widget_area.y = widget_area.height / 2;
-        widget_area.height /= 2;
+        if 0 < widget_area.height {
+            widget_area.y = widget_area.height / 2;
+            widget_area.height = (widget_area.height - 1) / 2;
 
-        let widget_count = self.disasm.is_some() as u16 + self.stack_trace.is_some() as u16;
+            let widget_count = self.disasm.is_some() as u16 + self.stack_trace.is_some() as u16;
 
-        if widget_count != 0 {
-            widget_area.width /= widget_count;
+            if widget_count != 0 {
+                widget_area.width /= widget_count;
+            }
+
+            if let Some(d) = self.disasm.as_ref() {
+                d.render(widget_area, buf);
+                widget_area.x += widget_area.width;
+            }
+            self.stack_trace
+                .as_ref()
+                .map(|d| d.render(widget_area, buf));
         }
-
-        if let Some(d) = self.disasm.as_ref() {
-            d.render(widget_area, buf);
-            widget_area.x += widget_area.width;
-        }
-        self.stack_trace
-            .as_ref()
-            .map(|d| d.render(widget_area, buf));
     }
 }
 

@@ -152,6 +152,17 @@ impl<'a> Vm<'a> {
         }
         Ok(())
     }
+
+    pub fn print_stack(&self, f: &mut impl Write) -> std::io::Result<()> {
+        let Some(ci) = self.call_stack.last() else {
+            // Empty call stack is not an error
+            return Ok(());
+        };
+        for (i, value) in self.stack[ci.stack_base..ci.stack_size].iter().enumerate() {
+            writeln!(f, "  [{i}] {value}")?;
+        }
+        Ok(())
+    }
 }
 
 /// An extension trait for `Vec` to write a shorthand for
