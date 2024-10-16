@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use mascal::*;
 use wasm_bindgen::prelude::*;
@@ -191,7 +191,11 @@ pub fn compile_and_run(src: &str) -> Result<(), JsValue> {
     });
     let mut bytecode = mascal::compile(&parse_result.1, functions)
         .map_err(|e| JsValue::from_str(&format!("Error: {}", e)))?;
-    bytecode.add_std_fn();
+
+    // Give a sink because we don't care (can't care) where to put the output from standard functions.
+    // Instead, we override the functions with Wasm aware versions.
+    bytecode.add_std_fn(Rc::new(RefCell::new(std::io::sink())));
+
     extra_functions(&mut |name, f| {
         bytecode.add_ext_fn(name, f);
     });
