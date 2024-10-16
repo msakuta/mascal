@@ -49,7 +49,6 @@ impl<'a> CallInfo<'a> {
     }
 }
 
-#[derive(Clone)]
 /// The virtual machine state run by the bytecode.
 /// Now it is a full state machine that has complete information to suspend and resume at any time,
 /// given that the lifetime of the functions are valid.
@@ -173,6 +172,16 @@ impl<'a> Vm<'a> {
             writeln!(f, "  [{i}] {value}")?;
         }
         Ok(())
+    }
+
+    pub fn deepclone(&self) -> Self {
+        Self {
+            stack: self.stack.iter().map(|v| v.clone()).collect(),
+            stack_base: self.stack_base,
+            call_stack: self.call_stack.clone(),
+            set_register: self.set_register,
+            functions: self.functions,
+        }
     }
 }
 

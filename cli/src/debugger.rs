@@ -131,7 +131,7 @@ impl<'a> App<'a> {
                         let Some(last_vm) = vm_history.front() else {
                             return Err("Missing Vm".into());
                         };
-                        let mut next_vm = last_vm.clone();
+                        let mut next_vm = last_vm.deepclone();
                         next_vm.next_inst()?;
                         self.widgets.update(&mut next_vm, btrace_level)?;
                         vm_history.push_front(next_vm);
