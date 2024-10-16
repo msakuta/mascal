@@ -139,13 +139,22 @@ impl<'a> App<'a> {
                         ref mut selected_history,
                     } = self.mode
                     {
-                        let Some(last_vm) = vm_history.front() else {
+                        // Here is a very esoteric maneuver that needs explanation.
+                        // We can't use a newly created Vm from deepclone for the next vm, because its
+                        // internal Rc will break links to the shared ArrayInt buffer.
+                        // However, the original object (which `deepclone()` is called against) does not lose
+                        // internal links, so we can keep calling `next_inst()` to make progress.
+                        // In order to keep the original always on front and old Vm snapshots pushed back,
+                        // we need to take the most recent one, make a deepclone of it, and push it back,
+                        // and finally push the original Vm back to front.
+                        let Some(mut next_vm) = vm_history.pop_front() else {
                             return Err("Missing Vm".into());
                         };
-                        let mut next_vm = last_vm.deepclone();
+                        let prev_vm = next_vm.deepclone();
                         next_vm.next_inst()?;
                         self.widgets
                             .update(&mut next_vm, btrace_level, &self.output_buffer)?;
+                        vm_history.push_front(prev_vm);
                         vm_history.push_front(next_vm);
                         if 100 < vm_history.len() {
                             vm_history.pop_back();

@@ -177,7 +177,7 @@ impl<'a> Vm<'a> {
 
     pub fn deepclone(&self) -> Self {
         Self {
-            stack: self.stack.iter().map(|v| v.clone()).collect(),
+            stack: self.stack.iter().map(|v| v.deepclone()).collect(),
             stack_base: self.stack_base,
             call_stack: self.call_stack.clone(),
             set_register: self.set_register,
