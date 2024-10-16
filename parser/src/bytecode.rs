@@ -1,13 +1,16 @@
 //! The definition of bytecode data structure that is shared among the bytecode compiler and the interpreter (vm.rs)
 
 use std::{
+    cell::RefCell,
     collections::HashMap,
     convert::{TryFrom, TryInto},
     io::{Read, Write},
+    ops::DerefMut,
+    rc::Rc,
 };
 
 use crate::{
-    interpreter::{s_hex_string, s_len, s_print, s_push, s_type, EvalError},
+    interpreter::{s_hex_string, s_len, s_print, s_push, s_puts, s_type, EvalError},
     parser::ReadError,
     value::Value,
 };
@@ -230,8 +233,8 @@ impl Bytecode {
         self.functions.insert(name, FnProto::Native(f));
     }
 
-    pub fn add_std_fn(&mut self) {
-        std_functions(&mut |name, f| self.add_ext_fn(name, f));
+    pub fn add_std_fn(&mut self, out: Rc<RefCell<dyn std::io::Write>>) {
+        std_functions(out, &mut |name, f| self.add_ext_fn(name, f));
     }
 
     pub fn write(&self, writer: &mut impl Write) -> std::io::Result<()> {
@@ -327,23 +330,22 @@ impl Bytecode {
 
 /// Add standard common functions, such as `print`, `len` and `push`, to this bytecode.
 pub fn std_functions(
+    out: Rc<RefCell<dyn Write>>,
     f: &mut impl FnMut(String, Box<dyn Fn(&[Value]) -> Result<Value, EvalError>>),
 ) {
-    f("print".to_string(), Box::new(s_print));
+    let out2 = out.clone();
+    f(
+        "print".to_string(),
+        Box::new(move |values| {
+            let mut borrow = out2.borrow_mut();
+            s_print(&mut *borrow, values)
+        }),
+    );
+    let out3 = out.clone();
     f(
         "puts".to_string(),
-        Box::new(|values: &[Value]| -> Result<Value, EvalError> {
-            print!(
-                "{}",
-                values.iter().fold("".to_string(), |acc, cur: &Value| {
-                    if acc.is_empty() {
-                        cur.to_string()
-                    } else {
-                        acc + &cur.to_string()
-                    }
-                })
-            );
-            Ok(Value::I64(0))
+        Box::new(move |values: &[Value]| -> Result<Value, EvalError> {
+            s_puts(&mut *out3.borrow_mut(), values)
         }),
     );
     f("type".to_string(), Box::new(&s_type));

@@ -52,7 +52,8 @@ struct CompilerEnv {
 
 impl CompilerEnv {
     fn new(mut functions: HashMap<String, FnProto>) -> Self {
-        std_functions(&mut |name, f| {
+        let out = Rc::new(RefCell::new(std::io::stdout()));
+        std_functions(out, &mut |name, f| {
             functions.insert(name, FnProto::Native(f));
         });
         Self { functions }

@@ -129,7 +129,8 @@ impl<'a> Vm<'a> {
     }
 
     pub fn call_info(&self, level: usize) -> Option<&CallInfo> {
-        self.call_stack.get(self.call_stack.len().saturating_sub(level + 1))
+        self.call_stack
+            .get(self.call_stack.len().saturating_sub(level + 1))
     }
 
     pub fn format_current_inst(

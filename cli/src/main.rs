@@ -6,9 +6,11 @@ use mascal::*;
 
 use ::colored::Colorize;
 use std::{
+    cell::RefCell,
     collections::HashMap,
     fs::File,
     io::{prelude::*, BufReader, BufWriter},
+    rc::Rc,
 };
 
 #[derive(Parser, Debug)]
@@ -81,10 +83,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .map_err(|s| s.to_string())?;
             }
             if args.compile_and_run {
-                bytecode.add_std_fn();
                 if args.debugger {
-                    run_debugger(&bytecode)?;
+                    run_debugger(bytecode)?;
                 } else {
+                    let out = Rc::new(RefCell::new(std::io::stdout()));
+                    bytecode.add_std_fn(out);
                     interpret(&bytecode)?;
                 }
             }
@@ -112,7 +115,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .disasm(&mut std::io::stdout())
                     .map_err(|e| e.to_string())?;
             }
-            bytecode.add_std_fn();
+            let out = Rc::new(RefCell::new(std::io::stdout()));
+            bytecode.add_std_fn(out);
             interpret(&bytecode).map_err(|e| e.to_string())?;
         } else {
             let mut contents = String::new();

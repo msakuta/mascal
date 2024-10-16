@@ -2,10 +2,11 @@
 
 mod disasm;
 mod help;
+mod output;
 mod stack;
 mod stack_trace;
 
-use std::{cell::RefCell, collections::VecDeque};
+use std::{cell::RefCell, collections::VecDeque, rc::Rc};
 
 use ratatui::{
     buffer::Buffer,
@@ -24,13 +25,16 @@ use ratatui::{
 use ::mascal::{interpret, Bytecode, Vm};
 
 use self::{
-    disasm::DisasmWidget, help::HelpWidget, stack::StackWidget, stack_trace::StackTraceWidget,
+    disasm::DisasmWidget, help::HelpWidget, output::OutputWidget, stack::StackWidget,
+    stack_trace::StackTraceWidget,
 };
 
-pub(crate) fn run_debugger(bytecode: &Bytecode) -> Result<(), Box<dyn std::error::Error>> {
+pub(crate) fn run_debugger(mut bytecode: Bytecode) -> Result<(), Box<dyn std::error::Error>> {
+    let mut output_buffer = Rc::new(RefCell::new(vec![]));
+    bytecode.add_std_fn(output_buffer.clone());
     let mut terminal = ratatui::init();
     terminal.clear()?;
-    let app_result = App::new(bytecode).run(terminal);
+    let app_result = App::new(&bytecode, output_buffer).run(terminal);
     ratatui::restore();
     // Error out after restore
     app_result
@@ -39,6 +43,7 @@ pub(crate) fn run_debugger(bytecode: &Bytecode) -> Result<(), Box<dyn std::error
 struct App<'a> {
     bytecode: &'a Bytecode,
     mode: AppMode<'a>,
+    output_buffer: Rc<RefCell<Vec<u8>>>,
     error: RefCell<Option<String>>,
     widgets: Widgets,
     exit: bool,
@@ -48,19 +53,22 @@ struct Widgets {
     disasm: Option<DisasmWidget>,
     stack_trace: Option<StackTraceWidget>,
     stack: Option<StackWidget>,
+    output: OutputWidget,
     help: Option<HelpWidget>,
 }
 
 impl<'a> App<'a> {
-    fn new(bytecode: &'a Bytecode) -> Self {
+    fn new(bytecode: &'a Bytecode, output_buffer: Rc<RefCell<Vec<u8>>>) -> Self {
         Self {
             bytecode,
             mode: Default::default(),
+            output_buffer,
             error: RefCell::new(None),
             widgets: Widgets {
                 disasm: DisasmWidget::new(bytecode).ok(),
                 stack_trace: StackTraceWidget::new().ok(),
                 stack: StackWidget::new().ok(),
+                output: OutputWidget::new(),
                 help: None,
             },
             exit: false,
@@ -133,7 +141,8 @@ impl<'a> App<'a> {
                         };
                         let mut next_vm = last_vm.deepclone();
                         next_vm.next_inst()?;
-                        self.widgets.update(&mut next_vm, btrace_level)?;
+                        self.widgets
+                            .update(&mut next_vm, btrace_level, &self.output_buffer)?;
                         vm_history.push_front(next_vm);
                         if 100 < vm_history.len() {
                             vm_history.pop_back();
@@ -149,6 +158,8 @@ impl<'a> App<'a> {
                             btrace_level: 0,
                             selected_history: 0,
                         };
+                        // Clear the output buffer since it could contain output from previous run
+                        self.output_buffer.borrow_mut().clear();
                     }
                 }
                 (KeyEventKind::Press, KeyCode::Char('u')) => {
@@ -163,7 +174,8 @@ impl<'a> App<'a> {
                         };
                         *btrace_level =
                             (*btrace_level + 1).min(vm.call_stack().len().saturating_sub(1));
-                        self.widgets.update(vm, *btrace_level)?;
+                        self.widgets
+                            .update(vm, *btrace_level, &self.output_buffer)?;
                     }
                 }
                 (KeyEventKind::Press, KeyCode::Char('d')) => {
@@ -177,7 +189,8 @@ impl<'a> App<'a> {
                             return Err("Missing Vm".into());
                         };
                         *btrace_level = btrace_level.saturating_sub(1);
-                        self.widgets.update(vm, *btrace_level)?;
+                        self.widgets
+                            .update(vm, *btrace_level, &self.output_buffer)?;
                     }
                 }
                 (KeyEventKind::Press, KeyCode::Char('p')) => {
@@ -190,7 +203,7 @@ impl<'a> App<'a> {
                         *selected_history =
                             selected_history.saturating_add(1).min(vm_history.len() - 1);
                         if let Some(vm) = vm_history.get(*selected_history) {
-                            self.widgets.update(vm, btrace_level)?;
+                            self.widgets.update(vm, btrace_level, &self.output_buffer)?;
                         }
                     }
                 }
@@ -203,7 +216,7 @@ impl<'a> App<'a> {
                     {
                         *selected_history = selected_history.saturating_sub(1);
                         if let Some(vm) = vm_history.get(*selected_history) {
-                            self.widgets.update(vm, btrace_level)?;
+                            self.widgets.update(vm, btrace_level, &self.output_buffer)?;
                         }
                     }
                 }
@@ -241,31 +254,12 @@ impl<'a> App<'a> {
                 selected_history,
                 ..
             } => {
-                let Some(vm) = vm_history.get(*selected_history) else {
-                    return Err("Missing Vm".into());
-                };
                 let mut lines = vec![format!(
                     "Running debugger with history {}/{}",
                     selected_history,
                     vm_history.len()
                 )
                 .into()];
-
-                let mut buf = vec![];
-                if let Err(e) = vm.dump_stack(&mut buf) {
-                    *self.error.borrow_mut() = Some(e.to_string());
-                }
-                if let Ok(s) = String::from_utf8(buf) {
-                    lines.push(s.into());
-                }
-
-                let mut buf = vec![];
-                if let Err(e) = vm.format_current_inst(&mut buf) {
-                    *self.error.borrow_mut() = Some(e.to_string());
-                }
-                if let Ok(s) = String::from_utf8(buf) {
-                    lines.push(s.into());
-                }
 
                 if let Some(error) = self.error.borrow().as_ref() {
                     lines.push(format!("Error: {error}").bold().red().into());
@@ -278,7 +272,12 @@ impl<'a> App<'a> {
 }
 
 impl Widgets {
-    fn update(&mut self, vm: &Vm, level: usize) -> Result<(), Box<dyn std::error::Error>> {
+    fn update(
+        &mut self,
+        vm: &Vm,
+        level: usize,
+        output_buffer: &Rc<RefCell<Vec<u8>>>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(ref mut disasm) = self.disasm {
             if let Some(ci) = vm.call_info(level) {
                 disasm.update(ci.bytecode(), ci.instuction_ptr())?;
@@ -290,6 +289,7 @@ impl Widgets {
         if let Some(ref mut stack) = self.stack {
             stack.update(vm, level)?;
         }
+        self.output.update(&output_buffer.borrow())?;
         Ok(())
     }
 }
@@ -328,6 +328,14 @@ impl<'a> Widget for &App<'a> {
             });
 
             Paragraph::new(inner_text).block(block).render(area, buf);
+
+            let mut output_area = area;
+            if self.widgets.output.visible() && 4 < output_area.height {
+                output_area.width /= 2;
+                output_area.y += 2;
+                output_area.height = (output_area.height - 4) / 2;
+                self.widgets.output.render(output_area, buf);
+            }
 
             let mut tr_area = area;
             if 0 < tr_area.height {
