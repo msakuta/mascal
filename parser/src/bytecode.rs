@@ -1,13 +1,15 @@
 //! The definition of bytecode data structure that is shared among the bytecode compiler and the interpreter (vm.rs)
 
 use std::{
+    cell::RefCell,
     collections::HashMap,
     convert::{TryFrom, TryInto},
     io::{Read, Write},
+    rc::Rc,
 };
 
 use crate::{
-    interpreter::{s_hex_string, s_len, s_print, s_push, s_type, EvalError},
+    interpreter::{s_hex_string, s_len, s_print, s_push, s_puts, s_type, EvalError},
     parser::ReadError,
     value::Value,
 };
@@ -199,6 +201,9 @@ pub(crate) fn read_opt_value(reader: &mut impl Read) -> Result<Option<Value>, Re
 
 pub type NativeFn = Box<dyn Fn(&[Value]) -> Result<Value, EvalError>>;
 
+/// A mapping from function name to function prototypes, which can be a bytecode or a native extension.
+pub(crate) type FnProtos = HashMap<String, FnProto>;
+
 pub(crate) enum FnProto {
     Code(FnBytecode),
     Native(NativeFn),
@@ -227,8 +232,8 @@ impl Bytecode {
         self.functions.insert(name, FnProto::Native(f));
     }
 
-    pub fn add_std_fn(&mut self) {
-        std_functions(&mut |name, f| self.add_ext_fn(name, f));
+    pub fn add_std_fn(&mut self, out: Rc<RefCell<dyn std::io::Write>>) {
+        std_functions(out, &mut |name, f| self.add_ext_fn(name, f));
     }
 
     pub fn write(&self, writer: &mut impl Write) -> std::io::Result<()> {
@@ -256,7 +261,8 @@ impl Bytecode {
         let ret = Bytecode {
             functions: (0..len)
                 .map(|_| -> Result<(String, FnProto), ReadError> {
-                    Ok((read_str(reader)?, FnProto::Code(FnBytecode::read(reader)?)))
+                    let name = read_str(reader)?;
+                    Ok((name.clone(), FnProto::Code(FnBytecode::read(name, reader)?)))
                 })
                 .collect::<Result<HashMap<_, _>, ReadError>>()?,
         };
@@ -286,6 +292,17 @@ impl Bytecode {
         Ok(())
     }
 
+    /// Returns a FnBytecode of a named function if it is included in this bytecode.
+    pub fn fn_bytecode(&self, name: &str) -> Option<&FnBytecode> {
+        self.functions.get(name).and_then(|f| {
+            if let FnProto::Code(code) = f {
+                Some(code)
+            } else {
+                None
+            }
+        })
+    }
+
     pub fn signatures(&self, out: &mut impl Write) -> std::io::Result<()> {
         for (fname, fnproto) in &self.functions {
             match fnproto {
@@ -312,23 +329,22 @@ impl Bytecode {
 
 /// Add standard common functions, such as `print`, `len` and `push`, to this bytecode.
 pub fn std_functions(
+    out: Rc<RefCell<dyn Write>>,
     f: &mut impl FnMut(String, Box<dyn Fn(&[Value]) -> Result<Value, EvalError>>),
 ) {
-    f("print".to_string(), Box::new(s_print));
+    let out2 = out.clone();
+    f(
+        "print".to_string(),
+        Box::new(move |values| {
+            let mut borrow = out2.borrow_mut();
+            s_print(&mut *borrow, values)
+        }),
+    );
+    let out3 = out.clone();
     f(
         "puts".to_string(),
-        Box::new(|values: &[Value]| -> Result<Value, EvalError> {
-            print!(
-                "{}",
-                values.iter().fold("".to_string(), |acc, cur: &Value| {
-                    if acc.is_empty() {
-                        cur.to_string()
-                    } else {
-                        acc + &cur.to_string()
-                    }
-                })
-            );
-            Ok(Value::I64(0))
+        Box::new(move |values: &[Value]| -> Result<Value, EvalError> {
+            s_puts(&mut *out3.borrow_mut(), values)
         }),
     );
     f("type".to_string(), Box::new(&s_type));
@@ -351,6 +367,9 @@ impl BytecodeArg {
 
 #[derive(Debug, Clone)]
 pub struct FnBytecode {
+    /// Name is technically not required here, since it is also the key to a hash map,
+    /// but it is convenient to have this in bytecode for debugging.
+    pub(crate) name: String,
     pub(crate) literals: Vec<Value>,
     pub(crate) args: Vec<BytecodeArg>,
     pub(crate) instructions: Vec<Instruction>,
@@ -359,8 +378,9 @@ pub struct FnBytecode {
 
 impl FnBytecode {
     /// Create a placeholder entry that will be filled later.
-    pub(crate) fn proto(args: Vec<String>) -> Self {
+    pub(crate) fn proto(name: String, args: Vec<String>) -> Self {
         Self {
+            name,
             literals: vec![],
             args: args
                 .into_iter()
@@ -398,7 +418,7 @@ impl FnBytecode {
         Ok(())
     }
 
-    pub fn read(reader: &mut impl Read) -> Result<Self, ReadError> {
+    pub fn read(name: String, reader: &mut impl Read) -> Result<Self, ReadError> {
         let mut stack_size = [0u8; std::mem::size_of::<usize>()];
         reader.read_exact(&mut stack_size)?;
 
@@ -427,6 +447,7 @@ impl FnBytecode {
             .map(|_| Instruction::deserialize(reader))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Self {
+            name,
             literals,
             args,
             instructions,
@@ -458,5 +479,9 @@ impl FnBytecode {
             }
         }
         Ok(())
+    }
+
+    pub fn iter_instructions(&self) -> impl Iterator<Item = &Instruction> {
+        self.instructions.iter()
     }
 }

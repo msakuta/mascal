@@ -8,7 +8,7 @@ use crate::{
     value::{ArrayInt, TupleEntry},
     TypeDecl, Value,
 };
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, io::Write, rc::Rc};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum RunResult {
@@ -26,7 +26,7 @@ pub type EvalResult<T> = Result<T, EvalError>;
 /// The information about the error shold be converted to a string (by `format!("{:?}")`) before wrapping it
 /// into `EvalError`.
 #[non_exhaustive]
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum EvalError {
     Other(String),
     CoerceError(String, String),
@@ -54,6 +54,8 @@ pub enum EvalError {
     AssignToLiteral(String),
     IndexNonNum,
     NonLValue(String),
+    PrematureEnd,
+    IOError(std::io::Error),
 }
 
 impl std::error::Error for EvalError {}
@@ -118,6 +120,10 @@ impl std::fmt::Display for EvalError {
             Self::AssignToLiteral(name) => write!(f, "Cannot assign to a literal: {}", name),
             Self::IndexNonNum => write!(f, "Indexed an array with a non-number"),
             Self::NonLValue(ex) => write!(f, "Expression {} is not an lvalue.", ex),
+            Self::PrematureEnd => {
+                write!(f, "End of input bytecode encountered before seeing a Ret")
+            }
+            Self::IOError(e) => e.fmt(f),
         }
     }
 }
@@ -125,6 +131,12 @@ impl std::fmt::Display for EvalError {
 impl From<String> for EvalError {
     fn from(value: String) -> Self {
         Self::Other(value)
+    }
+}
+
+impl From<std::io::Error> for EvalError {
+    fn from(value: std::io::Error) -> Self {
+        Self::IOError(value)
     }
 }
 
@@ -645,61 +657,65 @@ where
     })
 }
 
-pub(crate) fn s_print(vals: &[Value]) -> EvalResult<Value> {
-    fn print_inner(val: &Value) -> EvalResult<()> {
+pub(crate) fn s_print(out: &mut dyn Write, vals: &[Value]) -> EvalResult<Value> {
+    fn print_inner(out: &mut dyn Write, val: &Value) -> EvalResult<()> {
         match val {
-            Value::F64(val) => print!("{}", val),
-            Value::F32(val) => print!("{}", val),
-            Value::I64(val) => print!("{}", val),
-            Value::I32(val) => print!("{}", val),
-            Value::Str(val) => print!("{}", val),
+            Value::F64(val) => write!(out, "{}", val)?,
+            Value::F32(val) => write!(out, "{}", val)?,
+            Value::I64(val) => write!(out, "{}", val)?,
+            Value::I32(val) => write!(out, "{}", val)?,
+            Value::Str(val) => write!(out, "{}", val)?,
             Value::Array(val) => {
-                print!("[");
+                write!(out, "[")?;
                 for (i, val) in val.borrow().values.iter().enumerate() {
                     if i != 0 {
-                        print!(", ");
+                        write!(out, ", ")?;
                     }
-                    print_inner(val)?;
+                    print_inner(out, val)?;
                 }
-                print!("]");
+                write!(out, "]")?;
             }
             Value::Tuple(val) => {
-                print!("(");
+                write!(out, "(")?;
                 for (i, val) in val.borrow().iter().enumerate() {
                     if i != 0 {
-                        print!(", ");
+                        write!(out, ", ")?;
                     }
-                    print_inner(&val.value)?;
+                    print_inner(out, &val.value)?;
                 }
-                print!(")");
+                write!(out, ")")?;
             }
         }
         Ok(())
     }
     for val in vals {
-        print_inner(val)?;
+        print_inner(out, val)?;
         // Put a space between tokens
-        print!(" ");
+        write!(out, " ")?;
     }
-    print!("\n");
+    write!(out, "\n")?;
     Ok(Value::I32(0))
 }
 
-fn s_puts(vals: &[Value]) -> Result<Value, EvalError> {
-    fn puts_inner<'a>(vals: &mut dyn Iterator<Item = &'a Value>) {
+pub(crate) fn s_puts(out: &mut dyn Write, vals: &[Value]) -> Result<Value, EvalError> {
+    fn puts_inner<'a>(
+        out: &mut dyn Write,
+        vals: &mut dyn Iterator<Item = &'a Value>,
+    ) -> std::io::Result<()> {
         for val in vals {
             match val {
-                Value::F64(val) => print!("{}", val),
-                Value::F32(val) => print!("{}", val),
-                Value::I64(val) => print!("{}", val),
-                Value::I32(val) => print!("{}", val),
-                Value::Str(val) => print!("{}", val),
-                Value::Array(val) => puts_inner(&mut val.borrow().values.iter()),
-                Value::Tuple(val) => puts_inner(&mut val.borrow().iter().map(|v| &v.value)),
+                Value::F64(val) => write!(out, "{}", val)?,
+                Value::F32(val) => write!(out, "{}", val)?,
+                Value::I64(val) => write!(out, "{}", val)?,
+                Value::I32(val) => write!(out, "{}", val)?,
+                Value::Str(val) => write!(out, "{}", val)?,
+                Value::Array(val) => puts_inner(out, &mut val.borrow().values.iter())?,
+                Value::Tuple(val) => puts_inner(out, &mut val.borrow().iter().map(|v| &v.value))?,
             }
         }
+        Ok(())
     }
-    puts_inner(&mut vals.iter());
+    puts_inner(out, &mut vals.iter())?;
     Ok(Value::I32(0))
 }
 
@@ -908,11 +924,15 @@ pub(crate) fn std_functions<'src, 'native>() -> HashMap<String, FuncDef<'src, 'n
     let mut functions = HashMap::new();
     functions.insert(
         "print".to_string(),
-        FuncDef::new_native(&s_print, vec![], None),
+        FuncDef::new_native(&|vals| s_print(&mut std::io::stdout(), vals), vec![], None),
     );
     functions.insert(
         "puts".to_string(),
-        FuncDef::new_native(&s_puts, vec![ArgDecl::new("val", TypeDecl::Any)], None),
+        FuncDef::new_native(
+            &|vals| s_puts(&mut std::io::stdout(), vals),
+            vec![ArgDecl::new("val", TypeDecl::Any)],
+            None,
+        ),
     );
     functions.insert(
         "type".to_string(),

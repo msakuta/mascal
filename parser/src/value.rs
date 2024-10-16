@@ -228,6 +228,31 @@ impl Value {
             _ => return Err(EvalError::IndexNonArray),
         })
     }
+
+    pub fn deepclone(&self) -> Self {
+        match self {
+            Self::Array(a) => {
+                let a = a.borrow();
+                let values = a.values.iter().map(|v| v.deepclone()).collect();
+                Self::Array(Rc::new(RefCell::new(ArrayInt {
+                    type_decl: a.type_decl.clone(),
+                    values,
+                })))
+            }
+            Self::Tuple(a) => {
+                let a = a.borrow();
+                let values = a
+                    .iter()
+                    .map(|v| TupleEntry {
+                        decl: v.decl.clone(),
+                        value: v.value.deepclone(),
+                    })
+                    .collect();
+                Self::Tuple(Rc::new(RefCell::new(values)))
+            }
+            _ => self.clone(),
+        }
+    }
 }
 
 pub type TupleInt = Vec<TupleEntry>;
