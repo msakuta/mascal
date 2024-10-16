@@ -73,8 +73,8 @@ fn var_test() {
         .borrow_mut()
         .insert("x", Rc::new(RefCell::new(Value::F64(42.))));
     assert_eq!(
-        eval(&span_expr(" x +  2 ").unwrap().1, &mut ctx),
-        Ok(RunResult::Yield(Value::F64(44.)))
+        eval(&span_expr(" x +  2 ").unwrap().1, &mut ctx).unwrap(),
+        RunResult::Yield(Value::F64(44.))
     );
 }
 
@@ -105,8 +105,8 @@ fn var_assign_test() {
         )
     );
     assert_eq!(
-        eval(&var_assign(Span::new("x=12")).finish().unwrap().1, &mut ctx),
-        Ok(RunResult::Yield(Value::I64(12)))
+        eval(&var_assign(Span::new("x=12")).finish().unwrap().1, &mut ctx).unwrap(),
+        RunResult::Yield(Value::I64(12))
     );
 }
 
@@ -148,8 +148,10 @@ fn fn_default_test() {
 fn fn_default_failure_test() {
     let span = Span::new("var b = 1; fn f(a: i32 = b) { a; } f()");
     let stmts = source(span).finish().unwrap().1;
-    let res = run(&stmts, &mut EvalContext::new());
-    assert_eq!(res, Err(EvalError::VarNotFound("b".to_string())));
+    let Err(err) = run(&stmts, &mut EvalContext::new()) else {
+        panic!("Should error");
+    };
+    assert!(matches!(err, EvalError::VarNotFound(_)));
 }
 
 fn span_conditional(s: &str) -> IResult<Span, Expression> {
@@ -642,11 +644,11 @@ fn array_literal_eval_test() {
 
     // Type coercion won't happen through variable declaration, because it is discarded in compiled bytecode.
     assert_eq!(
-        run0(&span_source("var v: [f64] = [1,3,5]; v").finish().unwrap().1),
-        Ok(RunResult::Yield(Value::Array(ArrayInt::new(
+        run0(&span_source("var v: [f64] = [1,3,5]; v").finish().unwrap().1).unwrap(),
+        RunResult::Yield(Value::Array(ArrayInt::new(
             TypeDecl::Any,
             vec![i64(1), i64(3), i64(5)]
-        ))))
+        )))
     );
 }
 
@@ -723,17 +725,19 @@ fn array_index_eval_test() {
         _ => panic!("a must be an array"),
     });
 
-    assert_eq!(run_result, Ok(RunResult::Yield(a_rc.unwrap())));
+    assert_eq!(run_result.unwrap(), RunResult::Yield(a_rc.unwrap()));
 
     // Technically, this test will return a reference to an element in a temporary array,
     // but we wouldn't care and just unwrap_deref.
     assert_eq!(
-        run0(&span_source("[1,3,5][1]").unwrap().1).and_then(unwrap_deref),
-        Ok(RunResult::Yield(I64(3)))
+        run0(&span_source("[1,3,5][1]").unwrap().1)
+            .and_then(unwrap_deref)
+            .unwrap(),
+        RunResult::Yield(I64(3))
     );
     assert_eq!(
-        run0(&span_source("len([1,3,5])").unwrap().1),
-        Ok(RunResult::Yield(I64(3)))
+        run0(&span_source("len([1,3,5])").unwrap().1).unwrap(),
+        RunResult::Yield(I64(3))
     );
 }
 
@@ -764,8 +768,8 @@ fn array_index_assign_test() {
         )
     );
     assert_eq!(
-        run0(&span_source("var a: [i32] = [1,3,5]; a[1] = 123").unwrap().1),
-        Ok(RunResult::Yield(I64(123)))
+        run0(&span_source("var a: [i32] = [1,3,5]; a[1] = 123").unwrap().1).unwrap(),
+        RunResult::Yield(I64(123))
     );
 }
 

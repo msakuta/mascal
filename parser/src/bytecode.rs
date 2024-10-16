@@ -5,7 +5,6 @@ use std::{
     collections::HashMap,
     convert::{TryFrom, TryInto},
     io::{Read, Write},
-    ops::DerefMut,
     rc::Rc,
 };
 

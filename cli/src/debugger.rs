@@ -30,7 +30,7 @@ use self::{
 };
 
 pub(crate) fn run_debugger(mut bytecode: Bytecode) -> Result<(), Box<dyn std::error::Error>> {
-    let mut output_buffer = Rc::new(RefCell::new(vec![]));
+    let output_buffer = Rc::new(RefCell::new(vec![]));
     bytecode.add_std_fn(output_buffer.clone());
     let mut terminal = ratatui::init();
     terminal.clear()?;
@@ -118,6 +118,9 @@ impl<'a> App<'a> {
                     } else {
                         self.widgets.stack = StackWidget::new().ok();
                     }
+                }
+                (KeyEventKind::Press, KeyCode::Char('o')) => {
+                    self.widgets.output.toggle_visible();
                 }
                 (KeyEventKind::Press, KeyCode::Char('h')) => {
                     if self.widgets.help.is_some() {
