@@ -172,7 +172,9 @@ pub fn compile<'src, 'ast>(
     stmts: &'ast [Statement<'src>],
     functions: HashMap<String, NativeFn>,
 ) -> CompileResult<'src, Bytecode> {
-    compile_int(stmts, functions, &mut std::io::sink())
+    CompilerBuilder::new(stmts)
+        .functions(functions)
+        .compile(&mut std::io::sink())
 }
 
 pub fn disasm<'src, 'ast>(
@@ -182,57 +184,89 @@ pub fn disasm<'src, 'ast>(
     let mut disasm = Vec::<u8>::new();
     let mut cursor = std::io::Cursor::new(&mut disasm);
 
-    compile_int(stmts, functions, &mut cursor)?;
+    CompilerBuilder::new(stmts)
+        .functions(functions)
+        .compile(&mut cursor)?;
 
     Ok(String::from_utf8(disasm)?)
 }
 
-fn compile_int<'src, 'ast>(
+pub struct CompilerBuilder<'src, 'ast> {
     stmts: &'ast [Statement<'src>],
     functions: HashMap<String, NativeFn>,
-    disasm: &mut impl Write,
-) -> CompileResult<'src, Bytecode> {
-    let functions = functions
-        .into_iter()
-        .map(|(k, v)| (k, FnProto::Native(v)))
-        .collect();
+    enable_debug: bool,
+}
 
-    // Built-in functions don't have line number information.
-    let mut env = CompilerEnv::new(functions, HashMap::new());
-
-    retrieve_fn_signatures(stmts, &mut env);
-
-    let mut compiler = Compiler::new(vec![], vec![], &mut env);
-    if let Some(last_target) = emit_stmts(stmts, &mut compiler)? {
-        compiler
-            .bytecode
-            .instructions
-            .push(Instruction::new(OpCode::Ret, 0, last_target as u16));
-    }
-    compiler.bytecode.stack_size = compiler.target_stack.len();
-
-    let bytecode = FnProto::Code(compiler.bytecode);
-    let line_info = compiler.line_info;
-    env.debug.insert("".to_string(), line_info);
-
-    let mut functions = env.functions;
-    functions.insert("".to_string(), bytecode);
-
-    for (fname, fnproto) in &functions {
-        if let FnProto::Code(bytecode) = fnproto {
-            if fname.is_empty() {
-                writeln!(disasm, "\nFunction <toplevel> disassembly:")?;
-            } else {
-                writeln!(disasm, "\nFunction {fname} disassembly:")?;
-            }
-            bytecode.disasm(disasm)?;
+impl<'src, 'ast> CompilerBuilder<'src, 'ast> {
+    pub fn new(stmts: &'ast [Statement<'src>]) -> Self {
+        Self {
+            stmts,
+            functions: HashMap::new(),
+            enable_debug: false,
         }
     }
 
-    Ok(Bytecode {
-        functions,
-        debug: Some(DebugInfo::new(env.debug)),
-    })
+    pub fn functions(mut self, funcs: HashMap<String, NativeFn>) -> Self {
+        self.functions = funcs;
+        self
+    }
+
+    pub fn enable_debug(mut self, v: bool) -> Self {
+        self.enable_debug = v;
+        self
+    }
+
+    pub fn compile(self, disasm: &mut impl Write) -> CompileResult<'src, Bytecode> {
+        let functions = self
+            .functions
+            .into_iter()
+            .map(|(k, v)| (k, FnProto::Native(v)))
+            .collect();
+
+        // Built-in functions don't have line number information.
+        let mut env = CompilerEnv::new(functions, HashMap::new());
+
+        retrieve_fn_signatures(self.stmts, &mut env);
+
+        let mut compiler = Compiler::new(vec![], vec![], &mut env);
+        if let Some(last_target) = emit_stmts(self.stmts, &mut compiler)? {
+            compiler.bytecode.instructions.push(Instruction::new(
+                OpCode::Ret,
+                0,
+                last_target as u16,
+            ));
+        }
+        compiler.bytecode.stack_size = compiler.target_stack.len();
+
+        let bytecode = FnProto::Code(compiler.bytecode);
+        if self.enable_debug {
+            let line_info = compiler.line_info;
+            env.debug.insert("".to_string(), line_info);
+        }
+
+        let mut functions = env.functions;
+        functions.insert("".to_string(), bytecode);
+
+        for (fname, fnproto) in &functions {
+            if let FnProto::Code(bytecode) = fnproto {
+                if fname.is_empty() {
+                    writeln!(disasm, "\nFunction <toplevel> disassembly:")?;
+                } else {
+                    writeln!(disasm, "\nFunction {fname} disassembly:")?;
+                }
+                bytecode.disasm(disasm)?;
+            }
+        }
+
+        Ok(Bytecode {
+            functions,
+            debug: if self.enable_debug {
+                Some(DebugInfo::new(env.debug))
+            } else {
+                None
+            },
+        })
+    }
 }
 
 fn compile_fn<'src, 'ast>(
