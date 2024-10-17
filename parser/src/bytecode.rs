@@ -1,5 +1,7 @@
 //! The definition of bytecode data structure that is shared among the bytecode compiler and the interpreter (vm.rs)
 
+mod debug_info;
+
 use std::{
     cell::RefCell,
     collections::HashMap,
@@ -7,6 +9,8 @@ use std::{
     io::{Read, Write},
     rc::Rc,
 };
+
+pub use self::debug_info::{DebugInfo, LineInfo};
 
 use crate::{
     interpreter::{s_hex_string, s_len, s_print, s_push, s_puts, s_type, EvalError},
@@ -218,11 +222,20 @@ impl FnProto {
     }
 }
 
+// Random byte sequences to identify chunks
+const FUNCTION_TAG: [u8; 2] = [0xae, 0x55];
+const DEBUG_TAG: [u8; 2] = [0xde, 0xba];
+
 pub struct Bytecode {
     pub(crate) functions: HashMap<String, FnProto>,
+    pub(crate) debug: DebugInfo,
 }
 
 impl Bytecode {
+    pub fn debug_info(&self) -> &DebugInfo {
+        &self.debug
+    }
+
     /// Add a user-application provided native function to this bytecode.
     pub fn add_ext_fn(
         &mut self,
@@ -237,6 +250,8 @@ impl Bytecode {
     }
 
     pub fn write(&self, writer: &mut impl Write) -> std::io::Result<()> {
+        writer.write_all(&FUNCTION_TAG)?;
+
         writer.write_all(
             &self
                 .functions
@@ -251,31 +266,56 @@ impl Bytecode {
                 func.write(writer)?;
             }
         }
+
+        writer.write_all(&DEBUG_TAG)?;
+        writer.write_all(&self.debug.len().to_le_bytes())?;
+        for (fname, debug) in self.debug.iter() {
+            write_str(fname, writer)?;
+            writer.write_all(&debug.len().to_le_bytes())?;
+            for line_info in debug {
+                line_info.serialize(writer)?;
+            }
+        }
         Ok(())
     }
 
     pub fn read(reader: &mut impl Read) -> Result<Self, ReadError> {
-        let mut len = [0u8; std::mem::size_of::<usize>()];
-        reader.read_exact(&mut len)?;
-        let len = usize::from_le_bytes(len);
-        let ret = Bytecode {
-            functions: (0..len)
-                .map(|_| -> Result<(String, FnProto), ReadError> {
-                    let name = read_str(reader)?;
-                    Ok((name.clone(), FnProto::Code(FnBytecode::read(name, reader)?)))
-                })
-                .collect::<Result<HashMap<_, _>, ReadError>>()?,
-        };
-        dbg_println!("loaded {} functions", ret.functions.len());
-        let loaded_fn = ret
-            .functions
+        let mut functions = HashMap::new();
+        let mut debug = HashMap::new();
+        loop {
+            let mut tag = [0u8; 2];
+            match reader.read_exact(&mut tag) {
+                Ok(_) => {}
+                Err(_) => break, // Failing to read a tag is not an error. It is probably end of the file.
+            };
+            match tag {
+                FUNCTION_TAG => functions = Self::read_functions(reader)?,
+                DEBUG_TAG => debug = Self::read_debug(reader)?,
+                _ => return Err(ReadError::UnknownTag(tag)),
+            }
+        }
+        let loaded_fn = functions
             .iter()
             .find(|(name, _)| *name == "")
             .ok_or(ReadError::NoMainFound)?;
         if let FnProto::Code(ref _code) = loaded_fn.1 {
             dbg_println!("instructions: {:#?}", _code.instructions);
         }
-        Ok(ret)
+        Ok(Bytecode { functions, debug })
+    }
+
+    fn read_functions(reader: &mut impl Read) -> Result<HashMap<String, FnProto>, ReadError> {
+        let mut len = [0u8; std::mem::size_of::<usize>()];
+        reader.read_exact(&mut len)?;
+        let len = usize::from_le_bytes(len);
+        let functions = (0..len)
+            .map(|_| -> Result<(String, FnProto), ReadError> {
+                let name = read_str(reader)?;
+                Ok((name.clone(), FnProto::Code(FnBytecode::read(name, reader)?)))
+            })
+            .collect::<Result<HashMap<_, _>, ReadError>>()?;
+        dbg_println!("debug info loaded for {} functions", functions.len());
+        Ok(functions)
     }
 
     pub fn disasm(&self, out: &mut impl Write) -> std::io::Result<()> {
@@ -377,6 +417,10 @@ pub struct FnBytecode {
 }
 
 impl FnBytecode {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
     /// Create a placeholder entry that will be filled later.
     pub(crate) fn proto(name: String, args: Vec<String>) -> Self {
         Self {

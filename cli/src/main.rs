@@ -117,7 +117,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             let out = Rc::new(RefCell::new(std::io::stdout()));
             bytecode.add_std_fn(out);
-            interpret(&bytecode).map_err(|e| e.to_string())?;
+            if args.debugger {
+                run_debugger(bytecode)?;
+            } else {
+                interpret(&bytecode).map_err(|e| e.to_string())?;
+            }
         } else {
             let mut contents = String::new();
             file.read_to_string(&mut contents)

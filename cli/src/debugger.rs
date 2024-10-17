@@ -22,7 +22,7 @@ use ratatui::{
     DefaultTerminal, Frame,
 };
 
-use ::mascal::{interpret, Bytecode, Vm};
+use ::mascal::{interpret, Bytecode, DebugInfo, Vm};
 
 use self::{
     disasm::DisasmWidget, help::HelpWidget, output::OutputWidget, stack::StackWidget,
@@ -152,8 +152,12 @@ impl<'a> App<'a> {
                         };
                         let prev_vm = next_vm.deepclone();
                         next_vm.next_inst()?;
-                        self.widgets
-                            .update(&mut next_vm, btrace_level, &self.output_buffer)?;
+                        self.widgets.update(
+                            &mut next_vm,
+                            btrace_level,
+                            self.bytecode.debug_info(),
+                            &self.output_buffer,
+                        )?;
                         vm_history.push_front(prev_vm);
                         vm_history.push_front(next_vm);
                         if 100 < vm_history.len() {
@@ -186,8 +190,12 @@ impl<'a> App<'a> {
                         };
                         *btrace_level =
                             (*btrace_level + 1).min(vm.call_stack().len().saturating_sub(1));
-                        self.widgets
-                            .update(vm, *btrace_level, &self.output_buffer)?;
+                        self.widgets.update(
+                            vm,
+                            *btrace_level,
+                            self.bytecode.debug_info(),
+                            &self.output_buffer,
+                        )?;
                     }
                 }
                 (KeyEventKind::Press, KeyCode::Char('d')) => {
@@ -201,8 +209,12 @@ impl<'a> App<'a> {
                             return Err("Missing Vm".into());
                         };
                         *btrace_level = btrace_level.saturating_sub(1);
-                        self.widgets
-                            .update(vm, *btrace_level, &self.output_buffer)?;
+                        self.widgets.update(
+                            vm,
+                            *btrace_level,
+                            self.bytecode.debug_info(),
+                            &self.output_buffer,
+                        )?;
                     }
                 }
                 (KeyEventKind::Press, KeyCode::Char('p')) => {
@@ -215,7 +227,12 @@ impl<'a> App<'a> {
                         *selected_history =
                             selected_history.saturating_add(1).min(vm_history.len() - 1);
                         if let Some(vm) = vm_history.get(*selected_history) {
-                            self.widgets.update(vm, btrace_level, &self.output_buffer)?;
+                            self.widgets.update(
+                                vm,
+                                btrace_level,
+                                self.bytecode.debug_info(),
+                                &self.output_buffer,
+                            )?;
                         }
                     }
                 }
@@ -228,7 +245,12 @@ impl<'a> App<'a> {
                     {
                         *selected_history = selected_history.saturating_sub(1);
                         if let Some(vm) = vm_history.get(*selected_history) {
-                            self.widgets.update(vm, btrace_level, &self.output_buffer)?;
+                            self.widgets.update(
+                                vm,
+                                btrace_level,
+                                self.bytecode.debug_info(),
+                                &self.output_buffer,
+                            )?;
                         }
                     }
                 }
@@ -288,11 +310,13 @@ impl Widgets {
         &mut self,
         vm: &Vm,
         level: usize,
+        debug: &DebugInfo,
         output_buffer: &Rc<RefCell<Vec<u8>>>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(ref mut disasm) = self.disasm {
             if let Some(ci) = vm.call_info(level) {
-                disasm.update(ci.bytecode(), ci.instuction_ptr())?;
+                let debug_fn = debug.get(ci.bytecode().name());
+                disasm.update(ci.bytecode(), ci.instuction_ptr(), debug_fn.map(|v| &v[..]))?;
             }
         }
         if let Some(ref mut stack_trace) = self.stack_trace {

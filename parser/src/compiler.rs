@@ -10,7 +10,8 @@ use self::{
 
 use crate::{
     bytecode::{
-        std_functions, Bytecode, BytecodeArg, FnBytecode, FnProto, Instruction, NativeFn, OpCode,
+        std_functions, Bytecode, BytecodeArg, FnBytecode, FnProto, Instruction, LineInfo, NativeFn,
+        OpCode,
     },
     interpreter::{eval, EvalContext, RunResult},
     parser::{ExprEnum, Expression, Statement},
@@ -48,15 +49,16 @@ struct LocalVar {
 
 struct CompilerEnv {
     functions: HashMap<String, FnProto>,
+    debug: HashMap<String, Vec<LineInfo>>,
 }
 
 impl CompilerEnv {
-    fn new(mut functions: HashMap<String, FnProto>) -> Self {
+    fn new(mut functions: HashMap<String, FnProto>, debug: HashMap<String, Vec<LineInfo>>) -> Self {
         let out = Rc::new(RefCell::new(std::io::stdout()));
         std_functions(out, &mut |name, f| {
             functions.insert(name, FnProto::Native(f));
         });
-        Self { functions }
+        Self { functions, debug }
     }
 }
 
@@ -66,6 +68,8 @@ struct Compiler<'a> {
     target_stack: Vec<Target>,
     locals: Vec<Vec<LocalVar>>,
     break_ips: Vec<usize>,
+    current_pos: Option<(u32, u32)>,
+    line_info: Vec<LineInfo>,
 }
 
 impl<'a> Compiler<'a> {
@@ -91,6 +95,8 @@ impl<'a> Compiler<'a> {
                 .collect(),
             locals: vec![args],
             break_ips: vec![],
+            current_pos: None,
+            line_info: vec![],
         }
     }
 
@@ -143,6 +149,21 @@ impl<'a> Compiler<'a> {
             })
             .ok_or_else(|| CompileError::new(span, CEK::VarNotFound(name.to_string())))
     }
+
+    fn start_src_pos(&mut self, pos: u32) {
+        self.current_pos = Some((pos as u32, self.bytecode.instructions.len() as u32));
+    }
+
+    fn end_src_pos(&mut self, pos: u32) {
+        if let Some((src_start, byte_start)) = self.current_pos {
+            self.line_info.push(LineInfo {
+                src_start,
+                src_end: pos as u32,
+                byte_start,
+                byte_end: self.bytecode.instructions.len() as u32,
+            })
+        }
+    }
 }
 
 type CompileResult<'src, T> = Result<T, CompileError<'src>>;
@@ -176,7 +197,8 @@ fn compile_int<'src, 'ast>(
         .map(|(k, v)| (k, FnProto::Native(v)))
         .collect();
 
-    let mut env = CompilerEnv::new(functions);
+    // Built-in functions don't have line number information.
+    let mut env = CompilerEnv::new(functions, HashMap::new());
 
     retrieve_fn_signatures(stmts, &mut env);
 
@@ -190,6 +212,8 @@ fn compile_int<'src, 'ast>(
     compiler.bytecode.stack_size = compiler.target_stack.len();
 
     let bytecode = FnProto::Code(compiler.bytecode);
+    let line_info = compiler.line_info;
+    env.debug.insert("".to_string(), line_info);
 
     let mut functions = env.functions;
     functions.insert("".to_string(), bytecode);
@@ -205,7 +229,10 @@ fn compile_int<'src, 'ast>(
         }
     }
 
-    Ok(Bytecode { functions })
+    Ok(Bytecode {
+        functions,
+        debug: env.debug,
+    })
 }
 
 fn compile_fn<'src, 'ast>(
@@ -214,7 +241,7 @@ fn compile_fn<'src, 'ast>(
     stmts: &'ast [Statement<'src>],
     args: Vec<LocalVar>,
     fn_args: Vec<BytecodeArg>,
-) -> CompileResult<'src, FnProto> {
+) -> CompileResult<'src, (FnProto, Vec<LineInfo>)> {
     let mut compiler = Compiler::new(args, fn_args, env);
     if let Some(last_target) = emit_stmts(stmts, &mut compiler)? {
         compiler
@@ -225,7 +252,7 @@ fn compile_fn<'src, 'ast>(
     compiler.bytecode.stack_size = compiler.target_stack.len();
     compiler.bytecode.name = name;
 
-    Ok(FnProto::Code(compiler.bytecode))
+    Ok((FnProto::Code(compiler.bytecode), compiler.line_info))
 }
 
 fn retrieve_fn_signatures(stmts: &[Statement], env: &mut CompilerEnv) {
@@ -315,8 +342,10 @@ fn emit_stmts<'src>(
                     })
                     .collect::<Result<_, _>>()?;
                 dbg_println!("FnDecl actual args: {:?} fn_args: {:?}", a_args, fn_args);
-                let fun = compile_fn(&mut compiler.env, name.to_string(), stmts, a_args, fn_args)?;
+                let (fun, debug) =
+                    compile_fn(&mut compiler.env, name.to_string(), stmts, a_args, fn_args)?;
                 compiler.env.functions.insert(name.to_string(), fun);
+                compiler.env.debug.insert(name.to_string(), debug);
             }
             Statement::Expression(ref ex) => {
                 last_target = Some(emit_expr(ex, compiler)?);
@@ -395,7 +424,8 @@ fn emit_stmts<'src>(
 }
 
 fn emit_expr<'src>(expr: &Expression<'src>, compiler: &mut Compiler) -> CompileResult<'src, usize> {
-    match &expr.expr {
+    compiler.start_src_pos(expr.span.location_line());
+    let res = match &expr.expr {
         ExprEnum::NumLiteral(val) => Ok(compiler.find_or_create_literal(val)),
         ExprEnum::StrLiteral(val) => Ok(compiler.find_or_create_literal(&Value::Str(val.clone()))),
         ExprEnum::ArrLiteral(val) => {
@@ -439,7 +469,7 @@ fn emit_expr<'src>(expr: &Expression<'src>, compiler: &mut Compiler) -> CompileR
         }
         ExprEnum::Variable(str) => {
             let local = compiler.find_local(*str, expr.span)?;
-            return Ok(local.stack_idx);
+            Ok(local.stack_idx)
         }
         ExprEnum::Cast(ex, decl) => {
             let val = emit_expr(ex, compiler)?;
@@ -664,7 +694,9 @@ fn emit_expr<'src>(expr: &Expression<'src>, compiler: &mut Compiler) -> CompileR
             compiler.locals.pop();
             Ok(res)
         }
-    }
+    };
+    compiler.end_src_pos(expr.span.location_line());
+    res
 }
 
 fn emit_binary_op<'src>(
