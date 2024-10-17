@@ -295,13 +295,10 @@ impl Bytecode {
                 _ => return Err(ReadError::UnknownTag(tag)),
             }
         }
-        let loaded_fn = functions
+        functions
             .iter()
             .find(|(name, _)| *name == "")
             .ok_or(ReadError::NoMainFound)?;
-        if let FnProto::Code(ref _code) = loaded_fn.1 {
-            dbg_println!("instructions: {:#?}", _code.instructions);
-        }
         Ok(Bytecode { functions, debug })
     }
 

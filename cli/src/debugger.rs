@@ -3,6 +3,7 @@
 mod disasm;
 mod help;
 mod output;
+mod source_list;
 mod stack;
 mod stack_trace;
 
@@ -25,8 +26,8 @@ use ratatui::{
 use ::mascal::{interpret, Bytecode, DebugInfo, Vm};
 
 use self::{
-    disasm::DisasmWidget, help::HelpWidget, output::OutputWidget, stack::StackWidget,
-    stack_trace::StackTraceWidget,
+    disasm::DisasmWidget, help::HelpWidget, output::OutputWidget, source_list::SourceListWidget,
+    stack::StackWidget, stack_trace::StackTraceWidget,
 };
 
 pub(crate) fn run_debugger(mut bytecode: Bytecode) -> Result<(), Box<dyn std::error::Error>> {
@@ -50,6 +51,7 @@ struct App<'a> {
 }
 
 struct Widgets {
+    source_list: SourceListWidget,
     disasm: Option<DisasmWidget>,
     stack_trace: Option<StackTraceWidget>,
     stack: Option<StackWidget>,
@@ -59,12 +61,14 @@ struct Widgets {
 
 impl<'a> App<'a> {
     fn new(bytecode: &'a Bytecode, output_buffer: Rc<RefCell<Vec<u8>>>) -> Self {
+        let (source_list, error) = SourceListWidget::new(bytecode);
         Self {
             bytecode,
             mode: Default::default(),
             output_buffer,
-            error: RefCell::new(None),
+            error: RefCell::new(error.map(|e| e.to_string())),
             widgets: Widgets {
+                source_list,
                 disasm: DisasmWidget::new(bytecode).ok(),
                 stack_trace: StackTraceWidget::new().ok(),
                 stack: StackWidget::new().ok(),
@@ -98,6 +102,9 @@ impl<'a> App<'a> {
     fn inner_events(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if let event::Event::Key(key) = event::read()? {
             match (key.kind, key.code) {
+                (KeyEventKind::Press, KeyCode::Char('l')) => {
+                    self.widgets.source_list.visible = !self.widgets.source_list.visible;
+                }
                 (KeyEventKind::Press, KeyCode::Char('D')) => {
                     if self.widgets.disasm.is_some() {
                         self.widgets.disasm = None;
@@ -112,7 +119,7 @@ impl<'a> App<'a> {
                         self.widgets.stack_trace = StackTraceWidget::new().ok();
                     }
                 }
-                (KeyEventKind::Press, KeyCode::Char('l')) => {
+                (KeyEventKind::Press, KeyCode::Char('k')) => {
                     if self.widgets.stack.is_some() {
                         self.widgets.stack = None;
                     } else {
@@ -313,9 +320,11 @@ impl Widgets {
         debug: Option<&DebugInfo>,
         output_buffer: &Rc<RefCell<Vec<u8>>>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(ref mut disasm) = self.disasm {
-            if let Some(ci) = vm.call_info(level) {
-                let debug_fn = debug.and_then(|debug| debug.get(ci.bytecode().name()));
+        if let Some(ci) = vm.call_info(level) {
+            let debug_fn = debug.and_then(|debug| debug.get(ci.bytecode().name()));
+            self.source_list
+                .update(ci.instuction_ptr(), debug_fn.map(|v| &v[..]))?;
+            if let Some(ref mut disasm) = self.disasm {
                 disasm.update(ci.bytecode(), ci.instuction_ptr(), debug_fn.map(|v| &v[..]))?;
             }
         }
@@ -388,12 +397,17 @@ impl<'a> Widget for &App<'a> {
                 widget_area.height = (widget_area.height - 1) / 2;
 
                 let widget_count = self.widgets.disasm.is_some() as u16
-                    + self.widgets.stack_trace.is_some() as u16;
+                    + self.widgets.stack_trace.is_some() as u16
+                    + self.widgets.source_list.visible as u16;
 
                 if widget_count != 0 {
                     widget_area.width /= widget_count;
                 }
 
+                if self.widgets.source_list.visible {
+                    self.widgets.source_list.render(widget_area, buf);
+                    widget_area.x += widget_area.width;
+                }
                 if let Some(d) = self.widgets.disasm.as_ref() {
                     d.render(widget_area, buf);
                     widget_area.x += widget_area.width;

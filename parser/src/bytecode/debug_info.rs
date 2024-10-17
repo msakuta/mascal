@@ -26,11 +26,9 @@ impl Bytecode {
 
     pub(super) fn read_debug_info(reader: &mut impl Read) -> Result<DebugInfo, ReadError> {
         let file_name = read_str(reader)?;
-        println!("Reading DEBUG tag");
         let mut len = [0u8; std::mem::size_of::<usize>()];
         reader.read_exact(&mut len)?;
         let len = usize::from_le_bytes(len);
-        println!("Reading {len} debug info");
         let source_map = (0..len)
             .map(|_| -> Result<_, ReadError> {
                 let name = read_str(reader)?;
@@ -43,7 +41,6 @@ impl Bytecode {
                 Ok((name, line_info))
             })
             .collect::<Result<HashMap<String, Vec<LineInfo>>, _>>()?;
-        println!("Debug: {source_map:?}");
         Ok(DebugInfo {
             file_name,
             source_map,
@@ -66,6 +63,10 @@ impl DebugInfo {
 
     pub fn get(&self, fname: &str) -> Option<&Vec<LineInfo>> {
         self.source_map.get(fname)
+    }
+
+    pub fn file_name(&self) -> &str {
+        &self.file_name
     }
 
     pub(super) fn set_file_name(&mut self, file_name: impl Into<String>) {
