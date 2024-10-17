@@ -12,8 +12,9 @@ impl Bytecode {
         debug: &DebugInfo,
         writer: &mut impl Write,
     ) -> std::io::Result<()> {
-        writer.write_all(&debug.len().to_le_bytes())?;
-        for (fname, debug) in debug.iter() {
+        write_str(&debug.file_name, writer)?;
+        writer.write_all(&debug.source_map.len().to_le_bytes())?;
+        for (fname, debug) in debug.source_map.iter() {
             write_str(fname, writer)?;
             writer.write_all(&debug.len().to_le_bytes())?;
             for line_info in debug {
@@ -23,15 +24,14 @@ impl Bytecode {
         Ok(())
     }
 
-    pub(super) fn read_debug_info(
-        reader: &mut impl Read,
-    ) -> Result<HashMap<String, Vec<LineInfo>>, ReadError> {
+    pub(super) fn read_debug_info(reader: &mut impl Read) -> Result<DebugInfo, ReadError> {
+        let file_name = read_str(reader)?;
         println!("Reading DEBUG tag");
         let mut len = [0u8; std::mem::size_of::<usize>()];
         reader.read_exact(&mut len)?;
         let len = usize::from_le_bytes(len);
         println!("Reading {len} debug info");
-        let debug = (0..len)
+        let source_map = (0..len)
             .map(|_| -> Result<_, ReadError> {
                 let name = read_str(reader)?;
                 let mut buf = [0u8; std::mem::size_of::<usize>()];
@@ -43,12 +43,35 @@ impl Bytecode {
                 Ok((name, line_info))
             })
             .collect::<Result<HashMap<String, Vec<LineInfo>>, _>>()?;
-        println!("Debug: {debug:?}");
-        Ok(debug)
+        println!("Debug: {source_map:?}");
+        Ok(DebugInfo {
+            file_name,
+            source_map,
+        })
     }
 }
 
-pub type DebugInfo = HashMap<String, Vec<LineInfo>>;
+pub struct DebugInfo {
+    file_name: String,
+    source_map: HashMap<String, Vec<LineInfo>>,
+}
+
+impl DebugInfo {
+    pub fn new(source_map: HashMap<String, Vec<LineInfo>>) -> Self {
+        Self {
+            file_name: "".to_string(),
+            source_map,
+        }
+    }
+
+    pub fn get(&self, fname: &str) -> Option<&Vec<LineInfo>> {
+        self.source_map.get(fname)
+    }
+
+    pub(super) fn set_file_name(&mut self, file_name: impl Into<String>) {
+        self.file_name = file_name.into()
+    }
+}
 
 #[derive(Debug)]
 /// Source mapping between line number and bytecode bytes.

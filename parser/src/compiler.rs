@@ -16,7 +16,7 @@ use crate::{
     interpreter::{eval, EvalContext, RunResult},
     parser::{ExprEnum, Expression, Statement},
     value::{ArrayInt, TupleEntry},
-    Span, TypeDecl, Value,
+    DebugInfo, Span, TypeDecl, Value,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -231,7 +231,7 @@ fn compile_int<'src, 'ast>(
 
     Ok(Bytecode {
         functions,
-        debug: env.debug,
+        debug: Some(DebugInfo::new(env.debug)),
     })
 }
 

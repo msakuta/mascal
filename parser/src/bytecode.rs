@@ -228,12 +228,12 @@ const DEBUG_TAG: [u8; 2] = [0xde, 0xba];
 
 pub struct Bytecode {
     pub(crate) functions: HashMap<String, FnProto>,
-    pub(crate) debug: DebugInfo,
+    pub(crate) debug: Option<DebugInfo>,
 }
 
 impl Bytecode {
-    pub fn debug_info(&self) -> &DebugInfo {
-        &self.debug
+    pub fn debug_info(&self) -> Option<&DebugInfo> {
+        self.debug.as_ref()
     }
 
     /// Add a user-application provided native function to this bytecode.
@@ -247,6 +247,12 @@ impl Bytecode {
 
     pub fn add_std_fn(&mut self, out: Rc<RefCell<dyn std::io::Write>>) {
         std_functions(out, &mut |name, f| self.add_ext_fn(name, f));
+    }
+
+    pub fn set_file_name(&mut self, file_name: &str) {
+        if let Some(ref mut debug) = self.debug {
+            debug.set_file_name(file_name);
+        }
     }
 
     pub fn write(&self, writer: &mut impl Write) -> std::io::Result<()> {
@@ -267,14 +273,16 @@ impl Bytecode {
             }
         }
 
-        writer.write_all(&DEBUG_TAG)?;
-        Self::write_debug_info(&self.debug, writer)?;
+        if let Some(ref debug) = self.debug {
+            writer.write_all(&DEBUG_TAG)?;
+            Self::write_debug_info(debug, writer)?;
+        }
         Ok(())
     }
 
     pub fn read(reader: &mut impl Read) -> Result<Self, ReadError> {
         let mut functions = HashMap::new();
-        let mut debug = HashMap::new();
+        let mut debug = None;
         loop {
             let mut tag = [0u8; 2];
             match reader.read_exact(&mut tag) {
@@ -283,7 +291,7 @@ impl Bytecode {
             };
             match tag {
                 FUNCTION_TAG => functions = Self::read_functions(reader)?,
-                DEBUG_TAG => debug = Self::read_debug_info(reader)?,
+                DEBUG_TAG => debug = Some(Self::read_debug_info(reader)?),
                 _ => return Err(ReadError::UnknownTag(tag)),
             }
         }

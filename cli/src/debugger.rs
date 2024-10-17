@@ -310,12 +310,12 @@ impl Widgets {
         &mut self,
         vm: &Vm,
         level: usize,
-        debug: &DebugInfo,
+        debug: Option<&DebugInfo>,
         output_buffer: &Rc<RefCell<Vec<u8>>>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(ref mut disasm) = self.disasm {
             if let Some(ci) = vm.call_info(level) {
-                let debug_fn = debug.get(ci.bytecode().name());
+                let debug_fn = debug.and_then(|debug| debug.get(ci.bytecode().name()));
                 disasm.update(ci.bytecode(), ci.instuction_ptr(), debug_fn.map(|v| &v[..]))?;
             }
         }

@@ -64,9 +64,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
+        let source_file = source_file.unwrap_or("<Unknown>");
+
         if args.compile || args.compile_and_run {
             let mut bytecode = compile(&result.1, HashMap::new())
-                .map_err(|e| format!("Error: {}:{}", source_file.unwrap_or("<Unknown>"), e))?;
+                .map_err(|e| format!("Error: {}:{}", source_file, e))?;
+            bytecode.set_file_name(source_file);
             if args.signatures {
                 bytecode
                     .signatures(&mut std::io::stdout())
