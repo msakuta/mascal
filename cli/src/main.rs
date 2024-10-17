@@ -7,7 +7,6 @@ use mascal::*;
 use ::colored::Colorize;
 use std::{
     cell::RefCell,
-    collections::HashMap,
     fs::File,
     io::{prelude::*, BufReader, BufWriter},
     rc::Rc,
@@ -42,6 +41,8 @@ struct Args {
     signatures: bool,
     #[clap(short = 'D', long, help = "Enable interactive debugger")]
     debugger: bool,
+    #[clap(short = 'g', long, help = "Enable debug information in the bytecode")]
+    debug_info: bool,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -64,9 +65,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
+        let source_file = source_file.unwrap_or("<Unknown>");
+
         if args.compile || args.compile_and_run {
-            let mut bytecode = compile(&result.1, HashMap::new())
-                .map_err(|e| format!("Error: {}:{}", source_file.unwrap_or("<Unknown>"), e))?;
+            let mut bytecode = CompilerBuilder::new(&result.1)
+                .enable_debug(args.debug_info)
+                .compile(&mut std::io::sink())
+                .map_err(|e| format!("Error: {}:{}", source_file, e))?;
+            bytecode.set_file_name(source_file);
             if args.signatures {
                 bytecode
                     .signatures(&mut std::io::stdout())
@@ -117,7 +123,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             let out = Rc::new(RefCell::new(std::io::stdout()));
             bytecode.add_std_fn(out);
-            interpret(&bytecode).map_err(|e| e.to_string())?;
+            if args.debugger {
+                run_debugger(bytecode)?;
+            } else {
+                interpret(&bytecode).map_err(|e| e.to_string())?;
+            }
         } else {
             let mut contents = String::new();
             file.read_to_string(&mut contents)

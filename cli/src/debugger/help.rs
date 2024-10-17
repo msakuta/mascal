@@ -25,11 +25,12 @@ impl Widget for &HelpWidget {
                 "  Toggle help (this window): ".into(),
                 "h".blue().bold(),
             ]),
+            Line::from(vec!["  Toggle source list: ".into(), "l".blue().bold()]),
             Line::from(vec!["  Toggle disassembly: ".into(), "D".blue().bold()]),
             Line::from(vec!["  Toggle stack trace: ".into(), "t".blue().bold()]),
             Line::from(vec![
                 "  Toggle local stack values: ".into(),
-                "l".blue().bold(),
+                "k".blue().bold(),
             ]),
             Line::from(vec!["  Toggle output widget: ".into(), "o".blue().bold()]),
             Line::from(vec!["  run current code: ".into(), "r".blue().bold()]),

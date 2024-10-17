@@ -1,4 +1,4 @@
-use mascal::{Bytecode, FnBytecode};
+use mascal::{Bytecode, FnBytecode, LineInfo};
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Rect},
@@ -27,11 +27,23 @@ impl DisasmWidget {
         &mut self,
         bytecode: &FnBytecode,
         ip: usize,
+        debug: Option<&[LineInfo]>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut temp = String::new();
         for (i, inst) in bytecode.iter_instructions().enumerate() {
             let current = if i == ip { "*" } else { " " };
-            temp += &format!("{current}  [{}] {}\n", i, inst);
+            let line_num = debug.map_or_else(
+                || "   ".to_string(),
+                |debug| {
+                    debug
+                        .iter()
+                        .find(|line_info| {
+                            line_info.byte_start <= (i as u32) && (i as u32) <= line_info.byte_end
+                        })
+                        .map_or_else(|| "    ".to_string(), |li| format!("{:04}", li.src_start))
+                },
+            );
+            temp += &format!("{current}  {} [{}] {}\n", line_num, i, inst);
         }
         self.text = temp;
         self.scroll = ip.saturating_sub(3); // Leave 3 lines before
