@@ -166,11 +166,6 @@ impl<'a> Compiler<'a> {
     fn source_map(&self) -> Vec<LineInfo> {
         let mut source_map = vec![];
         let mut last_range: Option<LineInfo> = None;
-        println!(
-            "source_map: {} {:?}",
-            self.bytecode.instructions.len(),
-            self.line_info
-        );
         for i in 0..self.bytecode.instructions.len() {
             let Some(&src_line) = self.line_info.get(&(i as u32)) else {
                 continue;

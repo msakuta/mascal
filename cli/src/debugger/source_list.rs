@@ -1,5 +1,3 @@
-use std::cmp::Ordering;
-
 use mascal::{Bytecode, LineInfo};
 use ratatui::{
     buffer::Buffer,
