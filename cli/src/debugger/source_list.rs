@@ -48,16 +48,8 @@ impl SourceListWidget {
         if let Some(debug) = debug {
             let ip32 = ip as u32;
             let line_info = debug
-                .binary_search_by(|li| {
-                    if ip32 < li.byte_start {
-                        Ordering::Less
-                    } else if li.byte_end < ip32 {
-                        Ordering::Greater
-                    } else {
-                        Ordering::Equal
-                    }
-                })
-                .map_or_else(|l| debug.get(l), |l| debug.get(l));
+                .iter()
+                .find(|li| li.byte_start <= ip32 && ip32 <= li.byte_end);
             if let Some(line_info) = line_info {
                 let line = line_info.src_start as usize;
                 self.line = Some(line);

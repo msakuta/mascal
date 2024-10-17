@@ -69,7 +69,7 @@ struct Compiler<'a> {
     locals: Vec<Vec<LocalVar>>,
     break_ips: Vec<usize>,
     current_pos: Option<(u32, u32)>,
-    line_info: Vec<LineInfo>,
+    line_info: HashMap<u32, u32>,
 }
 
 impl<'a> Compiler<'a> {
@@ -96,7 +96,7 @@ impl<'a> Compiler<'a> {
             locals: vec![args],
             break_ips: vec![],
             current_pos: None,
-            line_info: vec![],
+            line_info: HashMap::new(),
         }
     }
 
@@ -128,11 +128,7 @@ impl<'a> Compiler<'a> {
 
         let stk_target = self.target_stack.len();
         self.target_stack.push(Target::Literal(literal));
-        bytecode.instructions.push(Instruction::new(
-            OpCode::LoadLiteral,
-            literal as u8,
-            stk_target as u16,
-        ));
+        self.push_inst(OpCode::LoadLiteral, literal as u8, stk_target as u16);
         stk_target
     }
 
@@ -150,32 +146,62 @@ impl<'a> Compiler<'a> {
             .ok_or_else(|| CompileError::new(span, CEK::VarNotFound(name.to_string())))
     }
 
+    fn push_inst(&mut self, op: OpCode, arg0: u8, arg1: u16) -> usize {
+        let ret = self.bytecode.push_inst(op, arg0, arg1);
+        if let Some((cur_pos, _)) = self.current_pos {
+            self.line_info.insert(ret as u32, cur_pos);
+        }
+        ret
+    }
+
     fn start_src_pos(&mut self, pos: u32) {
         self.current_pos = Some((pos as u32, self.bytecode.instructions.len() as u32));
     }
 
     fn end_src_pos(&mut self, pos: u32) {
         let ip = self.bytecode.instructions.len() as u32;
-        'advance: {
-            if let Some((src_start, byte_start)) = self.current_pos {
-                if pos < src_start {
-                    break 'advance;
+        self.current_pos = Some((pos as u32, ip));
+    }
+
+    fn source_map(&self) -> Vec<LineInfo> {
+        let mut source_map = vec![];
+        let mut last_range: Option<LineInfo> = None;
+        println!(
+            "source_map: {} {:?}",
+            self.bytecode.instructions.len(),
+            self.line_info
+        );
+        for i in 0..self.bytecode.instructions.len() {
+            let Some(&src_line) = self.line_info.get(&(i as u32)) else {
+                continue;
+            };
+            if let Some(ref mut range) = last_range {
+                if range.src_start <= src_line && src_line <= range.src_end {
+                    range.byte_end = i as u32;
+                } else {
+                    source_map.push(*range);
+                    last_range = Some(LineInfo {
+                        src_start: src_line,
+                        src_end: src_line,
+                        byte_start: i as u32,
+                        byte_end: i as u32,
+                    });
                 }
-                if let Some(prev_li) = self.line_info.last_mut() {
-                    if prev_li.src_start == src_start && prev_li.src_end == pos {
-                        prev_li.byte_end = prev_li.byte_end.max(ip);
-                        break 'advance;
-                    }
-                }
-                self.line_info.push(LineInfo {
-                    src_start,
-                    src_end: pos as u32,
-                    byte_start,
-                    byte_end: ip,
-                });
+            } else {
+                last_range = Some(LineInfo {
+                    src_start: src_line,
+                    src_end: src_line,
+                    byte_start: i as u32,
+                    byte_end: i as u32,
+                })
             }
         }
-        self.current_pos = Some((pos as u32, ip));
+
+        if let Some(range) = last_range {
+            source_map.push(range);
+        }
+
+        source_map
     }
 }
 
@@ -251,10 +277,16 @@ impl<'src, 'ast> CompilerBuilder<'src, 'ast> {
         }
         compiler.bytecode.stack_size = compiler.target_stack.len();
 
+        let source_map = if self.enable_debug {
+            Some(compiler.source_map())
+        } else {
+            None
+        };
+
         let bytecode = FnProto::Code(compiler.bytecode);
-        if self.enable_debug {
-            let line_info = compiler.line_info;
-            env.debug.insert("".to_string(), line_info);
+
+        if let Some(source_map) = source_map {
+            env.debug.insert("".to_string(), source_map);
         }
 
         let mut functions = env.functions;
@@ -285,11 +317,13 @@ impl<'src, 'ast> CompilerBuilder<'src, 'ast> {
 fn compile_fn<'src, 'ast>(
     env: &mut CompilerEnv,
     name: String,
+    src_start: u32,
     stmts: &'ast [Statement<'src>],
     args: Vec<LocalVar>,
     fn_args: Vec<BytecodeArg>,
 ) -> CompileResult<'src, (FnProto, Vec<LineInfo>)> {
     let mut compiler = Compiler::new(args, fn_args, env);
+    compiler.start_src_pos(src_start);
     if let Some(last_target) = emit_stmts(stmts, &mut compiler)? {
         compiler
             .bytecode
@@ -298,8 +332,9 @@ fn compile_fn<'src, 'ast>(
     }
     compiler.bytecode.stack_size = compiler.target_stack.len();
     compiler.bytecode.name = name;
+    let source_map = compiler.source_map();
 
-    Ok((FnProto::Code(compiler.bytecode), compiler.line_info))
+    Ok((FnProto::Code(compiler.bytecode), source_map))
 }
 
 fn retrieve_fn_signatures(stmts: &[Statement], env: &mut CompilerEnv) {
@@ -389,8 +424,14 @@ fn emit_stmts<'src>(
                     })
                     .collect::<Result<_, _>>()?;
                 dbg_println!("FnDecl actual args: {:?} fn_args: {:?}", a_args, fn_args);
-                let (fun, debug) =
-                    compile_fn(&mut compiler.env, name.to_string(), stmts, a_args, fn_args)?;
+                let (fun, debug) = compile_fn(
+                    &mut compiler.env,
+                    name.to_string(),
+                    name.location_line(),
+                    stmts,
+                    a_args,
+                    fn_args,
+                )?;
                 compiler.env.functions.insert(name.to_string(), fun);
                 compiler.env.debug.insert(name.to_string(), debug);
             }
@@ -400,19 +441,15 @@ fn emit_stmts<'src>(
             Statement::Loop(stmts) => {
                 let inst_loop_start = compiler.bytecode.instructions.len();
                 last_target = emit_stmts(stmts, compiler)?;
-                compiler
-                    .bytecode
-                    .push_inst(OpCode::Jmp, 0, inst_loop_start as u16);
+                compiler.push_inst(OpCode::Jmp, 0, inst_loop_start as u16);
                 compiler.fixup_breaks();
             }
             Statement::While(cond, stmts) => {
                 let inst_loop_start = compiler.bytecode.instructions.len();
                 let stk_cond = emit_expr(cond, compiler)?;
-                let inst_break = compiler.bytecode.push_inst(OpCode::Jf, stk_cond as u8, 0);
+                let inst_break = compiler.push_inst(OpCode::Jf, stk_cond as u8, 0);
                 last_target = emit_stmts(stmts, compiler)?;
-                compiler
-                    .bytecode
-                    .push_inst(OpCode::Jmp, 0, inst_loop_start as u16);
+                compiler.push_inst(OpCode::Jmp, 0, inst_loop_start as u16);
                 compiler.bytecode.instructions[inst_break].arg1 =
                     compiler.bytecode.instructions.len() as u16;
                 compiler.fixup_breaks();
@@ -443,25 +480,19 @@ fn emit_stmts<'src>(
                     });
                 compiler.target_stack[stk_from] = Target::Local(local_iter);
                 compiler.target_stack.push(Target::None);
-                compiler
-                    .bytecode
-                    .push_inst(OpCode::Move, stk_from as u8, stk_check as u16);
-                compiler
-                    .bytecode
-                    .push_inst(OpCode::Lt, stk_check as u8, stk_to as u16);
-                let inst_break = compiler.bytecode.push_inst(OpCode::Jf, stk_check as u8, 0);
+                compiler.push_inst(OpCode::Move, stk_from as u8, stk_check as u16);
+                compiler.push_inst(OpCode::Lt, stk_check as u8, stk_to as u16);
+                let inst_break = compiler.push_inst(OpCode::Jf, stk_check as u8, 0);
                 last_target = emit_stmts(stmts, compiler)?;
-                compiler.bytecode.push_inst(OpCode::Incr, stk_from as u8, 0);
-                compiler
-                    .bytecode
-                    .push_inst(OpCode::Jmp, 0, inst_loop_start as u16);
+                compiler.push_inst(OpCode::Incr, stk_from as u8, 0);
+                compiler.push_inst(OpCode::Jmp, 0, inst_loop_start as u16);
                 compiler.bytecode.instructions[inst_break].arg1 =
                     compiler.bytecode.instructions.len() as u16;
                 compiler.fixup_breaks();
             }
             Statement::Break => {
                 let break_ip = compiler.bytecode.instructions.len();
-                compiler.bytecode.push_inst(OpCode::Jmp, 0, 0);
+                compiler.push_inst(OpCode::Jmp, 0, 0);
                 compiler.break_ips.push(break_ip);
             }
             Statement::Comment(_) => (),
@@ -522,27 +553,23 @@ fn emit_expr<'src>(expr: &Expression<'src>, compiler: &mut Compiler) -> CompileR
             let val = emit_expr(ex, compiler)?;
             // Make a copy of the value to avoid overwriting original variable
             let val_copy = compiler.target_stack.len();
-            compiler
-                .bytecode
-                .push_inst(OpCode::Move, val as u8, val_copy as u16);
+            compiler.push_inst(OpCode::Move, val as u8, val_copy as u16);
             compiler.target_stack.push(Target::None);
             let mut decl_buf = [0u8; std::mem::size_of::<i64>()];
             decl.serialize(&mut std::io::Cursor::new(&mut decl_buf[..]))?;
             let decl_stk =
                 compiler.find_or_create_literal(&Value::I64(i64::from_le_bytes(decl_buf)));
-            compiler
-                .bytecode
-                .push_inst(OpCode::Cast, val_copy as u8, decl_stk as u16);
+            compiler.push_inst(OpCode::Cast, val_copy as u8, decl_stk as u16);
             Ok(val_copy)
         }
         ExprEnum::Not(val) => {
             let val = emit_expr(val, compiler)?;
-            compiler.bytecode.push_inst(OpCode::Not, val as u8, 0);
+            compiler.push_inst(OpCode::Not, val as u8, 0);
             Ok(val)
         }
         ExprEnum::BitNot(val) => {
             let val = emit_expr(val, compiler)?;
-            compiler.bytecode.push_inst(OpCode::BitNot, val as u8, 0);
+            compiler.push_inst(OpCode::BitNot, val as u8, 0);
             Ok(val)
         }
         ExprEnum::Add(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::Add, lhs, rhs)?),
@@ -555,9 +582,7 @@ fn emit_expr<'src>(expr: &Expression<'src>, compiler: &mut Compiler) -> CompileR
             match lhs_result {
                 LValue::Variable(name) => {
                     let local_idx = compiler.find_local(&name, expr.span)?.stack_idx;
-                    compiler
-                        .bytecode
-                        .push_inst(OpCode::Move, rhs_result as u8, local_idx as u16);
+                    compiler.push_inst(OpCode::Move, rhs_result as u8, local_idx as u16);
                     Ok(local_idx)
                 }
                 LValue::ArrayRef(arr, subidx) => {
@@ -565,17 +590,13 @@ fn emit_expr<'src>(expr: &Expression<'src>, compiler: &mut Compiler) -> CompileR
                     compiler.target_stack.push(Target::None);
 
                     // First, copy the value to be overwritten by Get instruction
-                    compiler
-                        .bytecode
-                        .push_inst(OpCode::Move, rhs_result as u8, value_copy as u16);
+                    compiler.push_inst(OpCode::Move, rhs_result as u8, value_copy as u16);
 
                     // Second, assign the target index into the set register
-                    compiler.bytecode.push_inst(OpCode::SetReg, subidx as u8, 0);
+                    compiler.push_inst(OpCode::SetReg, subidx as u8, 0);
 
                     // Third, get the element from the array reference
-                    compiler
-                        .bytecode
-                        .push_inst(OpCode::Set, arr as u8, value_copy as u16);
+                    compiler.push_inst(OpCode::Set, arr as u8, value_copy as u16);
 
                     Ok(value_copy)
                 }
@@ -652,14 +673,10 @@ fn emit_expr<'src>(expr: &Expression<'src>, compiler: &mut Compiler) -> CompileR
             for arg in &arg_values {
                 let arg_target = compiler.target_stack.len();
                 compiler.target_stack.push(Target::None);
-                compiler
-                    .bytecode
-                    .push_inst(OpCode::Move, *arg as u8, arg_target as u16);
+                compiler.push_inst(OpCode::Move, *arg as u8, arg_target as u16);
             }
 
-            compiler
-                .bytecode
-                .push_inst(OpCode::Call, arg_values.len() as u8, stk_fname as u16);
+            compiler.push_inst(OpCode::Call, arg_values.len() as u8, stk_fname as u16);
             compiler.target_stack.push(Target::None);
             Ok(stk_fname)
         }
@@ -673,17 +690,13 @@ fn emit_expr<'src>(expr: &Expression<'src>, compiler: &mut Compiler) -> CompileR
             let arg = if matches!(compiler.target_stack[arg], Target::Local(_)) {
                 // We move the local variable to another slot because our instructions are destructive
                 let top = compiler.target_stack.len();
-                compiler
-                    .bytecode
-                    .push_inst(OpCode::Move, arg as u8, top as u16);
+                compiler.push_inst(OpCode::Move, arg as u8, top as u16);
                 compiler.target_stack.push(Target::None);
                 top
             } else {
                 arg
             };
-            compiler
-                .bytecode
-                .push_inst(OpCode::Get, stk_ex as u8, arg as u16);
+            compiler.push_inst(OpCode::Get, stk_ex as u8, arg as u16);
             Ok(arg)
         }
         ExprEnum::TupleIndex(ex, index) => {
@@ -691,13 +704,9 @@ fn emit_expr<'src>(expr: &Expression<'src>, compiler: &mut Compiler) -> CompileR
             let stk_idx = compiler.find_or_create_literal(&Value::I64(*index as i64));
             let stk_idx_copy = compiler.target_stack.len();
             compiler.target_stack.push(Target::None);
-            compiler
-                .bytecode
-                .push_inst(OpCode::Move, stk_idx as u8, stk_idx_copy as u16);
+            compiler.push_inst(OpCode::Move, stk_idx as u8, stk_idx_copy as u16);
 
-            compiler
-                .bytecode
-                .push_inst(OpCode::Get, stk_ex as u8, stk_idx_copy as u16);
+            compiler.push_inst(OpCode::Get, stk_ex as u8, stk_idx_copy as u16);
 
             Ok(stk_idx_copy)
         }
@@ -711,21 +720,17 @@ fn emit_expr<'src>(expr: &Expression<'src>, compiler: &mut Compiler) -> CompileR
         ExprEnum::Conditional(cond, true_branch, false_branch) => {
             let cond = emit_expr(cond, compiler)?;
             let cond_inst_idx = compiler.bytecode.instructions.len();
-            compiler.bytecode.push_inst(OpCode::Jf, cond as u8, 0);
+            compiler.push_inst(OpCode::Jf, cond as u8, 0);
             let true_branch = emit_stmts(true_branch, compiler)?;
             if let Some(false_branch) = false_branch {
                 let true_inst_idx = compiler.bytecode.instructions.len();
-                compiler.bytecode.push_inst(OpCode::Jmp, 0, 0);
+                compiler.push_inst(OpCode::Jmp, 0, 0);
                 compiler.bytecode.instructions[cond_inst_idx].arg1 =
                     compiler.bytecode.instructions.len() as u16;
                 if let Some((false_branch, true_branch)) =
                     emit_stmts(false_branch, compiler)?.zip(true_branch)
                 {
-                    compiler.bytecode.push_inst(
-                        OpCode::Move,
-                        false_branch as u8,
-                        true_branch as u16,
-                    );
+                    compiler.push_inst(OpCode::Move, false_branch as u8, true_branch as u16);
                 }
                 compiler.bytecode.instructions[true_inst_idx].arg1 =
                     compiler.bytecode.instructions.len() as u16;
@@ -757,18 +762,12 @@ fn emit_binary_op<'src>(
     let lhs = if matches!(compiler.target_stack[lhs], Target::Local(_)) {
         // We move the local variable to another slot because our instructions are destructive
         let top = compiler.target_stack.len();
-        compiler
-            .bytecode
-            .push_inst(OpCode::Move, lhs as u8, top as u16);
+        compiler.push_inst(OpCode::Move, lhs as u8, top as u16);
         compiler.target_stack.push(Target::None);
         top
     } else {
         lhs
     };
-    compiler.bytecode.instructions.push(Instruction {
-        op,
-        arg0: lhs as u8,
-        arg1: rhs as u16,
-    });
+    compiler.push_inst(op, lhs as u8, rhs as u16);
     Ok(lhs)
 }

@@ -75,7 +75,7 @@ impl DebugInfo {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 /// Source mapping between line number and bytecode bytes.
 /// u32 should suffice since no one would write more than 4 billion bytes of source codes.
 pub struct LineInfo {

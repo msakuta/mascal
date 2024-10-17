@@ -1,5 +1,3 @@
-use std::cmp::Ordering;
-
 use mascal::{Bytecode, FnBytecode, LineInfo};
 use ratatui::{
     buffer::Buffer,
@@ -38,20 +36,11 @@ impl DisasmWidget {
                 || "   ".to_string(),
                 |debug| {
                     debug
-                        .binary_search_by(|line_info| {
-                            if (i as u32) < line_info.byte_start {
-                                Ordering::Less
-                            } else if line_info.byte_end <= (i as u32) {
-                                Ordering::Greater
-                            } else {
-                                Ordering::Equal
-                            }
+                        .iter()
+                        .find(|line_info| {
+                            line_info.byte_start <= (i as u32) && (i as u32) <= line_info.byte_end
                         })
-                        .map_or_else(
-                            |i| debug.get(i).map(|li| li.src_start),
-                            |i| debug.get(i).map(|li| li.src_start),
-                        )
-                        .map_or_else(|| "    ".to_string(), |line| format!("{line:04}"))
+                        .map_or_else(|| "    ".to_string(), |li| format!("{:04}", li.src_start))
                 },
             );
             temp += &format!("{current}  {} [{}] {}\n", line_num, i, inst);
