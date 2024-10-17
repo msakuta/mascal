@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 use mascal::{Bytecode, LineInfo};
 use ratatui::{
     buffer::Buffer,
@@ -20,6 +22,8 @@ impl SourceListWidget {
         let mut temp = String::new();
         let mut error = None;
         if let Some(source_file) = bytecode.debug_info().map(|d| d.file_name()) {
+            // Even if we fail to read the source file, we still create widget, just for the sake of laying out,
+            // with an empty content. However, we want to communicate the error up to the user.
             match std::fs::read_to_string(source_file) {
                 Ok(source) => temp = source,
                 Err(e) => error = Some(e.into()),
@@ -28,7 +32,7 @@ impl SourceListWidget {
         (
             Self {
                 visible: true,
-                text: temp.split("\n").map(|s| s.trim().to_string()).collect(),
+                text: temp.split("\n").map(|s| s.trim_end().to_string()).collect(),
                 line: None,
                 scroll: 0,
             },
@@ -43,12 +47,22 @@ impl SourceListWidget {
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(debug) = debug {
             let ip32 = ip as u32;
-            let line = debug
-                .binary_search_by_key(&ip32, |li| li.byte_start)
-                .map_or_else(|l| l, |l| l);
-            let line = line.clamp(0, self.text.len());
-            self.line = Some(line);
-            self.scroll = ip.saturating_sub(3); // Leave 3 lines before
+            let line_info = debug
+                .binary_search_by(|li| {
+                    if ip32 < li.byte_start {
+                        Ordering::Less
+                    } else if li.byte_end < ip32 {
+                        Ordering::Greater
+                    } else {
+                        Ordering::Equal
+                    }
+                })
+                .map_or_else(|l| debug.get(l), |l| debug.get(l));
+            if let Some(line_info) = line_info {
+                let line = line_info.src_start as usize;
+                self.line = Some(line);
+                self.scroll = line.saturating_sub(3); // Leave 3 lines before
+            }
         }
         Ok(())
     }
@@ -69,7 +83,7 @@ impl Widget for &SourceListWidget {
         let mut lines = vec![];
         if self.scroll < self.text.len() {
             lines.extend(self.text[self.scroll..].iter().enumerate().map(|(i, v)| {
-                let current = if Some(i + self.scroll) == self.line {
+                let current = if Some(i + self.scroll + 1) == self.line {
                     "*"
                 } else {
                     " "

@@ -48,6 +48,7 @@ impl Bytecode {
     }
 }
 
+#[derive(Debug)]
 pub struct DebugInfo {
     file_name: String,
     source_map: HashMap<String, Vec<LineInfo>>,

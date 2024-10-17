@@ -155,14 +155,27 @@ impl<'a> Compiler<'a> {
     }
 
     fn end_src_pos(&mut self, pos: u32) {
-        if let Some((src_start, byte_start)) = self.current_pos {
-            self.line_info.push(LineInfo {
-                src_start,
-                src_end: pos as u32,
-                byte_start,
-                byte_end: self.bytecode.instructions.len() as u32,
-            })
+        let ip = self.bytecode.instructions.len() as u32;
+        'advance: {
+            if let Some((src_start, byte_start)) = self.current_pos {
+                if pos < src_start {
+                    break 'advance;
+                }
+                if let Some(prev_li) = self.line_info.last_mut() {
+                    if prev_li.src_start == src_start && prev_li.src_end == pos {
+                        prev_li.byte_end = prev_li.byte_end.max(ip);
+                        break 'advance;
+                    }
+                }
+                self.line_info.push(LineInfo {
+                    src_start,
+                    src_end: pos as u32,
+                    byte_start,
+                    byte_end: ip,
+                });
+            }
         }
+        self.current_pos = Some((pos as u32, ip));
     }
 }
 
