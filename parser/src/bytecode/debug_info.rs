@@ -5,10 +5,25 @@ use std::{
 
 use crate::ReadError;
 
-use super::{read_str, Bytecode};
+use super::{read_str, write_str, Bytecode};
 
 impl Bytecode {
-    pub(super) fn read_debug(
+    pub(super) fn write_debug_info(
+        debug: &DebugInfo,
+        writer: &mut impl Write,
+    ) -> std::io::Result<()> {
+        writer.write_all(&debug.len().to_le_bytes())?;
+        for (fname, debug) in debug.iter() {
+            write_str(fname, writer)?;
+            writer.write_all(&debug.len().to_le_bytes())?;
+            for line_info in debug {
+                line_info.serialize(writer)?;
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn read_debug_info(
         reader: &mut impl Read,
     ) -> Result<HashMap<String, Vec<LineInfo>>, ReadError> {
         println!("Reading DEBUG tag");

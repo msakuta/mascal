@@ -268,14 +268,7 @@ impl Bytecode {
         }
 
         writer.write_all(&DEBUG_TAG)?;
-        writer.write_all(&self.debug.len().to_le_bytes())?;
-        for (fname, debug) in self.debug.iter() {
-            write_str(fname, writer)?;
-            writer.write_all(&debug.len().to_le_bytes())?;
-            for line_info in debug {
-                line_info.serialize(writer)?;
-            }
-        }
+        Self::write_debug_info(&self.debug, writer)?;
         Ok(())
     }
 
@@ -290,7 +283,7 @@ impl Bytecode {
             };
             match tag {
                 FUNCTION_TAG => functions = Self::read_functions(reader)?,
-                DEBUG_TAG => debug = Self::read_debug(reader)?,
+                DEBUG_TAG => debug = Self::read_debug_info(reader)?,
                 _ => return Err(ReadError::UnknownTag(tag)),
             }
         }
