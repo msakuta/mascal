@@ -17,12 +17,13 @@ use self::parser::style_text;
 
 pub(super) struct SourceListWidget {
     pub(super) visible: bool,
-    pub(super) text: Vec<String>,
+    text: Vec<String>,
     line: Option<usize>,
-    pub(super) scroll: usize,
+    scroll: usize,
     scroll_state: ScrollbarState,
     /// Cached height of rendered text area. Used for calculating scroll position.
     render_height: u16,
+    pub(super) focus: bool,
 }
 
 impl SourceListWidget {
@@ -47,6 +48,7 @@ impl SourceListWidget {
                 scroll: 0,
                 scroll_state: ScrollbarState::new(length),
                 render_height: 10,
+                focus: true,
             },
             error,
         )
@@ -75,6 +77,15 @@ impl SourceListWidget {
         }
         Ok(())
     }
+
+    pub(super) fn update_scroll(&mut self, delta: i32) {
+        if delta < 0 {
+            self.scroll = self.scroll.saturating_sub(delta.abs() as usize);
+        } else {
+            self.scroll = self.scroll.saturating_add(delta as usize);
+        }
+        self.scroll_state = self.scroll_state.position(self.scroll);
+    }
 }
 
 impl Widget for &mut SourceListWidget {
@@ -87,7 +98,11 @@ impl Widget for &mut SourceListWidget {
         let block = Block::bordered()
             .title(title.alignment(Alignment::Center))
             .border_style(Style::new().white())
-            .border_set(border::THICK);
+            .border_set(if self.focus {
+                border::THICK
+            } else {
+                border::PLAIN
+            });
 
         let mut lines = vec![];
         if self.scroll < self.text.len() {

@@ -50,7 +50,13 @@ struct App<'a> {
     exit: bool,
 }
 
+enum WidgetFocus {
+    SourceList,
+    Disasm,
+}
+
 struct Widgets {
+    focus: WidgetFocus,
     source_list: SourceListWidget,
     disasm: Option<DisasmWidget>,
     stack_trace: Option<StackTraceWidget>,
@@ -68,6 +74,7 @@ impl<'a> App<'a> {
             output_buffer,
             error: RefCell::new(error.map(|e| e.to_string())),
             widgets: Widgets {
+                focus: WidgetFocus::SourceList,
                 source_list,
                 disasm: DisasmWidget::new(bytecode).ok(),
                 stack_trace: StackTraceWidget::new().ok(),
@@ -268,16 +275,36 @@ impl<'a> App<'a> {
                         self.exit = true;
                     }
                 }
-                (KeyEventKind::Press, KeyCode::Up) => {
-                    if let Some(ref mut da) = self.widgets.disasm {
-                        da.update_scroll(-1);
+                (KeyEventKind::Press, KeyCode::Tab) => {
+                    self.widgets.focus = match self.widgets.focus {
+                        WidgetFocus::SourceList => {
+                            self.widgets.source_list.focus = false;
+                            self.widgets.disasm.as_mut().map(|d| d.focus = true);
+                            WidgetFocus::Disasm
+                        }
+                        WidgetFocus::Disasm => {
+                            self.widgets.source_list.focus = true;
+                            self.widgets.disasm.as_mut().map(|d| d.focus = false);
+                            WidgetFocus::SourceList
+                        }
                     }
                 }
-                (KeyEventKind::Press, KeyCode::Down) => {
-                    if let Some(ref mut da) = self.widgets.disasm {
-                        da.update_scroll(1);
+                (KeyEventKind::Press, KeyCode::Up) => match self.widgets.focus {
+                    WidgetFocus::SourceList => self.widgets.source_list.update_scroll(-1),
+                    WidgetFocus::Disasm => {
+                        if let Some(ref mut da) = self.widgets.disasm {
+                            da.update_scroll(-1)
+                        }
                     }
-                }
+                },
+                (KeyEventKind::Press, KeyCode::Down) => match self.widgets.focus {
+                    WidgetFocus::SourceList => self.widgets.source_list.update_scroll(1),
+                    WidgetFocus::Disasm => {
+                        if let Some(ref mut da) = self.widgets.disasm {
+                            da.update_scroll(1)
+                        }
+                    }
+                },
                 _ => {}
             }
         }

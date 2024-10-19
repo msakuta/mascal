@@ -33,6 +33,18 @@ impl Widget for &HelpWidget {
                 "k".blue().bold(),
             ]),
             Line::from(vec!["  Toggle output widget: ".into(), "o".blue().bold()]),
+            Line::from(vec![
+                "  Change widget focus to scroll: ".into(),
+                "Tab".blue().bold(),
+            ]),
+            Line::from(vec![
+                "  Scroll up current widget: ".into(),
+                "up".blue().bold(),
+            ]),
+            Line::from(vec![
+                "  Scroll down current widget: ".into(),
+                "down".blue().bold(),
+            ]),
             Line::from(vec!["  run current code: ".into(), "r".blue().bold()]),
             Line::from(vec!["  Step execution mode: ".into(), "s".blue().bold()]),
             Line::from(vec!["  Move up stack frame: ".into(), "u".blue().bold()]),

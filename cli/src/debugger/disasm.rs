@@ -17,6 +17,7 @@ pub(super) struct DisasmWidget {
     scroll_state: ScrollbarState,
     /// Cached height of rendered text area. Used for calculating scroll position.
     render_height: u16,
+    pub(super) focus: bool,
 }
 
 impl DisasmWidget {
@@ -30,6 +31,7 @@ impl DisasmWidget {
             scroll: 0,
             scroll_state: ScrollbarState::new(length),
             render_height: 10,
+            focus: false,
         })
     }
 
@@ -88,7 +90,11 @@ impl Widget for &mut DisasmWidget {
         let block = Block::bordered()
             .title(title.alignment(Alignment::Center))
             .border_style(Style::new().yellow())
-            .border_set(border::THICK);
+            .border_set(if self.focus {
+                border::THICK
+            } else {
+                border::PLAIN
+            });
 
         let mut lines = vec![];
         if self.scroll < text_lines.len() {

@@ -50,7 +50,7 @@ impl Widget for &OutputWidget {
         let block = Block::bordered()
             .title(title.alignment(Alignment::Center))
             .border_style(Style::new().magenta())
-            .border_set(border::THICK);
+            .border_set(border::PLAIN);
 
         let mut lines = vec![];
         if self.scroll < text_lines.len() {
