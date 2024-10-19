@@ -5,9 +5,12 @@ use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Rect},
     style::{Style, Stylize},
-    symbols::border,
+    symbols::{border, scrollbar},
     text::{Line, Text},
-    widgets::{block::Title, Block, Paragraph, Widget},
+    widgets::{
+        block::Title, Block, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState,
+        StatefulWidget, Widget,
+    },
 };
 
 use self::parser::style_text;
@@ -17,6 +20,9 @@ pub(super) struct SourceListWidget {
     pub(super) text: Vec<String>,
     line: Option<usize>,
     pub(super) scroll: usize,
+    scroll_state: ScrollbarState,
+    /// Cached height of rendered text area. Used for calculating scroll position.
+    render_height: u16,
 }
 
 impl SourceListWidget {
@@ -31,12 +37,16 @@ impl SourceListWidget {
                 Err(e) => error = Some(e.into()),
             }
         }
+        let text: Vec<String> = temp.split("\n").map(|s| s.trim_end().to_string()).collect();
+        let length = text.len();
         (
             Self {
                 visible: true,
-                text: temp.split("\n").map(|s| s.trim_end().to_string()).collect(),
+                text,
                 line: None,
                 scroll: 0,
+                scroll_state: ScrollbarState::new(length),
+                render_height: 10,
             },
             error,
         )
@@ -55,14 +65,19 @@ impl SourceListWidget {
             if let Some(line_info) = line_info {
                 let line = line_info.src_start as usize;
                 self.line = Some(line);
-                self.scroll = line.saturating_sub(3); // Leave 3 lines before
+                // When the instruction pointer moves by stepping the program, we want to follow its position.
+                self.scroll = self.scroll.clamp(
+                    (line + 3).saturating_sub(self.render_height as usize),
+                    line.saturating_sub(3),
+                ); // Leave 3 lines before
+                self.scroll_state = ScrollbarState::new(self.text.len()).position(self.scroll);
             }
         }
         Ok(())
     }
 }
 
-impl Widget for &SourceListWidget {
+impl Widget for &mut SourceListWidget {
     fn render(self, area: Rect, buf: &mut Buffer)
     where
         Self: Sized,
@@ -83,8 +98,19 @@ impl Widget for &SourceListWidget {
             }));
         }
 
+        let sbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .symbols(scrollbar::VERTICAL)
+            .begin_symbol(None)
+            .track_symbol(None)
+            .end_symbol(None);
+        let inner = block.inner(area);
+
         Paragraph::new(Text::from(lines))
             .block(block)
             .render(area, buf);
+
+        sbar.render(inner, buf, &mut self.scroll_state);
+
+        self.render_height = inner.height;
     }
 }
