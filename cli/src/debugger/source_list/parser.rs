@@ -1,7 +1,7 @@
 use nom::{
     branch::alt,
     bytes::complete::{tag, take_until},
-    character::complete::{alpha1, alphanumeric1, char, one_of},
+    character::complete::{alpha1, alphanumeric1, char, multispace1, none_of, one_of},
     combinator::{opt, recognize},
     multi::{many0, many1},
     sequence::{delimited, pair, terminated},
@@ -78,8 +78,30 @@ fn non_ident(mut input: &str) -> IResult<&str, Span> {
     ))
 }
 
+fn punctuation(i: &str) -> IResult<&str, Span> {
+    alt((recognize(one_of("(){}[],:;*+-/=<>")), tag("->")))(i).map(|(r, s)| (r, s.white()))
+}
+
+fn str_literal(i: &str) -> IResult<&str, Span> {
+    recognize(delimited(char('\"'), many0(none_of("\"")), char('"')))(i)
+        .map(|(r, s)| (r, s.light_magenta()))
+}
+
+fn whitespace(i: &str) -> IResult<&str, Span> {
+    multispace1(i).map(|(r, s)| (r, s.into()))
+}
+
 fn text(input: &str) -> Result<(&str, Vec<Span>), nom::error::Error<&str>> {
-    many0(alt((comment, keyword, decimal_value, non_ident)))(input).finish()
+    many0(alt((
+        comment,
+        keyword,
+        whitespace,
+        punctuation,
+        decimal_value,
+        str_literal,
+        non_ident,
+    )))(input)
+    .finish()
 }
 
 #[test]
@@ -90,7 +112,7 @@ fn test_non_ident() {
 
 #[test]
 fn test_text() {
-    let s = "fn hello 1";
+    let s = "fn hello() 1";
     assert_eq!(
         text(s),
         Ok((
@@ -99,6 +121,8 @@ fn test_text() {
                 "fn".blue(),
                 " ".into(),
                 "hello".light_cyan(),
+                "(".light_yellow(),
+                ")".light_yellow(),
                 " ".into(),
                 "1".light_green()
             ]
