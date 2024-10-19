@@ -1,3 +1,5 @@
+mod parser;
+
 use mascal::{Bytecode, LineInfo};
 use ratatui::{
     buffer::Buffer,
@@ -7,6 +9,8 @@ use ratatui::{
     text::{Line, Text},
     widgets::{block::Title, Block, Paragraph, Widget},
 };
+
+use self::parser::style_text;
 
 pub(super) struct SourceListWidget {
     pub(super) visible: bool,
@@ -73,13 +77,9 @@ impl Widget for &SourceListWidget {
         let mut lines = vec![];
         if self.scroll < self.text.len() {
             lines.extend(self.text[self.scroll..].iter().enumerate().map(|(i, v)| {
-                let current = if Some(i + self.scroll + 1) == self.line {
-                    "*"
-                } else {
-                    " "
-                };
                 let line_num = i + self.scroll + 1;
-                Line::from(format!("{current}  {line_num:4}  {v}"))
+                let v = style_text(Some(i + self.scroll + 1) == self.line, line_num, v);
+                Line::from(v)
             }));
         }
 
