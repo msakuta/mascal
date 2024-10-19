@@ -87,7 +87,7 @@ impl<'a> App<'a> {
         Ok(())
     }
 
-    fn draw(&self, frame: &mut Frame) {
+    fn draw(&mut self, frame: &mut Frame) {
         frame.render_widget(self, frame.area());
     }
 
@@ -270,12 +270,12 @@ impl<'a> App<'a> {
                 }
                 (KeyEventKind::Press, KeyCode::Up) => {
                     if let Some(ref mut da) = self.widgets.disasm {
-                        da.scroll = da.scroll.saturating_sub(1)
+                        da.update_scroll(-1);
                     }
                 }
                 (KeyEventKind::Press, KeyCode::Down) => {
                     if let Some(ref mut da) = self.widgets.disasm {
-                        da.scroll += 1
+                        da.update_scroll(1);
                     }
                 }
                 _ => {}
@@ -322,10 +322,10 @@ impl Widgets {
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(ci) = vm.call_info(level) {
             let debug_fn = debug.and_then(|debug| debug.get(ci.bytecode().name()));
-            self.source_list
-                .update(ci.instuction_ptr(), debug_fn.map(|v| &v[..]))?;
+            let ip = ci.instruction_ptr();
+            self.source_list.update(ip, debug_fn.map(|v| &v[..]))?;
             if let Some(ref mut disasm) = self.disasm {
-                disasm.update(ci.bytecode(), ci.instuction_ptr(), debug_fn.map(|v| &v[..]))?;
+                disasm.update(ci.bytecode(), ip, debug_fn.map(|v| &v[..]))?;
             }
         }
         if let Some(ref mut stack_trace) = self.stack_trace {
@@ -339,7 +339,7 @@ impl Widgets {
     }
 }
 
-impl<'a> Widget for &App<'a> {
+impl<'a> Widget for &mut App<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let title = Title::from(" Interactive debugger ".bold());
         // Help shows on top of all widgets
@@ -408,7 +408,7 @@ impl<'a> Widget for &App<'a> {
                     self.widgets.source_list.render(widget_area, buf);
                     widget_area.x += widget_area.width;
                 }
-                if let Some(d) = self.widgets.disasm.as_ref() {
+                if let Some(d) = self.widgets.disasm.as_mut() {
                     d.render(widget_area, buf);
                     widget_area.x += widget_area.width;
                 }

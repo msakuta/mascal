@@ -40,7 +40,7 @@ impl<'a> CallInfo<'a> {
         self.fun
     }
 
-    pub fn instuction_ptr(&self) -> usize {
+    pub fn instruction_ptr(&self) -> usize {
         self.ip
     }
 
