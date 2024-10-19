@@ -4,7 +4,7 @@ use ratatui::{
     style::{Color, Style, Stylize},
     symbols::border,
     text::{Line, Text},
-    widgets::{block::Title, Block, Paragraph, Widget},
+    widgets::{block::Title, Block, Clear, Paragraph, Widget},
 };
 
 pub(super) struct HelpWidget {}
@@ -54,6 +54,8 @@ impl Widget for &HelpWidget {
             .style(Style::default().bg(Color::DarkGray))
             .border_style(Style::new().white())
             .border_set(border::THICK);
+
+        Clear.render(area, buf);
 
         Paragraph::new(text_lines).block(block).render(area, buf);
     }

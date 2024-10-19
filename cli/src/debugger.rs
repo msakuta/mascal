@@ -342,6 +342,73 @@ impl Widgets {
 impl<'a> Widget for &mut App<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let title = Title::from(" Interactive debugger ".bold());
+        let instructions = Title::from(Line::from(vec![
+            "  help: ".into(),
+            "h".blue().bold(),
+            "  quit: ".into(),
+            "q ".blue().bold(),
+        ]));
+        let block = Block::bordered()
+            .title(title.alignment(Alignment::Center))
+            .title(
+                instructions
+                    .alignment(Alignment::Center)
+                    .position(Position::Bottom),
+            )
+            .border_set(border::THICK);
+
+        let inner_text = self.render_inner_text().unwrap_or_else(|e| {
+            let e = e.to_string();
+            *self.error.borrow_mut() = Some(e.clone());
+            Text::from(format!("Error: {e}"))
+        });
+
+        Paragraph::new(inner_text).block(block).render(area, buf);
+
+        let mut output_area = area;
+        if self.widgets.output.visible() && 4 < output_area.height {
+            output_area.width /= 2;
+            output_area.y += 2;
+            output_area.height = (output_area.height - 4) / 2;
+            self.widgets.output.render(output_area, buf);
+        }
+
+        let mut tr_area = area;
+        if 0 < tr_area.height {
+            tr_area.x = area.width / 2;
+            tr_area.width /= 2;
+            tr_area.y += 1;
+            tr_area.height = (tr_area.height - 1) / 2;
+            self.widgets.stack.as_ref().map(|d| d.render(tr_area, buf));
+        }
+
+        let mut widget_area = area;
+        if 0 < widget_area.height {
+            widget_area.y = widget_area.height / 2;
+            widget_area.height = (widget_area.height - 1) / 2;
+
+            let widget_count = self.widgets.disasm.is_some() as u16
+                + self.widgets.stack_trace.is_some() as u16
+                + self.widgets.source_list.visible as u16;
+
+            if widget_count != 0 {
+                widget_area.width /= widget_count;
+            }
+
+            if self.widgets.source_list.visible {
+                self.widgets.source_list.render(widget_area, buf);
+                widget_area.x += widget_area.width;
+            }
+            if let Some(d) = self.widgets.disasm.as_mut() {
+                d.render(widget_area, buf);
+                widget_area.x += widget_area.width;
+            }
+            self.widgets
+                .stack_trace
+                .as_ref()
+                .map(|d| d.render(widget_area, buf));
+        }
+
         // Help shows on top of all widgets
         if let Some(ref help) = self.widgets.help {
             let mut help_area = area;
@@ -350,73 +417,6 @@ impl<'a> Widget for &mut App<'a> {
             help_area.y += help_area.height / 4;
             help_area.height /= 2;
             help.render(help_area, buf);
-        } else {
-            let instructions = Title::from(Line::from(vec![
-                "  help: ".into(),
-                "h".blue().bold(),
-                "  quit: ".into(),
-                "q ".blue().bold(),
-            ]));
-            let block = Block::bordered()
-                .title(title.alignment(Alignment::Center))
-                .title(
-                    instructions
-                        .alignment(Alignment::Center)
-                        .position(Position::Bottom),
-                )
-                .border_set(border::THICK);
-
-            let inner_text = self.render_inner_text().unwrap_or_else(|e| {
-                let e = e.to_string();
-                *self.error.borrow_mut() = Some(e.clone());
-                Text::from(format!("Error: {e}"))
-            });
-
-            Paragraph::new(inner_text).block(block).render(area, buf);
-
-            let mut output_area = area;
-            if self.widgets.output.visible() && 4 < output_area.height {
-                output_area.width /= 2;
-                output_area.y += 2;
-                output_area.height = (output_area.height - 4) / 2;
-                self.widgets.output.render(output_area, buf);
-            }
-
-            let mut tr_area = area;
-            if 0 < tr_area.height {
-                tr_area.x = area.width / 2;
-                tr_area.width /= 2;
-                tr_area.y += 1;
-                tr_area.height = (tr_area.height - 1) / 2;
-                self.widgets.stack.as_ref().map(|d| d.render(tr_area, buf));
-            }
-
-            let mut widget_area = area;
-            if 0 < widget_area.height {
-                widget_area.y = widget_area.height / 2;
-                widget_area.height = (widget_area.height - 1) / 2;
-
-                let widget_count = self.widgets.disasm.is_some() as u16
-                    + self.widgets.stack_trace.is_some() as u16
-                    + self.widgets.source_list.visible as u16;
-
-                if widget_count != 0 {
-                    widget_area.width /= widget_count;
-                }
-
-                if self.widgets.source_list.visible {
-                    self.widgets.source_list.render(widget_area, buf);
-                    widget_area.x += widget_area.width;
-                }
-                if let Some(d) = self.widgets.disasm.as_mut() {
-                    d.render(widget_area, buf);
-                    widget_area.x += widget_area.width;
-                }
-                self.widgets
-                    .stack_trace
-                    .as_ref()
-                    .map(|d| d.render(widget_area, buf));
-            }
         }
     }
 }
