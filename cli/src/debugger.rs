@@ -429,45 +429,66 @@ impl<'a> Widget for &mut App<'a> {
 
         let top_area = layout[0];
 
+        let top_widgets =
+            self.widgets.output.visible() as u16 + self.widgets.source_list.visible as u16;
+        let top_constraints: Vec<_> = (0..top_widgets)
+            .map(|_| Constraint::Percentage(100 / top_widgets))
+            .collect();
+
         let top_layout = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints(vec![Constraint::Percentage(50), Constraint::Percentage(50)])
+            .constraints(top_constraints)
             .split(top_area);
 
-        let mut output_area = top_layout[0];
-        if self.widgets.output.visible() && 4 < output_area.height {
-            output_area.y += 2;
-            output_area.height = output_area.height.saturating_sub(2);
-            self.widgets.output.render(output_area, buf);
+        let mut horz_i = 0;
+        if self.widgets.output.visible() {
+            let mut output_area = top_layout[horz_i];
+            if 4 < output_area.height {
+                output_area.y += 2;
+                output_area.height = output_area.height.saturating_sub(2);
+                self.widgets.output.render(output_area, buf);
+            }
+            horz_i += 1;
         }
 
-        let tr_area = top_layout[1];
-        if 0 < tr_area.height {
-            self.widgets.stack.as_mut().map(|d| d.render(tr_area, buf));
+        if self.widgets.source_list.visible {
+            let source_area = top_layout[horz_i];
+            self.widgets.source_list.render(source_area, buf);
+            // horz_i += 1;
         }
 
-        let mut widget_area = layout[1];
-        if 0 < widget_area.height {
+        let bottom_area = layout[1];
+        if 0 < bottom_area.height {
             let widget_count = self.widgets.disasm.is_some() as u16
                 + self.widgets.stack_trace.is_some() as u16
-                + self.widgets.source_list.visible as u16;
+                + self.widgets.stack.is_some() as u16;
+            let bottom_constraints: Vec<_> = (0..widget_count)
+                .map(|_| Constraint::Percentage(100 / widget_count))
+                .collect();
 
-            if widget_count != 0 {
-                widget_area.width /= widget_count;
+            let bottom_layout = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints(bottom_constraints)
+                .split(bottom_area);
+
+            horz_i = 0;
+            if let Some(ref mut d) = self.widgets.stack {
+                let tr_area = bottom_layout[horz_i];
+                if 0 < tr_area.height {
+                    d.render(tr_area, buf);
+                }
+                horz_i += 1;
             }
 
-            if self.widgets.source_list.visible {
-                self.widgets.source_list.render(widget_area, buf);
-                widget_area.x += widget_area.width;
-            }
             if let Some(d) = self.widgets.disasm.as_mut() {
-                d.render(widget_area, buf);
-                widget_area.x += widget_area.width;
+                let disasm_area = bottom_layout[horz_i];
+                d.render(disasm_area, buf);
+                horz_i += 1;
             }
-            self.widgets
-                .stack_trace
-                .as_ref()
-                .map(|d| d.render(widget_area, buf));
+
+            if let Some(ref d) = self.widgets.stack_trace {
+                d.render(bottom_layout[horz_i], buf);
+            }
         }
 
         // Help shows on top of all widgets
