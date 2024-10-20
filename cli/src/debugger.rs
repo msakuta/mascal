@@ -50,10 +50,12 @@ struct App<'a> {
     exit: bool,
 }
 
+#[derive(Clone, Copy)]
 enum WidgetFocus {
     SourceList,
     Stack,
     Disasm,
+    Output,
 }
 
 struct Widgets {
@@ -278,25 +280,22 @@ impl<'a> App<'a> {
                 }
                 (KeyEventKind::Press, KeyCode::Tab) => {
                     self.widgets.focus = match self.widgets.focus {
-                        WidgetFocus::SourceList => {
-                            self.widgets.source_list.focus = false;
-                            self.widgets.disasm.as_mut().map(|d| d.focus = true);
-                            self.widgets.stack.as_mut().map(|d| d.focus = false);
-                            WidgetFocus::Disasm
-                        }
-                        WidgetFocus::Disasm => {
-                            self.widgets.source_list.focus = false;
-                            self.widgets.disasm.as_mut().map(|d| d.focus = false);
-                            self.widgets.stack.as_mut().map(|d| d.focus = true);
-                            WidgetFocus::Stack
-                        }
-                        WidgetFocus::Stack => {
-                            self.widgets.source_list.focus = true;
-                            self.widgets.disasm.as_mut().map(|d| d.focus = false);
-                            self.widgets.stack.as_mut().map(|d| d.focus = false);
-                            WidgetFocus::SourceList
-                        }
-                    }
+                        WidgetFocus::SourceList => WidgetFocus::Disasm,
+                        WidgetFocus::Disasm => WidgetFocus::Stack,
+                        WidgetFocus::Stack => WidgetFocus::Output,
+                        WidgetFocus::Output => WidgetFocus::SourceList,
+                    };
+                    let focus = self.widgets.focus;
+                    self.widgets.source_list.focus = matches!(focus, WidgetFocus::SourceList);
+                    self.widgets
+                        .disasm
+                        .as_mut()
+                        .map(|d| d.focus = matches!(focus, WidgetFocus::Disasm));
+                    self.widgets
+                        .stack
+                        .as_mut()
+                        .map(|d| d.focus = matches!(focus, WidgetFocus::Stack));
+                    self.widgets.output.focus = matches!(focus, WidgetFocus::Output);
                 }
                 (KeyEventKind::Press, KeyCode::Up) => match self.widgets.focus {
                     WidgetFocus::SourceList => self.widgets.source_list.update_scroll(-1),
@@ -308,6 +307,9 @@ impl<'a> App<'a> {
                     WidgetFocus::Stack => {
                         self.widgets.stack.as_mut().map(|d| d.update_scroll(-1));
                     }
+                    WidgetFocus::Output => {
+                        self.widgets.output.update_scroll(-1);
+                    }
                 },
                 (KeyEventKind::Press, KeyCode::Down) => match self.widgets.focus {
                     WidgetFocus::SourceList => self.widgets.source_list.update_scroll(1),
@@ -318,6 +320,9 @@ impl<'a> App<'a> {
                     }
                     WidgetFocus::Stack => {
                         self.widgets.stack.as_mut().map(|d| d.update_scroll(1));
+                    }
+                    WidgetFocus::Output => {
+                        self.widgets.output.update_scroll(1);
                     }
                 },
                 _ => {}
