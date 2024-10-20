@@ -11,7 +11,7 @@ use std::{cell::RefCell, collections::VecDeque, rc::Rc};
 
 use ratatui::{
     buffer::Buffer,
-    crossterm::event::{self, KeyCode, KeyEventKind},
+    crossterm::event::{self, KeyCode, KeyEventKind, KeyModifiers},
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::Stylize,
     symbols::border,
@@ -278,12 +278,22 @@ impl<'a> App<'a> {
                         self.exit = true;
                     }
                 }
-                (KeyEventKind::Press, KeyCode::Tab) => {
-                    self.widgets.focus = match self.widgets.focus {
-                        WidgetFocus::SourceList => WidgetFocus::Disasm,
-                        WidgetFocus::Disasm => WidgetFocus::Stack,
-                        WidgetFocus::Stack => WidgetFocus::Output,
-                        WidgetFocus::Output => WidgetFocus::SourceList,
+                (KeyEventKind::Release, KeyCode::Tab) => {
+                    // TODO: how to pick up Shift+Tab event?
+                    self.widgets.focus = if key.modifiers.contains(KeyModifiers::SHIFT) {
+                        match self.widgets.focus {
+                            WidgetFocus::SourceList => WidgetFocus::Disasm,
+                            WidgetFocus::Disasm => WidgetFocus::Stack,
+                            WidgetFocus::Stack => WidgetFocus::Output,
+                            WidgetFocus::Output => WidgetFocus::SourceList,
+                        }
+                    } else {
+                        match self.widgets.focus {
+                            WidgetFocus::SourceList => WidgetFocus::Output,
+                            WidgetFocus::Disasm => WidgetFocus::SourceList,
+                            WidgetFocus::Stack => WidgetFocus::Disasm,
+                            WidgetFocus::Output => WidgetFocus::Stack,
+                        }
                     };
                     let focus = self.widgets.focus;
                     self.widgets.source_list.focus = matches!(focus, WidgetFocus::SourceList);
@@ -431,7 +441,7 @@ impl<'a> Widget for &mut App<'a> {
             self.widgets.output.render(output_area, buf);
         }
 
-        let mut tr_area = top_layout[1];
+        let tr_area = top_layout[1];
         if 0 < tr_area.height {
             self.widgets.stack.as_mut().map(|d| d.render(tr_area, buf));
         }
