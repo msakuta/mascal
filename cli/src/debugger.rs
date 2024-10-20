@@ -52,6 +52,7 @@ struct App<'a> {
 
 enum WidgetFocus {
     SourceList,
+    Stack,
     Disasm,
 }
 
@@ -280,11 +281,19 @@ impl<'a> App<'a> {
                         WidgetFocus::SourceList => {
                             self.widgets.source_list.focus = false;
                             self.widgets.disasm.as_mut().map(|d| d.focus = true);
+                            self.widgets.stack.as_mut().map(|d| d.focus = false);
                             WidgetFocus::Disasm
                         }
                         WidgetFocus::Disasm => {
+                            self.widgets.source_list.focus = false;
+                            self.widgets.disasm.as_mut().map(|d| d.focus = false);
+                            self.widgets.stack.as_mut().map(|d| d.focus = true);
+                            WidgetFocus::Stack
+                        }
+                        WidgetFocus::Stack => {
                             self.widgets.source_list.focus = true;
                             self.widgets.disasm.as_mut().map(|d| d.focus = false);
+                            self.widgets.stack.as_mut().map(|d| d.focus = false);
                             WidgetFocus::SourceList
                         }
                     }
@@ -296,6 +305,9 @@ impl<'a> App<'a> {
                             da.update_scroll(-1)
                         }
                     }
+                    WidgetFocus::Stack => {
+                        self.widgets.stack.as_mut().map(|d| d.update_scroll(-1));
+                    }
                 },
                 (KeyEventKind::Press, KeyCode::Down) => match self.widgets.focus {
                     WidgetFocus::SourceList => self.widgets.source_list.update_scroll(1),
@@ -303,6 +315,9 @@ impl<'a> App<'a> {
                         if let Some(ref mut da) = self.widgets.disasm {
                             da.update_scroll(1)
                         }
+                    }
+                    WidgetFocus::Stack => {
+                        self.widgets.stack.as_mut().map(|d| d.update_scroll(1));
                     }
                 },
                 _ => {}
