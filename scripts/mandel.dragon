@@ -1,0 +1,66 @@
+
+fn printdensity(d) {
+  if d > 8 {
+    puts(" ");
+  } else if d > 4 {
+    puts(".");
+  } else if d > 2 {
+    puts("+");
+  } else {
+    puts("*");
+  }
+}
+
+var nl: str = "\n";
+
+printdensity(1);
+printdensity(2);
+printdensity(3);
+printdensity(4);
+printdensity(5);
+printdensity(9);
+puts(nl);
+
+/* Determine whether the specific location diverges. */
+/* Solve for z = z^2 + c in the complex plane. */
+fn mandelconverger(real, imag, iters, creal, cimag) {
+    for iters in 0 .. 255 {
+        if real*real + imag*imag > 4 {
+            break;
+        };
+        var next_r = real*real - imag*imag + creal;
+        imag = 2*real*imag + cimag;
+        real = next_r;
+    }
+    iters
+}
+
+/* Return the number of iterations required for the iteration to escape */
+fn mandelconverge(real, imag) {
+  mandelconverger(real, imag, 0, real, imag);
+}
+
+/* Compute and plot the mandelbrot set with the specified 2 dimensional range
+ info. */
+fn mandelhelp(xmin, xmax, xstep,   ymin, ymax, ystep,   nl) {
+    var steps: i64 = (ymax - ymin) / ystep;
+    print("xstep", xstep, "ysteps", steps, "ystep", ystep);
+    for iy in 0 .. steps {
+        var y = iy * (ymax - ymin) * ystep + ymin;
+        var xsteps: i64 = (xmax - xmin) / xstep;
+        for ix in 0 .. xsteps {
+            var x = ix * (xmax - xmin) * xstep + xmin;
+            printdensity(mandelconverge(x,y));
+        }
+        puts("\n");
+    }
+}
+
+/* mandel - This is a convenient helper function for plotting the mandelbrot set
+ from the specified position with the specified Magnification. */
+fn mandel(realstart, imagstart, realmag, imagmag,   nl,) {
+  mandelhelp(realstart, realstart+realmag*78, realmag,
+             imagstart, imagstart+imagmag*40, imagmag,  nl);
+}
+
+mandel(-2.3, -2.0, 0.025, 0.05, nl, );
