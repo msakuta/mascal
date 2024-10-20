@@ -50,6 +50,18 @@ If you have a pre-compiled bytecode file, you can just run it without compiling 
     cargo run --release -- -b <bytecode>.cdragon
 
 
+## Interactive debugger
+
+The command line interpreter has an interactive debugger, in which you can run a script by steps.
+
+![](images/screenshot00.png)
+
+You can enter this interactive debugger mode by specifying `-D` flag to the CLI.
+
+    cd cli
+    cargo run --release -- -bD <bytecode>.cdragon
+
+
 ## WebAssembly browser application
 
 You can also build a wasm package and run the interpreter on the browser.
