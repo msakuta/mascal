@@ -13,7 +13,7 @@ use ratatui::{
     buffer::Buffer,
     crossterm::event::{self, KeyCode, KeyEventKind, KeyModifiers},
     layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::Stylize,
+    style::{Style, Stylize},
     symbols::border,
     text::{Line, Text},
     widgets::{
@@ -402,7 +402,11 @@ impl<'a> Widget for &mut App<'a> {
         let instructions = Title::from(Line::from(vec![
             "  help: ".into(),
             "h".blue().bold(),
-            "  quit: ".into(),
+            if matches!(self.mode, AppMode::StepRun { .. }) {
+                "  stop running program: ".into()
+            } else {
+                "  quit: ".into()
+            },
             "q ".blue().bold(),
         ]));
         let block = Block::bordered()
@@ -412,6 +416,11 @@ impl<'a> Widget for &mut App<'a> {
                     .alignment(Alignment::Center)
                     .position(Position::Bottom),
             )
+            .border_style(if matches!(self.mode, AppMode::StepRun { .. }) {
+                Style::new().light_yellow()
+            } else {
+                Style::new()
+            })
             .border_set(border::THICK);
 
         let layout = Layout::default()

@@ -57,7 +57,10 @@ impl Widget for &HelpWidget {
                 "  Next state in time travel debugger: ".into(),
                 "n".blue().bold(),
             ]),
-            Line::from(vec!["  quit: ".into(), "q ".blue().bold()]),
+            Line::from(vec![
+                "  quit or stop current debugging session: ".into(),
+                "q ".blue().bold(),
+            ]),
         ]);
         let title = Title::from(" Help ".bold());
         let block = Block::bordered()
