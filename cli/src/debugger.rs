@@ -278,7 +278,7 @@ impl<'a> App<'a> {
                         self.exit = true;
                     }
                 }
-                (KeyEventKind::Release, KeyCode::Tab) => {
+                (KeyEventKind::Press, KeyCode::Tab) => {
                     // TODO: how to pick up Shift+Tab event?
                     self.widgets.focus = if key.modifiers.contains(KeyModifiers::SHIFT) {
                         match self.widgets.focus {
