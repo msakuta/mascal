@@ -158,16 +158,25 @@ impl std::fmt::Display for Instruction {
     }
 }
 
+fn write_usize(val: usize, writer: &mut impl Write) -> std::io::Result<()> {
+    writer.write_all(&(val as u32).to_le_bytes())?;
+    Ok(())
+}
+
+fn read_usize(reader: &mut impl Read) -> std::io::Result<usize> {
+    let mut buf = [0u8; std::mem::size_of::<u32>()];
+    reader.read_exact(&mut buf)?;
+    Ok(u32::from_le_bytes(buf) as usize)
+}
+
 fn write_str(s: &str, writer: &mut impl Write) -> std::io::Result<()> {
-    writer.write_all(&s.len().to_le_bytes())?;
+    write_usize(s.len(), writer)?;
     writer.write_all(&s.as_bytes())?;
     Ok(())
 }
 
 fn read_str(reader: &mut impl Read) -> Result<String, ReadError> {
-    let mut len = [0u8; std::mem::size_of::<usize>()];
-    reader.read_exact(&mut len)?;
-    let len = usize::from_le_bytes(len);
+    let len = read_usize(reader)?;
     let mut buf = vec![0u8; len];
     reader.read_exact(&mut buf)?;
     Ok(String::from_utf8(buf)?)

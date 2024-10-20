@@ -5,7 +5,7 @@ use std::{
 
 use crate::ReadError;
 
-use super::{read_str, write_str, Bytecode};
+use super::{read_str, read_usize, write_str, write_usize, Bytecode};
 
 impl Bytecode {
     pub(super) fn write_debug_info(
@@ -13,7 +13,7 @@ impl Bytecode {
         writer: &mut impl Write,
     ) -> std::io::Result<()> {
         write_str(&debug.file_name, writer)?;
-        writer.write_all(&debug.source_map.len().to_le_bytes())?;
+        write_usize(debug.source_map.len(), writer)?;
         for (fname, debug) in debug.source_map.iter() {
             write_str(fname, writer)?;
             writer.write_all(&debug.len().to_le_bytes())?;
@@ -26,9 +26,7 @@ impl Bytecode {
 
     pub(super) fn read_debug_info(reader: &mut impl Read) -> Result<DebugInfo, ReadError> {
         let file_name = read_str(reader)?;
-        let mut len = [0u8; std::mem::size_of::<usize>()];
-        reader.read_exact(&mut len)?;
-        let len = usize::from_le_bytes(len);
+        let len = read_usize(reader)?;
         let source_map = (0..len)
             .map(|_| -> Result<_, ReadError> {
                 let name = read_str(reader)?;
