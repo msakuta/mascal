@@ -3,15 +3,20 @@ use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Rect},
     style::{Style, Stylize},
-    symbols::border,
+    symbols::{border, scrollbar},
     text::{Line, Text},
-    widgets::{block::Title, Block, Paragraph, ScrollbarState, Widget},
+    widgets::{
+        block::Title, Block, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState,
+        StatefulWidget, Widget,
+    },
 };
 
 pub(super) struct StackWidget {
     text: String,
     scroll: usize,
     scroll_state: ScrollbarState,
+    /// Cached height of rendered text area. Used for calculating scroll position.
+    render_height: u16,
     pub(super) focus: bool,
 }
 
@@ -21,6 +26,7 @@ impl StackWidget {
             text: String::new(),
             scroll: 0,
             scroll_state: ScrollbarState::new(1),
+            render_height: 10,
             focus: false,
         })
     }
@@ -48,7 +54,7 @@ impl StackWidget {
     }
 }
 
-impl Widget for &StackWidget {
+impl Widget for &mut StackWidget {
     fn render(self, area: Rect, buf: &mut Buffer)
     where
         Self: Sized,
@@ -70,8 +76,19 @@ impl Widget for &StackWidget {
             lines.extend(text_lines[self.scroll..].iter().map(|v| Line::from(*v)));
         }
 
+        let sbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .symbols(scrollbar::VERTICAL)
+            .begin_symbol(None)
+            .track_symbol(None)
+            .end_symbol(None);
+        let inner = block.inner(area);
+
         Paragraph::new(Text::from(lines))
             .block(block)
             .render(area, buf);
+
+        sbar.render(inner, buf, &mut self.scroll_state);
+
+        self.render_height = inner.height;
     }
 }

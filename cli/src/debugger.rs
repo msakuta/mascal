@@ -12,7 +12,7 @@ use std::{cell::RefCell, collections::VecDeque, rc::Rc};
 use ratatui::{
     buffer::Buffer,
     crossterm::event::{self, KeyCode, KeyEventKind},
-    layout::{Alignment, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::Stylize,
     symbols::border,
     text::{Line, Text},
@@ -399,6 +399,11 @@ impl<'a> Widget for &mut App<'a> {
             )
             .border_set(border::THICK);
 
+        let layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(vec![Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(block.inner(area));
+
         let inner_text = self.render_inner_text().unwrap_or_else(|e| {
             let e = e.to_string();
             *self.error.borrow_mut() = Some(e.clone());
@@ -407,28 +412,27 @@ impl<'a> Widget for &mut App<'a> {
 
         Paragraph::new(inner_text).block(block).render(area, buf);
 
-        let mut output_area = area;
+        let top_area = layout[0];
+
+        let top_layout = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints(vec![Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(top_area);
+
+        let mut output_area = top_layout[0];
         if self.widgets.output.visible() && 4 < output_area.height {
-            output_area.width /= 2;
             output_area.y += 2;
-            output_area.height = (output_area.height - 4) / 2;
+            output_area.height = output_area.height.saturating_sub(2);
             self.widgets.output.render(output_area, buf);
         }
 
-        let mut tr_area = area;
+        let mut tr_area = top_layout[1];
         if 0 < tr_area.height {
-            tr_area.x = area.width / 2;
-            tr_area.width /= 2;
-            tr_area.y += 1;
-            tr_area.height = (tr_area.height - 1) / 2;
-            self.widgets.stack.as_ref().map(|d| d.render(tr_area, buf));
+            self.widgets.stack.as_mut().map(|d| d.render(tr_area, buf));
         }
 
-        let mut widget_area = area;
+        let mut widget_area = layout[1];
         if 0 < widget_area.height {
-            widget_area.y = widget_area.height / 2;
-            widget_area.height = (widget_area.height - 1) / 2;
-
             let widget_count = self.widgets.disasm.is_some() as u16
                 + self.widgets.stack_trace.is_some() as u16
                 + self.widgets.source_list.visible as u16;
