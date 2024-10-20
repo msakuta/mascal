@@ -3,14 +3,21 @@ use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Rect},
     style::{Style, Stylize},
-    symbols::border,
+    symbols::{border, scrollbar},
     text::{Line, Text},
-    widgets::{block::Title, Block, Paragraph, Widget},
+    widgets::{
+        block::Title, Block, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState,
+        StatefulWidget, Widget,
+    },
 };
 
 pub(super) struct StackWidget {
     text: String,
     scroll: usize,
+    scroll_state: ScrollbarState,
+    /// Cached height of rendered text area. Used for calculating scroll position.
+    render_height: u16,
+    pub(super) focus: bool,
 }
 
 impl StackWidget {
@@ -18,6 +25,9 @@ impl StackWidget {
         Ok(Self {
             text: String::new(),
             scroll: 0,
+            scroll_state: ScrollbarState::new(1),
+            render_height: 10,
+            focus: false,
         })
     }
 
@@ -29,11 +39,22 @@ impl StackWidget {
         let mut buf = vec![];
         vm.print_stack(&mut buf, level)?;
         self.text = String::from_utf8(buf)?;
+        self.scroll_state =
+            ScrollbarState::new(self.text.split('\n').count()).position(self.scroll);
         Ok(())
+    }
+
+    pub(super) fn update_scroll(&mut self, delta: i32) {
+        if delta < 0 {
+            self.scroll = self.scroll.saturating_sub(delta.abs() as usize);
+        } else {
+            self.scroll = self.scroll.saturating_add(delta as usize);
+        }
+        self.scroll_state = self.scroll_state.position(self.scroll);
     }
 }
 
-impl Widget for &StackWidget {
+impl Widget for &mut StackWidget {
     fn render(self, area: Rect, buf: &mut Buffer)
     where
         Self: Sized,
@@ -44,15 +65,30 @@ impl Widget for &StackWidget {
         let block = Block::bordered()
             .title(title.alignment(Alignment::Center))
             .border_style(Style::new().cyan())
-            .border_set(border::THICK);
+            .border_set(if self.focus {
+                border::THICK
+            } else {
+                border::PLAIN
+            });
 
         let mut lines = vec![];
         if self.scroll < text_lines.len() {
             lines.extend(text_lines[self.scroll..].iter().map(|v| Line::from(*v)));
         }
 
+        let sbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .symbols(scrollbar::VERTICAL)
+            .begin_symbol(None)
+            .track_symbol(None)
+            .end_symbol(None);
+        let inner = block.inner(area);
+
         Paragraph::new(Text::from(lines))
             .block(block)
             .render(area, buf);
+
+        sbar.render(inner, buf, &mut self.scroll_state);
+
+        self.render_height = inner.height;
     }
 }

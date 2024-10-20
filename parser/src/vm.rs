@@ -40,7 +40,7 @@ impl<'a> CallInfo<'a> {
         self.fun
     }
 
-    pub fn instuction_ptr(&self) -> usize {
+    pub fn instruction_ptr(&self) -> usize {
         self.ip
     }
 
@@ -169,7 +169,8 @@ impl<'a> Vm<'a> {
             // Empty call stack is not an error
             return Ok(());
         };
-        for (i, value) in self.stack[ci.stack_base..ci.stack_size].iter().enumerate() {
+        let top = (ci.stack_base + ci.stack_size).min(self.stack.len());
+        for (i, value) in self.stack[ci.stack_base..top].iter().enumerate() {
             writeln!(f, "  [{i}] {value}")?;
         }
         Ok(())

@@ -3,6 +3,7 @@
 mod disasm;
 mod help;
 mod output;
+mod source_list;
 mod stack;
 mod stack_trace;
 
@@ -10,9 +11,9 @@ use std::{cell::RefCell, collections::VecDeque, rc::Rc};
 
 use ratatui::{
     buffer::Buffer,
-    crossterm::event::{self, KeyCode, KeyEventKind},
-    layout::{Alignment, Rect},
-    style::Stylize,
+    crossterm::event::{self, KeyCode, KeyEventKind, KeyModifiers},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    style::{Style, Stylize},
     symbols::border,
     text::{Line, Text},
     widgets::{
@@ -22,11 +23,11 @@ use ratatui::{
     DefaultTerminal, Frame,
 };
 
-use ::mascal::{interpret, Bytecode, Vm};
+use ::mascal::{interpret, Bytecode, DebugInfo, Vm};
 
 use self::{
-    disasm::DisasmWidget, help::HelpWidget, output::OutputWidget, stack::StackWidget,
-    stack_trace::StackTraceWidget,
+    disasm::DisasmWidget, help::HelpWidget, output::OutputWidget, source_list::SourceListWidget,
+    stack::StackWidget, stack_trace::StackTraceWidget,
 };
 
 pub(crate) fn run_debugger(mut bytecode: Bytecode) -> Result<(), Box<dyn std::error::Error>> {
@@ -49,7 +50,17 @@ struct App<'a> {
     exit: bool,
 }
 
+#[derive(Clone, Copy)]
+enum WidgetFocus {
+    SourceList,
+    Stack,
+    Disasm,
+    Output,
+}
+
 struct Widgets {
+    focus: WidgetFocus,
+    source_list: SourceListWidget,
     disasm: Option<DisasmWidget>,
     stack_trace: Option<StackTraceWidget>,
     stack: Option<StackWidget>,
@@ -59,12 +70,15 @@ struct Widgets {
 
 impl<'a> App<'a> {
     fn new(bytecode: &'a Bytecode, output_buffer: Rc<RefCell<Vec<u8>>>) -> Self {
+        let (source_list, error) = SourceListWidget::new(bytecode);
         Self {
             bytecode,
             mode: Default::default(),
             output_buffer,
-            error: RefCell::new(None),
+            error: RefCell::new(error.map(|e| e.to_string())),
             widgets: Widgets {
+                focus: WidgetFocus::SourceList,
+                source_list,
                 disasm: DisasmWidget::new(bytecode).ok(),
                 stack_trace: StackTraceWidget::new().ok(),
                 stack: StackWidget::new().ok(),
@@ -83,7 +97,7 @@ impl<'a> App<'a> {
         Ok(())
     }
 
-    fn draw(&self, frame: &mut Frame) {
+    fn draw(&mut self, frame: &mut Frame) {
         frame.render_widget(self, frame.area());
     }
 
@@ -98,6 +112,9 @@ impl<'a> App<'a> {
     fn inner_events(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if let event::Event::Key(key) = event::read()? {
             match (key.kind, key.code) {
+                (KeyEventKind::Press, KeyCode::Char('l')) => {
+                    self.widgets.source_list.visible = !self.widgets.source_list.visible;
+                }
                 (KeyEventKind::Press, KeyCode::Char('D')) => {
                     if self.widgets.disasm.is_some() {
                         self.widgets.disasm = None;
@@ -112,7 +129,7 @@ impl<'a> App<'a> {
                         self.widgets.stack_trace = StackTraceWidget::new().ok();
                     }
                 }
-                (KeyEventKind::Press, KeyCode::Char('l')) => {
+                (KeyEventKind::Press, KeyCode::Char('k')) => {
                     if self.widgets.stack.is_some() {
                         self.widgets.stack = None;
                     } else {
@@ -152,8 +169,12 @@ impl<'a> App<'a> {
                         };
                         let prev_vm = next_vm.deepclone();
                         next_vm.next_inst()?;
-                        self.widgets
-                            .update(&mut next_vm, btrace_level, &self.output_buffer)?;
+                        self.widgets.update(
+                            &mut next_vm,
+                            btrace_level,
+                            self.bytecode.debug_info(),
+                            &self.output_buffer,
+                        )?;
                         vm_history.push_front(prev_vm);
                         vm_history.push_front(next_vm);
                         if 100 < vm_history.len() {
@@ -186,8 +207,12 @@ impl<'a> App<'a> {
                         };
                         *btrace_level =
                             (*btrace_level + 1).min(vm.call_stack().len().saturating_sub(1));
-                        self.widgets
-                            .update(vm, *btrace_level, &self.output_buffer)?;
+                        self.widgets.update(
+                            vm,
+                            *btrace_level,
+                            self.bytecode.debug_info(),
+                            &self.output_buffer,
+                        )?;
                     }
                 }
                 (KeyEventKind::Press, KeyCode::Char('d')) => {
@@ -201,8 +226,12 @@ impl<'a> App<'a> {
                             return Err("Missing Vm".into());
                         };
                         *btrace_level = btrace_level.saturating_sub(1);
-                        self.widgets
-                            .update(vm, *btrace_level, &self.output_buffer)?;
+                        self.widgets.update(
+                            vm,
+                            *btrace_level,
+                            self.bytecode.debug_info(),
+                            &self.output_buffer,
+                        )?;
                     }
                 }
                 (KeyEventKind::Press, KeyCode::Char('p')) => {
@@ -215,7 +244,12 @@ impl<'a> App<'a> {
                         *selected_history =
                             selected_history.saturating_add(1).min(vm_history.len() - 1);
                         if let Some(vm) = vm_history.get(*selected_history) {
-                            self.widgets.update(vm, btrace_level, &self.output_buffer)?;
+                            self.widgets.update(
+                                vm,
+                                btrace_level,
+                                self.bytecode.debug_info(),
+                                &self.output_buffer,
+                            )?;
                         }
                     }
                 }
@@ -228,7 +262,12 @@ impl<'a> App<'a> {
                     {
                         *selected_history = selected_history.saturating_sub(1);
                         if let Some(vm) = vm_history.get(*selected_history) {
-                            self.widgets.update(vm, btrace_level, &self.output_buffer)?;
+                            self.widgets.update(
+                                vm,
+                                btrace_level,
+                                self.bytecode.debug_info(),
+                                &self.output_buffer,
+                            )?;
                         }
                     }
                 }
@@ -239,16 +278,63 @@ impl<'a> App<'a> {
                         self.exit = true;
                     }
                 }
-                (KeyEventKind::Press, KeyCode::Up) => {
-                    if let Some(ref mut da) = self.widgets.disasm {
-                        da.scroll = da.scroll.saturating_sub(1)
-                    }
+                (KeyEventKind::Press, KeyCode::Tab) => {
+                    // TODO: how to pick up Shift+Tab event?
+                    self.widgets.focus = if key.modifiers.contains(KeyModifiers::SHIFT) {
+                        match self.widgets.focus {
+                            WidgetFocus::SourceList => WidgetFocus::Disasm,
+                            WidgetFocus::Disasm => WidgetFocus::Stack,
+                            WidgetFocus::Stack => WidgetFocus::Output,
+                            WidgetFocus::Output => WidgetFocus::SourceList,
+                        }
+                    } else {
+                        match self.widgets.focus {
+                            WidgetFocus::SourceList => WidgetFocus::Output,
+                            WidgetFocus::Disasm => WidgetFocus::SourceList,
+                            WidgetFocus::Stack => WidgetFocus::Disasm,
+                            WidgetFocus::Output => WidgetFocus::Stack,
+                        }
+                    };
+                    let focus = self.widgets.focus;
+                    self.widgets.source_list.focus = matches!(focus, WidgetFocus::SourceList);
+                    self.widgets
+                        .disasm
+                        .as_mut()
+                        .map(|d| d.focus = matches!(focus, WidgetFocus::Disasm));
+                    self.widgets
+                        .stack
+                        .as_mut()
+                        .map(|d| d.focus = matches!(focus, WidgetFocus::Stack));
+                    self.widgets.output.focus = matches!(focus, WidgetFocus::Output);
                 }
-                (KeyEventKind::Press, KeyCode::Down) => {
-                    if let Some(ref mut da) = self.widgets.disasm {
-                        da.scroll += 1
+                (KeyEventKind::Press, KeyCode::Up) => match self.widgets.focus {
+                    WidgetFocus::SourceList => self.widgets.source_list.update_scroll(-1),
+                    WidgetFocus::Disasm => {
+                        if let Some(ref mut da) = self.widgets.disasm {
+                            da.update_scroll(-1)
+                        }
                     }
-                }
+                    WidgetFocus::Stack => {
+                        self.widgets.stack.as_mut().map(|d| d.update_scroll(-1));
+                    }
+                    WidgetFocus::Output => {
+                        self.widgets.output.update_scroll(-1);
+                    }
+                },
+                (KeyEventKind::Press, KeyCode::Down) => match self.widgets.focus {
+                    WidgetFocus::SourceList => self.widgets.source_list.update_scroll(1),
+                    WidgetFocus::Disasm => {
+                        if let Some(ref mut da) = self.widgets.disasm {
+                            da.update_scroll(1)
+                        }
+                    }
+                    WidgetFocus::Stack => {
+                        self.widgets.stack.as_mut().map(|d| d.update_scroll(1));
+                    }
+                    WidgetFocus::Output => {
+                        self.widgets.output.update_scroll(1);
+                    }
+                },
                 _ => {}
             }
         }
@@ -288,11 +374,15 @@ impl Widgets {
         &mut self,
         vm: &Vm,
         level: usize,
+        debug: Option<&DebugInfo>,
         output_buffer: &Rc<RefCell<Vec<u8>>>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(ref mut disasm) = self.disasm {
-            if let Some(ci) = vm.call_info(level) {
-                disasm.update(ci.bytecode(), ci.instuction_ptr())?;
+        if let Some(ci) = vm.call_info(level) {
+            let debug_fn = debug.and_then(|debug| debug.get(ci.bytecode().name()));
+            let ip = ci.instruction_ptr();
+            self.source_list.update(ip, debug_fn.map(|v| &v[..]))?;
+            if let Some(ref mut disasm) = self.disasm {
+                disasm.update(ci.bytecode(), ip, debug_fn.map(|v| &v[..]))?;
             }
         }
         if let Some(ref mut stack_trace) = self.stack_trace {
@@ -306,9 +396,110 @@ impl Widgets {
     }
 }
 
-impl<'a> Widget for &App<'a> {
+impl<'a> Widget for &mut App<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let title = Title::from(" Interactive debugger ".bold());
+        let instructions = Title::from(Line::from(vec![
+            "  help: ".into(),
+            "h".blue().bold(),
+            if matches!(self.mode, AppMode::StepRun { .. }) {
+                "  stop running program: ".into()
+            } else {
+                "  quit: ".into()
+            },
+            "q ".blue().bold(),
+        ]));
+        let block = Block::bordered()
+            .title(title.alignment(Alignment::Center))
+            .title(
+                instructions
+                    .alignment(Alignment::Center)
+                    .position(Position::Bottom),
+            )
+            .border_style(if matches!(self.mode, AppMode::StepRun { .. }) {
+                Style::new().light_yellow()
+            } else {
+                Style::new()
+            })
+            .border_set(border::THICK);
+
+        let layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(vec![Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(block.inner(area));
+
+        let inner_text = self.render_inner_text().unwrap_or_else(|e| {
+            let e = e.to_string();
+            *self.error.borrow_mut() = Some(e.clone());
+            Text::from(format!("Error: {e}"))
+        });
+
+        Paragraph::new(inner_text).block(block).render(area, buf);
+
+        let top_area = layout[0];
+
+        let top_widgets =
+            self.widgets.output.visible() as u16 + self.widgets.source_list.visible as u16;
+        let top_constraints: Vec<_> = (0..top_widgets)
+            .map(|_| Constraint::Percentage(100 / top_widgets))
+            .collect();
+
+        let top_layout = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints(top_constraints)
+            .split(top_area);
+
+        let mut horz_i = 0;
+        if self.widgets.output.visible() {
+            let mut output_area = top_layout[horz_i];
+            if 4 < output_area.height {
+                output_area.y += 2;
+                output_area.height = output_area.height.saturating_sub(2);
+                self.widgets.output.render(output_area, buf);
+            }
+            horz_i += 1;
+        }
+
+        if self.widgets.source_list.visible {
+            let source_area = top_layout[horz_i];
+            self.widgets.source_list.render(source_area, buf);
+            // horz_i += 1;
+        }
+
+        let bottom_area = layout[1];
+        if 0 < bottom_area.height {
+            let widget_count = self.widgets.disasm.is_some() as u16
+                + self.widgets.stack_trace.is_some() as u16
+                + self.widgets.stack.is_some() as u16;
+            let bottom_constraints: Vec<_> = (0..widget_count)
+                .map(|_| Constraint::Percentage(100 / widget_count))
+                .collect();
+
+            let bottom_layout = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints(bottom_constraints)
+                .split(bottom_area);
+
+            horz_i = 0;
+            if let Some(ref mut d) = self.widgets.stack {
+                let tr_area = bottom_layout[horz_i];
+                if 0 < tr_area.height {
+                    d.render(tr_area, buf);
+                }
+                horz_i += 1;
+            }
+
+            if let Some(d) = self.widgets.disasm.as_mut() {
+                let disasm_area = bottom_layout[horz_i];
+                d.render(disasm_area, buf);
+                horz_i += 1;
+            }
+
+            if let Some(ref d) = self.widgets.stack_trace {
+                d.render(bottom_layout[horz_i], buf);
+            }
+        }
+
         // Help shows on top of all widgets
         if let Some(ref help) = self.widgets.help {
             let mut help_area = area;
@@ -317,68 +508,6 @@ impl<'a> Widget for &App<'a> {
             help_area.y += help_area.height / 4;
             help_area.height /= 2;
             help.render(help_area, buf);
-        } else {
-            let instructions = Title::from(Line::from(vec![
-                "  help: ".into(),
-                "h".blue().bold(),
-                "  quit: ".into(),
-                "q ".blue().bold(),
-            ]));
-            let block = Block::bordered()
-                .title(title.alignment(Alignment::Center))
-                .title(
-                    instructions
-                        .alignment(Alignment::Center)
-                        .position(Position::Bottom),
-                )
-                .border_set(border::THICK);
-
-            let inner_text = self.render_inner_text().unwrap_or_else(|e| {
-                let e = e.to_string();
-                *self.error.borrow_mut() = Some(e.clone());
-                Text::from(format!("Error: {e}"))
-            });
-
-            Paragraph::new(inner_text).block(block).render(area, buf);
-
-            let mut output_area = area;
-            if self.widgets.output.visible() && 4 < output_area.height {
-                output_area.width /= 2;
-                output_area.y += 2;
-                output_area.height = (output_area.height - 4) / 2;
-                self.widgets.output.render(output_area, buf);
-            }
-
-            let mut tr_area = area;
-            if 0 < tr_area.height {
-                tr_area.x = area.width / 2;
-                tr_area.width /= 2;
-                tr_area.y += 1;
-                tr_area.height = (tr_area.height - 1) / 2;
-                self.widgets.stack.as_ref().map(|d| d.render(tr_area, buf));
-            }
-
-            let mut widget_area = area;
-            if 0 < widget_area.height {
-                widget_area.y = widget_area.height / 2;
-                widget_area.height = (widget_area.height - 1) / 2;
-
-                let widget_count = self.widgets.disasm.is_some() as u16
-                    + self.widgets.stack_trace.is_some() as u16;
-
-                if widget_count != 0 {
-                    widget_area.width /= widget_count;
-                }
-
-                if let Some(d) = self.widgets.disasm.as_ref() {
-                    d.render(widget_area, buf);
-                    widget_area.x += widget_area.width;
-                }
-                self.widgets
-                    .stack_trace
-                    .as_ref()
-                    .map(|d| d.render(widget_area, buf));
-            }
         }
     }
 }
