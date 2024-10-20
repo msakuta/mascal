@@ -1,3 +1,8 @@
+//! The parser for the source code for the syntax highlighting and debug position indication.
+//! It is deliberately different from source code parser (/parser/src/parser.rs) since it only tokenizes,
+//! does not build a syntax tree.
+
+use mascal::LineInfo;
 use nom::{
     branch::alt,
     bytes::complete::{tag, take_until},
@@ -7,13 +12,40 @@ use nom::{
     sequence::{delimited, pair, terminated},
     Finish, IResult,
 };
-use ratatui::{style::Stylize, text::Span};
+use ratatui::{
+    style::{Color, Style, Stylize},
+    text::Span,
+};
 
-pub(super) fn style_text(is_current: bool, line_num: usize, s: &str) -> Vec<Span> {
+pub(super) fn style_text<'a>(
+    current_pos: Option<&LineInfo>,
+    line_num: usize,
+    s: &'a str,
+) -> Vec<Span<'a>> {
+    let is_current = current_pos.is_some_and(|s| s.src_line as usize == line_num);
     let current = if is_current { "*" } else { " " };
     let mut line = vec![Span::from(format!("{current}  {line_num:4} "))];
     if let Ok((_, s)) = text(s) {
         line.extend_from_slice(&s);
+    }
+    if let Some(current_pos) = current_pos {
+        if is_current {
+            // Patch a sequence of highlighted text. The style of syntax highlight does not necessarily
+            // have the same boundary as the source information, but we try to match them as much as possible
+            // but do not actively insert a new span since it's too complicated to do now.
+            let mut accum_len = 0;
+            // Skip the first element since it is the line number, not a part of the source text.
+            for span in line.iter_mut().skip(1) {
+                let span_len = span.content.len();
+                // Subtract 1 since nom_locate's LocatedSpan returns a column index starting with 1.
+                let cur_col = current_pos.src_column.saturating_sub(1) as usize;
+                let cur_len = current_pos.src_len as usize;
+                if accum_len <= cur_col + cur_len && cur_col < accum_len + span_len {
+                    *span = span.clone().style(Style::new().bg(Color::LightYellow));
+                }
+                accum_len += cur_len;
+            }
+        }
     }
     line
 }

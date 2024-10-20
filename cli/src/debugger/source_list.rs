@@ -18,7 +18,7 @@ use self::parser::style_text;
 pub(super) struct SourceListWidget {
     pub(super) visible: bool,
     text: Vec<String>,
-    line: Option<usize>,
+    line: Option<LineInfo>,
     scroll: usize,
     scroll_state: ScrollbarState,
     /// Cached height of rendered text area. Used for calculating scroll position.
@@ -61,12 +61,10 @@ impl SourceListWidget {
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(debug) = debug {
             let ip32 = ip as u32;
-            let line_info = debug
-                .iter()
-                .find(|li| li.byte_start <= ip32 && ip32 <= li.byte_end);
+            let line_info = debug.iter().find(|li| li.instruction == ip32);
             if let Some(line_info) = line_info {
-                let line = line_info.src_start as usize;
-                self.line = Some(line);
+                self.line = Some(*line_info);
+                let line = line_info.src_line as usize;
                 // When the instruction pointer moves by stepping the program, we want to follow its position.
                 self.scroll = self.scroll.clamp(
                     (line + 3).saturating_sub(self.render_height as usize),
@@ -108,7 +106,7 @@ impl Widget for &mut SourceListWidget {
         if self.scroll < self.text.len() {
             lines.extend(self.text[self.scroll..].iter().enumerate().map(|(i, v)| {
                 let line_num = i + self.scroll + 1;
-                let v = style_text(Some(i + self.scroll + 1) == self.line, line_num, v);
+                let v = style_text(self.line.as_ref(), line_num, v);
                 Line::from(v)
             }));
         }

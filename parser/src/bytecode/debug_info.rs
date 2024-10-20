@@ -77,36 +77,36 @@ impl DebugInfo {
 /// Source mapping between line number and bytecode bytes.
 /// u32 should suffice since no one would write more than 4 billion bytes of source codes.
 pub struct LineInfo {
-    pub src_start: u32,
-    pub src_end: u32,
-    pub byte_start: u32,
-    pub byte_end: u32,
+    pub instruction: u32,
+    pub src_line: u32,
+    pub src_column: u32,
+    pub src_len: u32,
 }
 
 impl LineInfo {
     pub(crate) fn serialize(&self, writer: &mut impl Write) -> std::io::Result<()> {
-        writer.write_all(&self.src_start.to_le_bytes())?;
-        writer.write_all(&self.src_end.to_le_bytes())?;
-        writer.write_all(&self.byte_start.to_le_bytes())?;
-        writer.write_all(&self.byte_end.to_le_bytes())?;
+        writer.write_all(&self.instruction.to_le_bytes())?;
+        writer.write_all(&self.src_line.to_le_bytes())?;
+        writer.write_all(&self.src_column.to_le_bytes())?;
+        writer.write_all(&self.src_len.to_le_bytes())?;
         Ok(())
     }
 
     pub(crate) fn deserialize(reader: &mut impl Read) -> std::io::Result<Self> {
         let mut buf = [0u8; std::mem::size_of::<u32>()];
         reader.read_exact(&mut buf)?;
-        let src_start = u32::from_le_bytes(buf);
+        let instruction = u32::from_le_bytes(buf);
         reader.read_exact(&mut buf)?;
-        let src_end = u32::from_le_bytes(buf);
+        let src_line = u32::from_le_bytes(buf);
         reader.read_exact(&mut buf)?;
-        let byte_start = u32::from_le_bytes(buf);
+        let src_column = u32::from_le_bytes(buf);
         reader.read_exact(&mut buf)?;
-        let byte_end = u32::from_le_bytes(buf);
+        let src_len = u32::from_le_bytes(buf);
         Ok(Self {
-            src_start,
-            src_end,
-            byte_start,
-            byte_end,
+            instruction,
+            src_line,
+            src_column,
+            src_len,
         })
     }
 }

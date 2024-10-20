@@ -68,8 +68,25 @@ struct Compiler<'a> {
     target_stack: Vec<Target>,
     locals: Vec<Vec<LocalVar>>,
     break_ips: Vec<usize>,
-    current_pos: Option<(u32, u32)>,
-    line_info: HashMap<u32, u32>,
+    current_pos: Option<(u32, CompSourcePos)>,
+    line_info: HashMap<u32, CompSourcePos>,
+}
+
+#[derive(Clone, Copy)]
+struct CompSourcePos {
+    line: u32,
+    column: u32,
+    len: u32,
+}
+
+impl<'a> From<Span<'a>> for CompSourcePos {
+    fn from(value: Span) -> Self {
+        Self {
+            line: value.location_line(),
+            column: value.get_column() as u32,
+            len: value.len() as u32,
+        }
+    }
 }
 
 impl<'a> Compiler<'a> {
@@ -148,52 +165,33 @@ impl<'a> Compiler<'a> {
 
     fn push_inst(&mut self, op: OpCode, arg0: u8, arg1: u16) -> usize {
         let ret = self.bytecode.push_inst(op, arg0, arg1);
-        if let Some((cur_pos, _)) = self.current_pos {
-            self.line_info.insert(ret as u32, cur_pos);
+        if let Some((_, src_pos)) = self.current_pos {
+            self.line_info.insert(ret as u32, src_pos);
         }
         ret
     }
 
-    fn start_src_pos(&mut self, pos: u32) {
-        self.current_pos = Some((pos as u32, self.bytecode.instructions.len() as u32));
+    fn start_src_pos(&mut self, src_pos: CompSourcePos) {
+        self.current_pos = Some((self.bytecode.instructions.len() as u32, src_pos));
     }
 
-    fn end_src_pos(&mut self, pos: u32) {
-        let ip = self.bytecode.instructions.len() as u32;
-        self.current_pos = Some((pos as u32, ip));
+    fn end_src_pos(&mut self, src_pos: CompSourcePos) {
+        self.current_pos = Some((self.bytecode.instructions.len() as u32, src_pos));
     }
 
     fn source_map(&self) -> Vec<LineInfo> {
         let mut source_map = vec![];
-        let mut last_range: Option<LineInfo> = None;
         for i in 0..self.bytecode.instructions.len() {
-            let Some(&src_line) = self.line_info.get(&(i as u32)) else {
+            let Some(src_pos) = self.line_info.get(&(i as u32)) else {
                 continue;
             };
-            if let Some(ref mut range) = last_range {
-                if range.src_start <= src_line && src_line <= range.src_end {
-                    range.byte_end = i as u32;
-                } else {
-                    source_map.push(*range);
-                    last_range = Some(LineInfo {
-                        src_start: src_line,
-                        src_end: src_line,
-                        byte_start: i as u32,
-                        byte_end: i as u32,
-                    });
-                }
-            } else {
-                last_range = Some(LineInfo {
-                    src_start: src_line,
-                    src_end: src_line,
-                    byte_start: i as u32,
-                    byte_end: i as u32,
-                })
-            }
-        }
 
-        if let Some(range) = last_range {
-            source_map.push(range);
+            source_map.push(LineInfo {
+                instruction: i as u32,
+                src_line: src_pos.line,
+                src_column: src_pos.column,
+                src_len: src_pos.len,
+            });
         }
 
         source_map
@@ -312,13 +310,13 @@ impl<'src, 'ast> CompilerBuilder<'src, 'ast> {
 fn compile_fn<'src, 'ast>(
     env: &mut CompilerEnv,
     name: String,
-    src_start: u32,
+    src_pos: &CompSourcePos,
     stmts: &'ast [Statement<'src>],
     args: Vec<LocalVar>,
     fn_args: Vec<BytecodeArg>,
 ) -> CompileResult<'src, (FnProto, Vec<LineInfo>)> {
     let mut compiler = Compiler::new(args, fn_args, env);
-    compiler.start_src_pos(src_start);
+    compiler.start_src_pos(*src_pos);
     if let Some(last_target) = emit_stmts(stmts, &mut compiler)? {
         compiler
             .bytecode
@@ -419,10 +417,11 @@ fn emit_stmts<'src>(
                     })
                     .collect::<Result<_, _>>()?;
                 dbg_println!("FnDecl actual args: {:?} fn_args: {:?}", a_args, fn_args);
+                let src_pos = (*name).into();
                 let (fun, debug) = compile_fn(
                     &mut compiler.env,
                     name.to_string(),
-                    name.location_line(),
+                    &src_pos,
                     stmts,
                     a_args,
                     fn_args,
@@ -497,7 +496,7 @@ fn emit_stmts<'src>(
 }
 
 fn emit_expr<'src>(expr: &Expression<'src>, compiler: &mut Compiler) -> CompileResult<'src, usize> {
-    compiler.start_src_pos(expr.span.location_line());
+    compiler.start_src_pos(expr.span.into());
     let res = match &expr.expr {
         ExprEnum::NumLiteral(val) => Ok(compiler.find_or_create_literal(val)),
         ExprEnum::StrLiteral(val) => Ok(compiler.find_or_create_literal(&Value::Str(val.clone()))),
@@ -742,7 +741,7 @@ fn emit_expr<'src>(expr: &Expression<'src>, compiler: &mut Compiler) -> CompileR
             Ok(res)
         }
     };
-    compiler.end_src_pos(expr.span.location_line());
+    compiler.end_src_pos(expr.span.into());
     res
 }
 

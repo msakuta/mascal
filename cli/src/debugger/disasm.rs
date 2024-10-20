@@ -50,10 +50,8 @@ impl DisasmWidget {
                 |debug| {
                     debug
                         .iter()
-                        .find(|line_info| {
-                            line_info.byte_start <= (i as u32) && (i as u32) <= line_info.byte_end
-                        })
-                        .map_or_else(|| "    ".to_string(), |li| format!("{:04}", li.src_start))
+                        .find(|line_info: &&LineInfo| line_info.instruction == (i as u32))
+                        .map_or_else(|| "    ".to_string(), |li| format!("{:04}", li.src_line))
                 },
             );
             temp += &format!("{current}  {} [{}] {}\n", line_num, i, inst);
