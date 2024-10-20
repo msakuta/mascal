@@ -10,7 +10,7 @@ use std::{
     rc::Rc,
 };
 
-pub use self::debug_info::{DebugInfo, LineInfo};
+pub use self::debug_info::{DebugInfo, FunctionInfo, LineInfo};
 
 use crate::{
     interpreter::{s_hex_string, s_len, s_print, s_push, s_puts, s_type, EvalError},

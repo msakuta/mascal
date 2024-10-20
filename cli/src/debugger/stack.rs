@@ -1,4 +1,4 @@
-use mascal::Vm;
+use mascal::{FunctionInfo, Vm};
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Rect},
@@ -12,7 +12,7 @@ use ratatui::{
 };
 
 pub(super) struct StackWidget {
-    text: String,
+    text: Vec<String>,
     scroll: usize,
     scroll_state: ScrollbarState,
     /// Cached height of rendered text area. Used for calculating scroll position.
@@ -23,7 +23,7 @@ pub(super) struct StackWidget {
 impl StackWidget {
     pub(super) fn new() -> Result<Self, Box<dyn std::error::Error>> {
         Ok(Self {
-            text: String::new(),
+            text: vec![],
             scroll: 0,
             scroll_state: ScrollbarState::new(1),
             render_height: 10,
@@ -35,12 +35,24 @@ impl StackWidget {
         &mut self,
         vm: &Vm,
         level: usize,
+        debug: Option<&FunctionInfo>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut buf = vec![];
-        vm.print_stack(&mut buf, level)?;
-        self.text = String::from_utf8(buf)?;
-        self.scroll_state =
-            ScrollbarState::new(self.text.split('\n').count()).position(self.scroll);
+        if let Some(iter) = vm.iter_stack(level) {
+            for (i, value) in iter.enumerate() {
+                let var_name = debug
+                    .and_then(|debug| debug.vars.iter().find(|(_, idx)| **idx == i))
+                    .map(|(name, _)| name);
+                buf.push(if let Some(var_name) = var_name {
+                    format!("  [{i}] {value}    (Local: {var_name})")
+                } else {
+                    format!("  [{i}] {value}")
+                });
+            }
+        }
+
+        self.text = buf;
+        self.scroll_state = ScrollbarState::new(self.text.len()).position(self.scroll);
         Ok(())
     }
 
@@ -59,9 +71,8 @@ impl Widget for &mut StackWidget {
     where
         Self: Sized,
     {
-        let text_lines: Vec<_> = self.text.split('\n').collect();
         let title =
-            Title::from(format!(" Stack values {}/{} ", self.scroll, text_lines.len()).bold());
+            Title::from(format!(" Stack values {}/{} ", self.scroll, self.text.len()).bold());
         let block = Block::bordered()
             .title(title.alignment(Alignment::Center))
             .border_style(Style::new().cyan())
@@ -72,8 +83,12 @@ impl Widget for &mut StackWidget {
             });
 
         let mut lines = vec![];
-        if self.scroll < text_lines.len() {
-            lines.extend(text_lines[self.scroll..].iter().map(|v| Line::from(*v)));
+        if self.scroll < self.text.len() {
+            lines.extend(
+                self.text[self.scroll..]
+                    .iter()
+                    .map(|v| Line::from(v.as_str())),
+            );
         }
 
         let sbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)

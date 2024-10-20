@@ -12,55 +12,29 @@ impl Bytecode {
         debug: &DebugInfo,
         writer: &mut impl Write,
     ) -> std::io::Result<()> {
-        write_str(&debug.file_name, writer)?;
-        write_usize(debug.source_map.len(), writer)?;
-        for (fname, debug) in debug.source_map.iter() {
-            write_str(fname, writer)?;
-            writer.write_all(&debug.len().to_le_bytes())?;
-            for line_info in debug {
-                line_info.serialize(writer)?;
-            }
-        }
-        Ok(())
+        debug.serialize(writer)
     }
 
     pub(super) fn read_debug_info(reader: &mut impl Read) -> Result<DebugInfo, ReadError> {
-        let file_name = read_str(reader)?;
-        let len = read_usize(reader)?;
-        let source_map = (0..len)
-            .map(|_| -> Result<_, ReadError> {
-                let name = read_str(reader)?;
-                let mut buf = [0u8; std::mem::size_of::<usize>()];
-                reader.read_exact(&mut buf)?;
-                let len = usize::from_le_bytes(buf);
-                let line_info = (0..len)
-                    .map(|_| LineInfo::deserialize(reader))
-                    .collect::<Result<Vec<_>, _>>()?;
-                Ok((name, line_info))
-            })
-            .collect::<Result<HashMap<String, Vec<LineInfo>>, _>>()?;
-        Ok(DebugInfo {
-            file_name,
-            source_map,
-        })
+        DebugInfo::deserialize(reader)
     }
 }
 
 #[derive(Debug)]
 pub struct DebugInfo {
     file_name: String,
-    source_map: HashMap<String, Vec<LineInfo>>,
+    source_map: HashMap<String, FunctionInfo>,
 }
 
 impl DebugInfo {
-    pub fn new(source_map: HashMap<String, Vec<LineInfo>>) -> Self {
+    pub fn new(source_map: HashMap<String, FunctionInfo>) -> Self {
         Self {
             file_name: "".to_string(),
             source_map,
         }
     }
 
-    pub fn get(&self, fname: &str) -> Option<&Vec<LineInfo>> {
+    pub fn get(&self, fname: &str) -> Option<&FunctionInfo> {
         self.source_map.get(fname)
     }
 
@@ -70,6 +44,75 @@ impl DebugInfo {
 
     pub(super) fn set_file_name(&mut self, file_name: impl Into<String>) {
         self.file_name = file_name.into()
+    }
+
+    fn serialize(&self, writer: &mut impl Write) -> std::io::Result<()> {
+        write_str(&self.file_name, writer)?;
+        write_usize(self.source_map.len(), writer)?;
+        for (fname, fun) in self.source_map.iter() {
+            write_str(fname, writer)?;
+            fun.serialize(writer)?;
+        }
+        Ok(())
+    }
+
+    fn deserialize(reader: &mut impl Read) -> Result<Self, ReadError> {
+        let file_name = read_str(reader)?;
+        let len = read_usize(reader)?;
+        let source_map = (0..len)
+            .map(|_| -> Result<_, ReadError> {
+                let name = read_str(reader)?;
+                let fn_info = FunctionInfo::deserialize(reader)?;
+                Ok((name, fn_info))
+            })
+            .collect::<Result<HashMap<String, FunctionInfo>, _>>()?;
+        Ok(DebugInfo {
+            file_name,
+            source_map,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct FunctionInfo {
+    /// Mapping between variable name and stack index
+    pub vars: HashMap<String, usize>,
+    pub line_info: Vec<LineInfo>,
+}
+
+impl FunctionInfo {
+    pub(crate) fn new(vars: HashMap<String, usize>, line_info: Vec<LineInfo>) -> Self {
+        Self { vars, line_info }
+    }
+
+    fn serialize(&self, writer: &mut impl Write) -> std::io::Result<()> {
+        write_usize(self.vars.len(), writer)?;
+        for (var_name, var_idx) in &self.vars {
+            write_str(var_name, writer)?;
+            write_usize(*var_idx, writer)?;
+        }
+        write_usize(self.line_info.len(), writer)?;
+        for line_info in &self.line_info {
+            line_info.serialize(writer)?;
+        }
+        Ok(())
+    }
+
+    fn deserialize(reader: &mut impl Read) -> Result<Self, ReadError> {
+        let vars_len = read_usize(reader)?;
+        let vars = (0..vars_len)
+            .map(|_| {
+                let var_name = read_str(reader)?;
+                let var_idx = read_usize(reader)?;
+                Ok((var_name, var_idx))
+            })
+            .collect::<Result<HashMap<String, _>, ReadError>>()?;
+
+        let lines_len = read_usize(reader)?;
+        let line_info = (0..lines_len)
+            .map(|_| LineInfo::deserialize(reader))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Self { vars, line_info })
     }
 }
 

@@ -380,16 +380,17 @@ impl Widgets {
         if let Some(ci) = vm.call_info(level) {
             let debug_fn = debug.and_then(|debug| debug.get(ci.bytecode().name()));
             let ip = ci.instruction_ptr();
-            self.source_list.update(ip, debug_fn.map(|v| &v[..]))?;
+            self.source_list
+                .update(ip, debug_fn.map(|v| &v.line_info[..]))?;
             if let Some(ref mut disasm) = self.disasm {
-                disasm.update(ci.bytecode(), ip, debug_fn.map(|v| &v[..]))?;
+                disasm.update(ci.bytecode(), ip, debug_fn.map(|v| &v.line_info[..]))?;
+            }
+            if let Some(ref mut stack) = self.stack {
+                stack.update(vm, level, debug_fn)?;
             }
         }
         if let Some(ref mut stack_trace) = self.stack_trace {
             stack_trace.update(vm, level)?;
-        }
-        if let Some(ref mut stack) = self.stack {
-            stack.update(vm, level)?;
         }
         self.output.update(&output_buffer.borrow())?;
         Ok(())

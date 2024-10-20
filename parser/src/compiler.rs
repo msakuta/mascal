@@ -10,8 +10,8 @@ use self::{
 
 use crate::{
     bytecode::{
-        std_functions, Bytecode, BytecodeArg, FnBytecode, FnProto, Instruction, LineInfo, NativeFn,
-        OpCode,
+        std_functions, Bytecode, BytecodeArg, FnBytecode, FnProto, FunctionInfo, Instruction,
+        LineInfo, NativeFn, OpCode,
     },
     interpreter::{eval, EvalContext, RunResult},
     parser::{ExprEnum, Expression, Statement},
@@ -49,11 +49,11 @@ struct LocalVar {
 
 struct CompilerEnv {
     functions: HashMap<String, FnProto>,
-    debug: HashMap<String, Vec<LineInfo>>,
+    debug: HashMap<String, FunctionInfo>,
 }
 
 impl CompilerEnv {
-    fn new(mut functions: HashMap<String, FnProto>, debug: HashMap<String, Vec<LineInfo>>) -> Self {
+    fn new(mut functions: HashMap<String, FnProto>, debug: HashMap<String, FunctionInfo>) -> Self {
         let out = Rc::new(RefCell::new(std::io::stdout()));
         std_functions(out, &mut |name, f| {
             functions.insert(name, FnProto::Native(f));
@@ -179,7 +179,14 @@ impl<'a> Compiler<'a> {
         self.current_pos = Some((self.bytecode.instructions.len() as u32, src_pos));
     }
 
-    fn source_map(&self) -> Vec<LineInfo> {
+    fn source_map(&self) -> FunctionInfo {
+        let vars = self.locals.last().map_or(HashMap::new(), |locals| {
+            locals
+                .iter()
+                .map(|var| (var.name.clone(), var.stack_idx))
+                .collect::<HashMap<_, _>>()
+        });
+
         let mut source_map = vec![];
         for i in 0..self.bytecode.instructions.len() {
             let Some(src_pos) = self.line_info.get(&(i as u32)) else {
@@ -194,7 +201,7 @@ impl<'a> Compiler<'a> {
             });
         }
 
-        source_map
+        FunctionInfo::new(vars, source_map)
     }
 }
 
@@ -314,7 +321,7 @@ fn compile_fn<'src, 'ast>(
     stmts: &'ast [Statement<'src>],
     args: Vec<LocalVar>,
     fn_args: Vec<BytecodeArg>,
-) -> CompileResult<'src, (FnProto, Vec<LineInfo>)> {
+) -> CompileResult<'src, (FnProto, FunctionInfo)> {
     let mut compiler = Compiler::new(args, fn_args, env);
     compiler.start_src_pos(*src_pos);
     if let Some(last_target) = emit_stmts(stmts, &mut compiler)? {

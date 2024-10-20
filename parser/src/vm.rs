@@ -176,6 +176,15 @@ impl<'a> Vm<'a> {
         Ok(())
     }
 
+    pub fn iter_stack(&self, level: usize) -> Option<impl Iterator<Item = &Value>> {
+        let Some(ci) = self.call_info(level) else {
+            // Empty call stack is not an error
+            return None;
+        };
+        let top = (ci.stack_base + ci.stack_size).min(self.stack.len());
+        Some(self.stack[ci.stack_base..top].iter())
+    }
+
     pub fn deepclone(&self) -> Self {
         Self {
             stack: self.stack.iter().map(|v| v.deepclone()).collect(),

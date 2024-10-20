@@ -15,7 +15,9 @@ mod type_tags;
 mod value;
 mod vm;
 
-pub use self::bytecode::{Bytecode, DebugInfo, FnBytecode, Instruction, LineInfo, OpCode};
+pub use self::bytecode::{
+    Bytecode, DebugInfo, FnBytecode, FunctionInfo, Instruction, LineInfo, OpCode,
+};
 pub use self::compiler::*;
 pub use self::interpreter::{coerce_type, run, EvalContext, EvalError, FuncDef};
 pub use self::parser::{span_source as source, ArgDecl, ReadError, Span};
