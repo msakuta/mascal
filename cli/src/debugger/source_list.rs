@@ -61,8 +61,10 @@ impl SourceListWidget {
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(debug) = debug {
             let ip32 = ip as u32;
-            let line_info = debug.iter().find(|li| li.instruction == ip32);
-            if let Some(line_info) = line_info {
+            let line_info = debug
+                .binary_search_by_key(&ip32, |li| li.instruction)
+                .map_or_else(|res| res, |res| res);
+            if let Some(line_info) = debug.get(line_info) {
                 self.line = Some(*line_info);
                 let line = line_info.src_line as usize;
                 // When the instruction pointer moves by stepping the program, we want to follow its position.
