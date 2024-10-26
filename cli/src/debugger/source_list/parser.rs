@@ -89,17 +89,17 @@ impl Lexer {
         'global_loop: loop {
             match self.cur {
                 LexerState::Normal => {
-                    if input.starts_with("/*") {
+                    if let Ok((r, s)) = comment_start(input) {
                         self.cur = LexerState::Comment;
-                        res.push("/*".green());
-                        input = &input[2..];
+                        res.push(s);
+                        input = r;
                         continue;
                     }
 
-                    if input.starts_with("\"") {
+                    if let Ok((r, s)) = str_literal_start(input) {
                         self.cur = LexerState::Str;
-                        res.push(input[..1].light_magenta());
-                        input = &input[1..];
+                        res.push(s);
+                        input = r;
                         continue;
                     }
 
@@ -112,9 +112,9 @@ impl Lexer {
                 LexerState::Comment => {
                     let start = input;
                     loop {
-                        if 2 <= input.len() && &input[..2] == "*/" {
+                        if let Ok((r, _s)) = comment_end(input) {
                             self.cur = LexerState::Normal;
-                            input = &input[2..];
+                            input = r;
                             break;
                         }
                         let mut chars = input.chars();
@@ -133,9 +133,9 @@ impl Lexer {
                 LexerState::Str => {
                     let start = input;
                     loop {
-                        if input.starts_with("\"") {
+                        if let Ok((r, _s)) = str_literal_end(input) {
                             self.cur = LexerState::Normal;
-                            input = &input[1..];
+                            input = r;
                             break;
                         }
                         let mut chars = input.chars();
@@ -193,6 +193,15 @@ fn _comment(r: &str) -> IResult<&str, Span> {
     recognize(delimited(tag("/*"), take_until("*/"), tag("*/")))(r).map(|(r, s)| (r, s.green()))
 }
 
+fn comment_start(i: &str) -> IResult<&str, Span> {
+    let (r, s) = tag("/*")(i)?;
+    Ok((r, s.green()))
+}
+
+fn comment_end(i: &str) -> IResult<&str, &str> {
+    tag("*/")(i)
+}
+
 fn _non_ident(mut input: &str) -> IResult<&str, Span> {
     let start = input;
     let mut last = None;
@@ -229,6 +238,15 @@ fn _str_literal(i: &str) -> IResult<&str, Span> {
         .map(|(r, s)| (r, s.light_magenta()))
 }
 
+fn str_literal_start(i: &str) -> IResult<&str, Span> {
+    let (r, s) = recognize(char('"'))(i)?;
+    Ok((r, s.light_magenta()))
+}
+
+fn str_literal_end(i: &str) -> IResult<&str, &str> {
+    recognize(char('"'))(i)
+}
+
 fn whitespace(i: &str) -> IResult<&str, Span> {
     multispace1(i).map(|(r, s)| (r, s.into()))
 }
@@ -236,12 +254,7 @@ fn whitespace(i: &str) -> IResult<&str, Span> {
 /// Non-breaking tokens will not span multiple lines, so our syntax highlighter won't need
 /// to retain their states.
 fn non_breaking_token(i: &str) -> IResult<&str, Span> {
-    alt((
-        keyword,
-        whitespace,
-        punctuation,
-        decimal_value,
-    ))(i)
+    alt((keyword, whitespace, punctuation, decimal_value))(i)
 }
 
 fn _text(input: &str) -> Result<(&str, Vec<Span>), nom::error::Error<&str>> {
