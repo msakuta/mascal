@@ -103,22 +103,7 @@ impl Lexer {
                         continue;
                     }
 
-                    if let Ok((r, s)) = whitespace(input) {
-                        res.push(s);
-                        input = r;
-                        continue;
-                    }
-                    if let Ok((r, s)) = keyword(input) {
-                        res.push(s);
-                        input = r;
-                        continue;
-                    }
-                    if let Ok((r, s)) = punctuation(input) {
-                        res.push(s);
-                        input = r;
-                        continue;
-                    }
-                    if let Ok((r, s)) = decimal_value(input) {
+                    if let Ok((r, s)) = non_breaking_token(input) {
                         res.push(s);
                         input = r;
                         continue;
@@ -246,6 +231,17 @@ fn _str_literal(i: &str) -> IResult<&str, Span> {
 
 fn whitespace(i: &str) -> IResult<&str, Span> {
     multispace1(i).map(|(r, s)| (r, s.into()))
+}
+
+/// Non-breaking tokens will not span multiple lines, so our syntax highlighter won't need
+/// to retain their states.
+fn non_breaking_token(i: &str) -> IResult<&str, Span> {
+    alt((
+        keyword,
+        whitespace,
+        punctuation,
+        decimal_value,
+    ))(i)
 }
 
 fn _text(input: &str) -> Result<(&str, Vec<Span>), nom::error::Error<&str>> {
