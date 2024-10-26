@@ -20,6 +20,7 @@ use ratatui::{
 };
 
 pub(super) fn style_text<'a>(
+    lexer: &mut Lexer,
     current_pos: Option<&LineInfo>,
     breakpoints: &HashSet<usize>,
     line_num: usize,
@@ -38,7 +39,9 @@ pub(super) fn style_text<'a>(
         Span::from(breakpoint),
         Span::from(format!(" {line_num:4} ")),
     ];
-    let mut line = text(s).map_or_else(|_| vec![Span::from("")], |(_, s)| s);
+    let mut line = lexer
+        .eat(s)
+        .unwrap_or_else(|e| vec![format!("line: {s} {e}").red()]);
     if let Some(current_pos) = current_pos {
         if is_current {
             // Patch a sequence of highlighted text. The style of syntax highlight does not necessarily
@@ -59,6 +62,117 @@ pub(super) fn style_text<'a>(
     }
     all_line.extend_from_slice(&line);
     all_line
+}
+
+#[derive(Default, Clone, Copy, Debug)]
+/// A lexer that can retain state among lines.
+pub(super) struct Lexer {
+    cur: LexerState,
+}
+
+#[derive(Default, Clone, Copy, Debug)]
+enum LexerState {
+    #[default]
+    Normal,
+    Comment,
+    Str,
+}
+
+impl Lexer {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    fn eat<'a>(&mut self, line: &'a str) -> Result<Vec<Span<'a>>, nom::error::Error<&'a str>> {
+        let mut input = line;
+        let mut res = vec![];
+        'global_loop: loop {
+            match self.cur {
+                LexerState::Normal => {
+                    if input.starts_with("/*") {
+                        self.cur = LexerState::Comment;
+                        res.push("/*".green());
+                        input = &input[2..];
+                        continue;
+                    }
+
+                    if input.starts_with("\"") {
+                        self.cur = LexerState::Str;
+                        res.push(input[..1].light_magenta());
+                        input = &input[1..];
+                        continue;
+                    }
+
+                    if let Ok((r, s)) = whitespace(input) {
+                        res.push(s);
+                        input = r;
+                        continue;
+                    }
+                    if let Ok((r, s)) = keyword(input) {
+                        res.push(s);
+                        input = r;
+                        continue;
+                    }
+                    if let Ok((r, s)) = punctuation(input) {
+                        res.push(s);
+                        input = r;
+                        continue;
+                    }
+                    if let Ok((r, s)) = decimal_value(input) {
+                        res.push(s);
+                        input = r;
+                        continue;
+                    }
+                }
+                LexerState::Comment => {
+                    let start = input;
+                    loop {
+                        if 2 <= input.len() && &input[..2] == "*/" {
+                            self.cur = LexerState::Normal;
+                            input = &input[2..];
+                            break;
+                        }
+                        let mut chars = input.chars();
+                        if chars.next().is_none() {
+                            res.push(
+                                start[..input.as_ptr() as usize - start.as_ptr() as usize].green(),
+                            );
+                            break 'global_loop;
+                        }
+                        input = chars.as_str();
+                    }
+
+                    res.push(start[..input.as_ptr() as usize - start.as_ptr() as usize].green());
+                    continue;
+                }
+                LexerState::Str => {
+                    let start = input;
+                    loop {
+                        if input.starts_with("\"") {
+                            self.cur = LexerState::Normal;
+                            input = &input[1..];
+                            break;
+                        }
+                        let mut chars = input.chars();
+                        if chars.next().is_none() {
+                            res.push(
+                                start[..input.as_ptr() as usize - start.as_ptr() as usize]
+                                    .magenta(),
+                            );
+                            break 'global_loop;
+                        }
+                        input = chars.as_str();
+                    }
+
+                    res.push(start[..input.as_ptr() as usize - start.as_ptr() as usize].magenta());
+                    continue;
+                }
+            }
+
+            break;
+        }
+        Ok(res)
+    }
 }
 
 fn identifier(input: &str) -> IResult<&str, &str> {
@@ -90,11 +204,11 @@ fn decimal_value(i: &str) -> IResult<&str, Span> {
     recognize(pair(opt(one_of("+-")), decimal))(i).map(|(r, s)| (r, s.light_green()))
 }
 
-fn comment(r: &str) -> IResult<&str, Span> {
+fn _comment(r: &str) -> IResult<&str, Span> {
     recognize(delimited(tag("/*"), take_until("*/"), tag("*/")))(r).map(|(r, s)| (r, s.green()))
 }
 
-fn non_ident(mut input: &str) -> IResult<&str, Span> {
+fn _non_ident(mut input: &str) -> IResult<&str, Span> {
     let start = input;
     let mut last = None;
     loop {
@@ -125,7 +239,7 @@ fn punctuation(i: &str) -> IResult<&str, Span> {
     alt((recognize(one_of("(){}[],:;*+-/=<>")), tag("->")))(i).map(|(r, s)| (r, s.white()))
 }
 
-fn str_literal(i: &str) -> IResult<&str, Span> {
+fn _str_literal(i: &str) -> IResult<&str, Span> {
     recognize(delimited(char('\"'), many0(none_of("\"")), char('"')))(i)
         .map(|(r, s)| (r, s.light_magenta()))
 }
@@ -134,15 +248,15 @@ fn whitespace(i: &str) -> IResult<&str, Span> {
     multispace1(i).map(|(r, s)| (r, s.into()))
 }
 
-fn text(input: &str) -> Result<(&str, Vec<Span>), nom::error::Error<&str>> {
+fn _text(input: &str) -> Result<(&str, Vec<Span>), nom::error::Error<&str>> {
     many0(alt((
-        comment,
+        _comment,
         keyword,
         whitespace,
         punctuation,
         decimal_value,
-        str_literal,
-        non_ident,
+        _str_literal,
+        _non_ident,
     )))(input)
     .finish()
 }
@@ -150,14 +264,14 @@ fn text(input: &str) -> Result<(&str, Vec<Span>), nom::error::Error<&str>> {
 #[test]
 fn test_non_ident() {
     let s = "!!! hello";
-    assert_eq!(non_ident(s), Ok(("hello", "!!! ".into())));
+    assert_eq!(_non_ident(s), Ok(("hello", "!!! ".into())));
 }
 
 #[test]
 fn test_text() {
     let s = "fn hello() 1";
     assert_eq!(
-        text(s),
+        _text(s),
         Ok((
             "",
             vec![

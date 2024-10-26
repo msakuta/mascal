@@ -15,11 +15,11 @@ use ratatui::{
     },
 };
 
-use self::parser::style_text;
+use self::parser::{style_text, Lexer};
 
 pub(super) struct SourceListWidget {
     pub(super) visible: bool,
-    text: Vec<String>,
+    text: Vec<(String, Lexer)>,
     line: Option<LineInfo>,
     scroll: usize,
     scroll_state: ScrollbarState,
@@ -42,7 +42,18 @@ impl SourceListWidget {
                 Err(e) => error = Some(e.into()),
             }
         }
-        let text: Vec<String> = temp.split("\n").map(|s| s.trim_end().to_string()).collect();
+
+        let mut lexer = Lexer::new();
+        let text: Vec<_> = temp
+            .split("\n")
+            .enumerate()
+            .map(|(i, s)| {
+                let start_state = lexer;
+                style_text(&mut lexer, None, &HashSet::new(), i, s);
+                (s.trim_end().to_string(), start_state)
+            })
+            .collect();
+
         let length = text.len();
         (
             Self {
@@ -151,17 +162,29 @@ impl Widget for &mut SourceListWidget {
 
         let mut lines = vec![];
         if self.scroll < self.text.len() {
-            lines.extend(self.text[self.scroll..].iter().enumerate().map(|(i, v)| {
-                let line_num = i + self.scroll + 1;
-                let mut v = style_text(self.line.as_ref(), &self.breakpoints, line_num, v);
-                if line_num == self.cursor {
-                    for span in v.iter_mut() {
-                        *span = span.clone().bg(Color::DarkGray);
-                    }
-                    v.push(Span::from(" ".repeat(area.width as usize)).bg(Color::DarkGray));
-                }
-                Line::from(v)
-            }));
+            lines.extend(
+                self.text[self.scroll..]
+                    .iter()
+                    .enumerate()
+                    .map(|(i, (s, lexer))| {
+                        let mut lexer = *lexer;
+                        let line_num = i + self.scroll + 1;
+                        let mut v = style_text(
+                            &mut lexer,
+                            self.line.as_ref(),
+                            &self.breakpoints,
+                            line_num,
+                            s,
+                        );
+                        if line_num == self.cursor {
+                            for span in v.iter_mut() {
+                                *span = span.clone().bg(Color::DarkGray);
+                            }
+                            v.push(Span::from(" ".repeat(area.width as usize)).bg(Color::DarkGray));
+                        }
+                        Line::from(v)
+                    }),
+            );
         }
 
         let sbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
