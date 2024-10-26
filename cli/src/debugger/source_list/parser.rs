@@ -2,6 +2,8 @@
 //! It is deliberately different from source code parser (/parser/src/parser.rs) since it only tokenizes,
 //! does not build a syntax tree.
 
+use std::collections::HashSet;
+
 use mascal::LineInfo;
 use nom::{
     branch::alt,
@@ -19,23 +21,31 @@ use ratatui::{
 
 pub(super) fn style_text<'a>(
     current_pos: Option<&LineInfo>,
+    breakpoints: &HashSet<usize>,
     line_num: usize,
     s: &'a str,
 ) -> Vec<Span<'a>> {
     let is_current = current_pos.is_some_and(|s| s.src_line as usize == line_num);
     let current = if is_current { "*" } else { " " };
-    let mut line = vec![Span::from(format!("{current}  {line_num:4} "))];
-    if let Ok((_, s)) = text(s) {
-        line.extend_from_slice(&s);
-    }
+    let has_breakpoint = breakpoints.contains(&line_num);
+    let breakpoint = if has_breakpoint {
+        "o".red()
+    } else {
+        " ".into()
+    };
+    let mut all_line = vec![
+        Span::from(current),
+        Span::from(breakpoint),
+        Span::from(format!(" {line_num:4} ")),
+    ];
+    let mut line = text(s).map_or_else(|_| vec![Span::from("")], |(_, s)| s);
     if let Some(current_pos) = current_pos {
         if is_current {
             // Patch a sequence of highlighted text. The style of syntax highlight does not necessarily
             // have the same boundary as the source information, but we try to match them as much as possible
             // but do not actively insert a new span since it's too complicated to do now.
             let mut accum_len = 0;
-            // Skip the first element since it is the line number, not a part of the source text.
-            for span in line.iter_mut().skip(1) {
+            for span in line.iter_mut() {
                 let span_len = span.content.len();
                 // Subtract 1 since nom_locate's LocatedSpan returns a column index starting with 1.
                 let cur_col = current_pos.src_column.saturating_sub(1) as usize;
@@ -47,7 +57,8 @@ pub(super) fn style_text<'a>(
             }
         }
     }
-    line
+    all_line.extend_from_slice(&line);
+    all_line
 }
 
 fn identifier(input: &str) -> IResult<&str, &str> {

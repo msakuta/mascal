@@ -149,6 +149,9 @@ impl<'a> App<'a> {
                 (KeyEventKind::Press, KeyCode::Char('r')) => {
                     interpret(self.bytecode)?;
                 }
+                (KeyEventKind::Press, KeyCode::Char('b')) => {
+                    self.widgets.source_list.toggle_breakpoint();
+                }
                 (KeyEventKind::Press, KeyCode::Char('s')) => {
                     if let AppMode::StepRun {
                         ref mut vm_history,

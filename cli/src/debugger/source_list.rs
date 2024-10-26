@@ -86,15 +86,29 @@ impl SourceListWidget {
 
     pub(super) fn update_scroll(&mut self, delta: i32) {
         if delta < 0 {
-            self.cursor = self.cursor.saturating_sub(delta.abs() as usize);
+            // The line number starts with 1
+            self.cursor = self.cursor.saturating_sub(delta.abs() as usize).max(1);
         } else {
-            self.cursor = self.cursor.saturating_add(delta as usize);
+            self.cursor = self
+                .cursor
+                .saturating_add(delta as usize)
+                .min(self.text.len());
         }
+        let ofs = self.cursor.saturating_sub(1);
         self.scroll = self.scroll.clamp(
-            (self.cursor + 3).saturating_sub(self.render_height as usize),
-            self.cursor.saturating_sub(3),
+            (ofs + 3).saturating_sub(self.render_height as usize),
+            ofs.saturating_sub(3),
         );
         self.scroll_state = self.scroll_state.position(self.scroll);
+    }
+
+    /// Toggle a breakpoint at the cursor line.
+    pub(super) fn toggle_breakpoint(&mut self) {
+        if self.breakpoints.contains(&self.cursor) {
+            self.breakpoints.remove(&self.cursor);
+        } else {
+            self.breakpoints.insert(self.cursor);
+        }
     }
 }
 
@@ -118,8 +132,8 @@ impl Widget for &mut SourceListWidget {
         if self.scroll < self.text.len() {
             lines.extend(self.text[self.scroll..].iter().enumerate().map(|(i, v)| {
                 let line_num = i + self.scroll + 1;
-                let mut v = style_text(self.line.as_ref(), line_num, v);
-                if line_num == self.cursor + 1 {
+                let mut v = style_text(self.line.as_ref(), &self.breakpoints, line_num, v);
+                if line_num == self.cursor {
                     for span in v.iter_mut() {
                         *span = span.clone().bg(Color::DarkGray);
                     }
