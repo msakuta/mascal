@@ -166,29 +166,26 @@ impl Widget for &mut SourceListWidget {
 
         let mut lines = vec![];
         if self.scroll < self.text.len() && lines_end <= self.text.len() {
-            lines.extend(
-                self.text[self.scroll..lines_end]
-                    .iter()
-                    .enumerate()
-                    .map(|(i, (s, lexer))| {
-                        let mut lexer = *lexer;
-                        let line_num = i + self.scroll + 1;
-                        let mut v = style_text(
-                            &mut lexer,
-                            self.line.as_ref(),
-                            &self.breakpoints,
-                            line_num,
-                            s,
-                        );
-                        if line_num == self.cursor {
-                            for span in v.iter_mut() {
-                                *span = span.clone().bg(Color::DarkGray);
-                            }
-                            v.push(Span::from(" ".repeat(area.width as usize)).bg(Color::DarkGray));
+            lines.extend(self.text[self.scroll..lines_end].iter().enumerate().map(
+                |(i, (s, lexer))| {
+                    let mut lexer = *lexer;
+                    let line_num = i + self.scroll + 1;
+                    let mut v = style_text(
+                        &mut lexer,
+                        self.line.as_ref(),
+                        &self.breakpoints,
+                        line_num,
+                        s,
+                    );
+                    if line_num == self.cursor {
+                        for span in v.iter_mut() {
+                            *span = span.clone().bg(Color::DarkGray);
                         }
-                        Line::from(v)
-                    }),
-            );
+                        v.push(Span::from(" ".repeat(area.width as usize)).bg(Color::DarkGray));
+                    }
+                    Line::from(v)
+                },
+            ));
         }
 
         let sbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)

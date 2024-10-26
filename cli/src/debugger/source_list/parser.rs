@@ -11,7 +11,7 @@ use nom::{
     character::complete::{alpha1, alphanumeric1, char, multispace1, none_of, one_of},
     combinator::{opt, recognize},
     multi::{many0, many1},
-    sequence::{delimited, pair, terminated},
+    sequence::{delimited, pair, terminated, tuple},
     Finish, IResult,
 };
 use ratatui::{
@@ -189,6 +189,20 @@ fn decimal_value(i: &str) -> IResult<&str, Span> {
     recognize(pair(opt(one_of("+-")), decimal))(i).map(|(r, s)| (r, s.light_green()))
 }
 
+fn float(input: &str) -> IResult<&str, &str> {
+    recognize(tuple((
+        opt(one_of("+-")),
+        decimal,
+        nom::combinator::not(tag("..")),
+        char('.'),
+        opt(decimal),
+    )))(input)
+}
+
+fn float_value(i: &str) -> IResult<&str, Span> {
+    float(i).map(|(r, s)| (r, s.light_green()))
+}
+
 fn _comment(r: &str) -> IResult<&str, Span> {
     recognize(delimited(tag("/*"), take_until("*/"), tag("*/")))(r).map(|(r, s)| (r, s.green()))
 }
@@ -230,7 +244,8 @@ fn _non_ident(mut input: &str) -> IResult<&str, Span> {
 }
 
 fn punctuation(i: &str) -> IResult<&str, Span> {
-    alt((recognize(one_of("(){}[],:;*+-/=<>")), tag("->")))(i).map(|(r, s)| (r, s.white()))
+    alt((recognize(one_of("(){}[],:;*+-/=<>")), tag("->"), tag("..")))(i)
+        .map(|(r, s)| (r, s.white()))
 }
 
 fn _str_literal(i: &str) -> IResult<&str, Span> {
@@ -254,7 +269,7 @@ fn whitespace(i: &str) -> IResult<&str, Span> {
 /// Non-breaking tokens will not span multiple lines, so our syntax highlighter won't need
 /// to retain their states.
 fn non_breaking_token(i: &str) -> IResult<&str, Span> {
-    alt((keyword, whitespace, punctuation, decimal_value))(i)
+    alt((keyword, whitespace, punctuation, float_value, decimal_value))(i)
 }
 
 fn _text(input: &str) -> Result<(&str, Vec<Span>), nom::error::Error<&str>> {
@@ -263,6 +278,7 @@ fn _text(input: &str) -> Result<(&str, Vec<Span>), nom::error::Error<&str>> {
         keyword,
         whitespace,
         punctuation,
+        float_value,
         decimal_value,
         _str_literal,
         _non_ident,
