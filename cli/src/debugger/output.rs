@@ -11,7 +11,7 @@ use ratatui::{
 };
 
 pub(super) struct OutputWidget {
-    text: String,
+    text: Vec<String>,
     scroll: usize,
     scroll_state: ScrollbarState,
     visible: bool,
@@ -23,7 +23,7 @@ pub(super) struct OutputWidget {
 impl OutputWidget {
     pub(super) fn new() -> Self {
         Self {
-            text: String::new(),
+            text: vec![],
             scroll: 0,
             scroll_state: ScrollbarState::new(1),
             visible: true,
@@ -37,9 +37,20 @@ impl OutputWidget {
         output_buffer: &[u8],
     ) -> Result<(), Box<dyn std::error::Error>> {
         self.text = String::from_utf8(output_buffer.to_vec())
-            .unwrap_or_else(|_| "Failed to decode output as utf-8".to_string());
-        self.scroll_state =
-            ScrollbarState::new(self.text.split('\n').count()).position(self.scroll);
+            .unwrap_or_else(|_| "Failed to decode output as utf-8".to_string())
+            .split("\n")
+            .map(|s| s.to_string())
+            .collect();
+
+        // Show the latest line at the bottom
+        self.scroll = self.scroll.clamp(
+            self.text
+                .len()
+                .saturating_sub(self.render_height as usize + 1),
+            self.text.len(),
+        );
+
+        self.scroll_state = ScrollbarState::new(self.text.len()).position(self.scroll);
         Ok(())
     }
 
@@ -66,7 +77,7 @@ impl Widget for &mut OutputWidget {
     where
         Self: Sized,
     {
-        let text_lines: Vec<_> = self.text.split('\n').collect();
+        let text_lines = &self.text;
         let title = Title::from(format!(" Output {}/{} ", self.scroll, text_lines.len()).bold());
         let block = Block::bordered()
             .title(title.alignment(Alignment::Center))
@@ -86,7 +97,11 @@ impl Widget for &mut OutputWidget {
 
         let mut lines = vec![];
         if self.scroll < text_lines.len() {
-            lines.extend(text_lines[self.scroll..].iter().map(|v| Line::from(*v)));
+            lines.extend(
+                text_lines[self.scroll..]
+                    .iter()
+                    .map(|v| Line::from(v.as_str())),
+            );
         }
 
         Paragraph::new(Text::from(lines))
