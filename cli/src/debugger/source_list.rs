@@ -1,12 +1,14 @@
 mod parser;
 
+use std::collections::HashSet;
+
 use mascal::{Bytecode, LineInfo};
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Rect},
-    style::{Style, Stylize},
+    style::{Color, Style, Stylize},
     symbols::{border, scrollbar},
-    text::{Line, Text},
+    text::{Line, Span, Text},
     widgets::{
         block::Title, Block, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState,
         StatefulWidget, Widget,
@@ -21,9 +23,11 @@ pub(super) struct SourceListWidget {
     line: Option<LineInfo>,
     scroll: usize,
     scroll_state: ScrollbarState,
+    cursor: usize,
     /// Cached height of rendered text area. Used for calculating scroll position.
     render_height: u16,
     pub(super) focus: bool,
+    pub(super) breakpoints: HashSet<usize>,
 }
 
 impl SourceListWidget {
@@ -47,8 +51,10 @@ impl SourceListWidget {
                 line: None,
                 scroll: 0,
                 scroll_state: ScrollbarState::new(length),
+                cursor: 0,
                 render_height: 10,
                 focus: true,
+                breakpoints: HashSet::new(),
             },
             error,
         )
@@ -80,10 +86,14 @@ impl SourceListWidget {
 
     pub(super) fn update_scroll(&mut self, delta: i32) {
         if delta < 0 {
-            self.scroll = self.scroll.saturating_sub(delta.abs() as usize);
+            self.cursor = self.cursor.saturating_sub(delta.abs() as usize);
         } else {
-            self.scroll = self.scroll.saturating_add(delta as usize);
+            self.cursor = self.cursor.saturating_add(delta as usize);
         }
+        self.scroll = self.scroll.clamp(
+            (self.cursor + 3).saturating_sub(self.render_height as usize),
+            self.cursor.saturating_sub(3),
+        );
         self.scroll_state = self.scroll_state.position(self.scroll);
     }
 }
@@ -108,7 +118,13 @@ impl Widget for &mut SourceListWidget {
         if self.scroll < self.text.len() {
             lines.extend(self.text[self.scroll..].iter().enumerate().map(|(i, v)| {
                 let line_num = i + self.scroll + 1;
-                let v = style_text(self.line.as_ref(), line_num, v);
+                let mut v = style_text(self.line.as_ref(), line_num, v);
+                if line_num == self.cursor + 1 {
+                    for span in v.iter_mut() {
+                        *span = span.clone().bg(Color::DarkGray);
+                    }
+                    v.push(Span::from(" ".repeat(area.width as usize)).bg(Color::DarkGray));
+                }
                 Line::from(v)
             }));
         }
