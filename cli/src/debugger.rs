@@ -45,6 +45,8 @@ struct App<'a> {
     bytecode: &'a Bytecode,
     mode: AppMode<'a>,
     output_buffer: Rc<RefCell<Vec<u8>>>,
+    /// Error string that is displayed on top of the debugger widget.
+    /// Wrapped in a RefCell because rendering methods can have errors.
     error: RefCell<Option<String>>,
     widgets: Widgets,
     exit: bool,
@@ -153,6 +155,7 @@ impl<'a> App<'a> {
                     self.widgets.source_list.toggle_breakpoint();
                 }
                 (KeyEventKind::Press, KeyCode::Char('c')) => {
+                    *self.error.borrow_mut() = None;
                     self.run_continue()?;
                 }
                 (KeyEventKind::Press, KeyCode::Char('s')) => {
@@ -163,6 +166,7 @@ impl<'a> App<'a> {
                     {
                         *last_continue = None;
                     }
+                    *self.error.borrow_mut() = None;
                     self.run_step()?;
                 }
                 (KeyEventKind::Press, KeyCode::Char('u')) => {
