@@ -160,10 +160,14 @@ impl Widget for &mut SourceListWidget {
                 border::PLAIN
             });
 
+        let inner = block.inner(area);
+        let height = inner.height as usize;
+        let lines_end = (self.scroll + height).min(self.text.len().saturating_sub(1));
+
         let mut lines = vec![];
-        if self.scroll < self.text.len() {
+        if self.scroll < self.text.len() && lines_end <= self.text.len() {
             lines.extend(
-                self.text[self.scroll..]
+                self.text[self.scroll..lines_end]
                     .iter()
                     .enumerate()
                     .map(|(i, (s, lexer))| {
@@ -192,7 +196,6 @@ impl Widget for &mut SourceListWidget {
             .begin_symbol(None)
             .track_symbol(None)
             .end_symbol(None);
-        let inner = block.inner(area);
 
         Paragraph::new(Text::from(lines))
             .block(block)
