@@ -110,6 +110,27 @@ impl SourceListWidget {
             self.breakpoints.insert(self.cursor);
         }
     }
+
+    /// Check if we should stop execution at `ip` with a breakpoint. If we hit another breakpoint in the same line,
+    /// we want to skip it, so we use `skip_line` to indicate the starting line.
+    pub(super) fn check_breakpoint(
+        &self,
+        ip: usize,
+        debug: Option<&[LineInfo]>,
+        skip_line: Option<u32>,
+    ) -> bool {
+        if let Some(debug) = debug {
+            let ip32 = ip as u32;
+            let line_info = debug
+                .binary_search_by_key(&ip32, |li| li.instruction)
+                .map_or_else(|res| res, |res| res);
+            if let Some(line_info) = debug.get(line_info) {
+                return skip_line != Some(line_info.src_line)
+                    && self.breakpoints.contains(&(line_info.src_line as usize));
+            }
+        }
+        false
+    }
 }
 
 impl Widget for &mut SourceListWidget {

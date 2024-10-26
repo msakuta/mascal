@@ -152,57 +152,25 @@ impl<'a> App<'a> {
                 (KeyEventKind::Press, KeyCode::Char('b')) => {
                     self.widgets.source_list.toggle_breakpoint();
                 }
+                (KeyEventKind::Press, KeyCode::Char('c')) => {
+                    self.run_continue()?;
+                }
                 (KeyEventKind::Press, KeyCode::Char('s')) => {
                     if let AppMode::StepRun {
-                        ref mut vm_history,
-                        btrace_level,
-                        ref mut selected_history,
+                        ref mut last_continue,
+                        ..
                     } = self.mode
                     {
-                        // Here is a very esoteric maneuver that needs explanation.
-                        // We can't use a newly created Vm from deepclone for the next vm, because its
-                        // internal Rc will break links to the shared ArrayInt buffer.
-                        // However, the original object (which `deepclone()` is called against) does not lose
-                        // internal links, so we can keep calling `next_inst()` to make progress.
-                        // In order to keep the original always on front and old Vm snapshots pushed back,
-                        // we need to take the most recent one, make a deepclone of it, and push it back,
-                        // and finally push the original Vm back to front.
-                        let Some(mut next_vm) = vm_history.pop_front() else {
-                            return Err("Missing Vm".into());
-                        };
-                        let prev_vm = next_vm.deepclone();
-                        next_vm.next_inst()?;
-                        self.widgets.update(
-                            &mut next_vm,
-                            btrace_level,
-                            self.bytecode.debug_info(),
-                            &self.output_buffer,
-                        )?;
-                        vm_history.push_front(prev_vm);
-                        vm_history.push_front(next_vm);
-                        if 100 < vm_history.len() {
-                            vm_history.pop_back();
-                        }
-
-                        // Reset history to most recent to reflect real time state
-                        *selected_history = 0;
-                    } else {
-                        let mut vm_history = VecDeque::new();
-                        vm_history.push_front(Vm::start_main(self.bytecode)?);
-                        self.mode = AppMode::StepRun {
-                            vm_history,
-                            btrace_level: 0,
-                            selected_history: 0,
-                        };
-                        // Clear the output buffer since it could contain output from previous run
-                        self.output_buffer.borrow_mut().clear();
+                        *last_continue = None;
                     }
+                    self.run_step()?;
                 }
                 (KeyEventKind::Press, KeyCode::Char('u')) => {
                     if let AppMode::StepRun {
                         ref mut vm_history,
                         ref mut btrace_level,
                         selected_history,
+                        ..
                     } = self.mode
                     {
                         let Some(vm) = vm_history.get(selected_history) else {
@@ -223,6 +191,7 @@ impl<'a> App<'a> {
                         ref mut vm_history,
                         ref mut btrace_level,
                         selected_history,
+                        ..
                     } = self.mode
                     {
                         let Some(vm) = vm_history.get(selected_history) else {
@@ -242,6 +211,7 @@ impl<'a> App<'a> {
                         ref vm_history,
                         btrace_level,
                         ref mut selected_history,
+                        ..
                     } = self.mode
                     {
                         *selected_history =
@@ -261,6 +231,7 @@ impl<'a> App<'a> {
                         ref vm_history,
                         btrace_level,
                         ref mut selected_history,
+                        ..
                     } = self.mode
                     {
                         *selected_history = selected_history.saturating_sub(1);
@@ -353,14 +324,18 @@ impl<'a> App<'a> {
             AppMode::StepRun {
                 vm_history,
                 selected_history,
+                last_continue,
                 ..
             } => {
-                let mut lines = vec![format!(
+                let mut message = format!(
                     "Running debugger with history {}/{}",
                     selected_history,
                     vm_history.len()
-                )
-                .into()];
+                );
+                if let Some(last_continue) = last_continue {
+                    message += &format!(", ran {last_continue} instructions");
+                }
+                let mut lines = vec![message.into()];
 
                 if let Some(error) = self.error.borrow().as_ref() {
                     lines.push(format!("Error: {error}").bold().red().into());
@@ -369,6 +344,129 @@ impl<'a> App<'a> {
             }
         };
         Ok(text)
+    }
+
+    fn run_continue(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let debug_info = self
+            .bytecode
+            .debug_info()
+            .ok_or_else(|| "Cannot use a breakpoint without debug info")?;
+
+        let mut start_line_info;
+        if let AppMode::StepRun { ref vm_history, .. } = self.mode {
+            start_line_info = vm_history
+                .front()
+                .and_then(|vm| vm.call_info(0))
+                .and_then(|ci| {
+                    let fn_debug = debug_info.get(ci.bytecode().name())?;
+                    let ip32 = ci.instruction_ptr() as u32;
+                    let line_info = fn_debug
+                        .line_info
+                        .binary_search_by_key(&ip32, |li| li.instruction)
+                        .map_or_else(|res| res, |res| res);
+                    fn_debug.line_info.get(line_info).map(|li| li.src_line)
+                });
+        } else {
+            start_line_info = None;
+        }
+
+        let mut loop_count = 0;
+
+        loop {
+            self.run_step()?;
+            let AppMode::StepRun { ref vm_history, .. } = self.mode else {
+                break;
+            };
+            let Some(vm) = vm_history.front() else { break };
+            let Some(ci) = vm.call_info(0) else { break };
+            let fn_debug = debug_info.get(ci.bytecode().name()).ok_or_else(|| {
+                format!(
+                    "Cannot find debug info for a function {}",
+                    ci.bytecode().name()
+                )
+            })?;
+            if self.widgets.source_list.check_breakpoint(
+                ci.instruction_ptr(),
+                Some(&fn_debug.line_info[..]),
+                start_line_info,
+            ) {
+                break;
+            }
+
+            let ip32 = ci.instruction_ptr() as u32;
+
+            let li_index = fn_debug
+                .line_info
+                .binary_search_by_key(&ip32, |li| li.instruction)
+                .map_or_else(|res| res, |res| res);
+
+            if let Some(line_info) = fn_debug.line_info.get(li_index) {
+                if Some(line_info.src_line) != start_line_info {
+                    start_line_info = None;
+                }
+            }
+            loop_count += 1;
+        }
+
+        if let AppMode::StepRun {
+            ref mut last_continue,
+            ..
+        } = self.mode
+        {
+            *last_continue = Some(loop_count);
+        }
+
+        Ok(())
+    }
+
+    fn run_step(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        if let AppMode::StepRun {
+            ref mut vm_history,
+            btrace_level,
+            ref mut selected_history,
+            ..
+        } = self.mode
+        {
+            // Here is a very esoteric maneuver that needs explanation.
+            // We can't use a newly created Vm from deepclone for the next vm, because its
+            // internal Rc will break links to the shared ArrayInt buffer.
+            // However, the original object (which `deepclone()` is called against) does not lose
+            // internal links, so we can keep calling `next_inst()` to make progress.
+            // In order to keep the original always on front and old Vm snapshots pushed back,
+            // we need to take the most recent one, make a deepclone of it, and push it back,
+            // and finally push the original Vm back to front.
+            let Some(mut next_vm) = vm_history.pop_front() else {
+                return Err("Missing Vm".into());
+            };
+            let prev_vm = next_vm.deepclone();
+            next_vm.next_inst()?;
+            self.widgets.update(
+                &mut next_vm,
+                btrace_level,
+                self.bytecode.debug_info(),
+                &self.output_buffer,
+            )?;
+            vm_history.push_front(prev_vm);
+            vm_history.push_front(next_vm);
+            if 100 < vm_history.len() {
+                vm_history.pop_back();
+            }
+
+            // Reset history to most recent to reflect real time state
+            *selected_history = 0;
+        } else {
+            let mut vm_history = VecDeque::new();
+            vm_history.push_front(Vm::start_main(self.bytecode)?);
+            self.mode = AppMode::StepRun {
+                vm_history,
+                btrace_level: 0,
+                selected_history: 0,
+                last_continue: None,
+            };
+            // Clear the output buffer since it could contain output from previous run
+            self.output_buffer.borrow_mut().clear();
+        }
+        Ok(())
     }
 }
 
@@ -526,5 +624,6 @@ enum AppMode<'a> {
         btrace_level: usize,
         /// Time-travel debugger offset, 0 means the latest.
         selected_history: usize,
+        last_continue: Option<usize>,
     },
 }

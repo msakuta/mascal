@@ -46,6 +46,10 @@ impl Widget for &HelpWidget {
                 "down".blue().bold(),
             ]),
             Line::from(vec!["  run current code: ".into(), "r".blue().bold()]),
+            Line::from(vec![
+                "  Continue until a breakpoint or the end of the program: ".into(),
+                "c".blue().bold(),
+            ]),
             Line::from(vec!["  Step execution mode: ".into(), "s".blue().bold()]),
             Line::from(vec!["  Move up stack frame: ".into(), "u".blue().bold()]),
             Line::from(vec!["  Move down stack frame: ".into(), "d".blue().bold()]),
