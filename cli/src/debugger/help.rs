@@ -63,7 +63,7 @@ impl Widget for &HelpWidget {
             ]),
             Line::from(vec![
                 "  quit or stop current debugging session: ".into(),
-                "q ".blue().bold(),
+                "q, esc ".blue().bold(),
             ]),
         ]);
         let title = Title::from(" Help ".bold());

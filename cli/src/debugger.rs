@@ -249,7 +249,11 @@ impl<'a> App<'a> {
                         }
                     }
                 }
-                (KeyEventKind::Press, KeyCode::Char('q' | 'Q')) => {
+                (KeyEventKind::Press, KeyCode::Char('q' | 'Q') | KeyCode::Esc) => {
+                    if self.widgets.help.is_some() {
+                        self.widgets.help = None;
+                        return Ok(());
+                    }
                     if !matches!(self.mode, AppMode::None) {
                         self.mode = AppMode::None;
                     } else {
