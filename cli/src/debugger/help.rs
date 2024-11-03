@@ -2,25 +2,38 @@ use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Rect},
     style::{Color, Style, Stylize},
-    symbols::border,
+    symbols::{border, scrollbar},
     text::{Line, Text},
-    widgets::{block::Title, Block, Clear, Paragraph, Widget},
+    widgets::{
+        block::Title, Block, Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState,
+        StatefulWidget, Widget,
+    },
 };
 
-pub(super) struct HelpWidget {}
+pub(super) struct HelpWidget {
+    scroll: usize,
+    scroll_state: ScrollbarState,
+}
 
 impl HelpWidget {
     pub(super) fn new() -> Result<Self, Box<dyn std::error::Error>> {
-        Ok(Self {})
+        Ok(Self {
+            scroll: 0,
+            scroll_state: ScrollbarState::new(Self::text_lines().height()),
+        })
     }
-}
 
-impl Widget for &HelpWidget {
-    fn render(self, area: Rect, buf: &mut Buffer)
-    where
-        Self: Sized,
-    {
-        let text_lines = Text::from(vec![
+    pub(super) fn update_scroll(&mut self, delta: i32) {
+        if delta < 0 {
+            self.scroll = self.scroll.saturating_sub(delta.abs() as usize);
+        } else {
+            self.scroll = self.scroll.saturating_add(delta as usize);
+        }
+        self.scroll_state = self.scroll_state.position(self.scroll);
+    }
+
+    fn text_lines() -> Text<'static> {
+        Text::from(vec![
             Line::from(vec![
                 "  Toggle help (this window): ".into(),
                 "h".blue().bold(),
@@ -65,7 +78,23 @@ impl Widget for &HelpWidget {
                 "  quit or stop current debugging session: ".into(),
                 "q, esc ".blue().bold(),
             ]),
-        ]);
+        ])
+    }
+}
+
+impl Widget for &mut HelpWidget {
+    fn render(self, area: Rect, buf: &mut Buffer)
+    where
+        Self: Sized,
+    {
+        let text_lines = HelpWidget::text_lines();
+
+        let sbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .symbols(scrollbar::VERTICAL)
+            .begin_symbol(None)
+            .track_symbol(None)
+            .end_symbol(None);
+
         let title = Title::from(" Help ".bold());
         let block = Block::bordered()
             .title(title.alignment(Alignment::Center))
@@ -73,9 +102,15 @@ impl Widget for &HelpWidget {
             .style(Style::default().bg(Color::DarkGray))
             .border_style(Style::new().white())
             .border_set(border::THICK);
+        let inner = block.inner(area);
 
         Clear.render(area, buf);
 
-        Paragraph::new(text_lines).block(block).render(area, buf);
+        Paragraph::new(text_lines)
+            .block(block)
+            .scroll((self.scroll as u16, 0))
+            .render(area, buf);
+
+        sbar.render(inner, buf, &mut self.scroll_state);
     }
 }

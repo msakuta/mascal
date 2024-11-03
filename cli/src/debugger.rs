@@ -261,66 +261,63 @@ impl<'a> App<'a> {
                     }
                 }
                 (KeyEventKind::Press, KeyCode::Tab) => {
-                    // TODO: how to pick up Shift+Tab event?
-                    self.widgets.focus = if key.modifiers.contains(KeyModifiers::SHIFT) {
-                        match self.widgets.focus {
-                            WidgetFocus::SourceList => WidgetFocus::Disasm,
-                            WidgetFocus::Disasm => WidgetFocus::Stack,
-                            WidgetFocus::Stack => WidgetFocus::Output,
-                            WidgetFocus::Output => WidgetFocus::SourceList,
-                        }
-                    } else {
-                        match self.widgets.focus {
-                            WidgetFocus::SourceList => WidgetFocus::Output,
-                            WidgetFocus::Disasm => WidgetFocus::SourceList,
-                            WidgetFocus::Stack => WidgetFocus::Disasm,
-                            WidgetFocus::Output => WidgetFocus::Stack,
-                        }
-                    };
-                    let focus = self.widgets.focus;
-                    self.widgets.source_list.focus = matches!(focus, WidgetFocus::SourceList);
-                    self.widgets
-                        .disasm
-                        .as_mut()
-                        .map(|d| d.focus = matches!(focus, WidgetFocus::Disasm));
-                    self.widgets
-                        .stack
-                        .as_mut()
-                        .map(|d| d.focus = matches!(focus, WidgetFocus::Stack));
-                    self.widgets.output.focus = matches!(focus, WidgetFocus::Output);
+                    if self.widgets.help.is_none() {
+                        // TODO: how to pick up Shift+Tab event?
+                        self.widgets.focus = if key.modifiers.contains(KeyModifiers::SHIFT) {
+                            match self.widgets.focus {
+                                WidgetFocus::SourceList => WidgetFocus::Disasm,
+                                WidgetFocus::Disasm => WidgetFocus::Stack,
+                                WidgetFocus::Stack => WidgetFocus::Output,
+                                WidgetFocus::Output => WidgetFocus::SourceList,
+                            }
+                        } else {
+                            match self.widgets.focus {
+                                WidgetFocus::SourceList => WidgetFocus::Output,
+                                WidgetFocus::Disasm => WidgetFocus::SourceList,
+                                WidgetFocus::Stack => WidgetFocus::Disasm,
+                                WidgetFocus::Output => WidgetFocus::Stack,
+                            }
+                        };
+                        let focus = self.widgets.focus;
+                        self.widgets.source_list.focus = matches!(focus, WidgetFocus::SourceList);
+                        self.widgets
+                            .disasm
+                            .as_mut()
+                            .map(|d| d.focus = matches!(focus, WidgetFocus::Disasm));
+                        self.widgets
+                            .stack
+                            .as_mut()
+                            .map(|d| d.focus = matches!(focus, WidgetFocus::Stack));
+                        self.widgets.output.focus = matches!(focus, WidgetFocus::Output);
+                    }
                 }
-                (KeyEventKind::Press, KeyCode::Up) => match self.widgets.focus {
-                    WidgetFocus::SourceList => self.widgets.source_list.update_scroll(-1),
-                    WidgetFocus::Disasm => {
-                        if let Some(ref mut da) = self.widgets.disasm {
-                            da.update_scroll(-1)
-                        }
-                    }
-                    WidgetFocus::Stack => {
-                        self.widgets.stack.as_mut().map(|d| d.update_scroll(-1));
-                    }
-                    WidgetFocus::Output => {
-                        self.widgets.output.update_scroll(-1);
-                    }
-                },
-                (KeyEventKind::Press, KeyCode::Down) => match self.widgets.focus {
-                    WidgetFocus::SourceList => self.widgets.source_list.update_scroll(1),
-                    WidgetFocus::Disasm => {
-                        if let Some(ref mut da) = self.widgets.disasm {
-                            da.update_scroll(1)
-                        }
-                    }
-                    WidgetFocus::Stack => {
-                        self.widgets.stack.as_mut().map(|d| d.update_scroll(1));
-                    }
-                    WidgetFocus::Output => {
-                        self.widgets.output.update_scroll(1);
-                    }
-                },
+                (KeyEventKind::Press, KeyCode::Up) => self.update_scroll(-1),
+                (KeyEventKind::Press, KeyCode::Down) => self.update_scroll(1),
                 _ => {}
             }
         }
         Ok(())
+    }
+
+    fn update_scroll(&mut self, delta: i32) {
+        if let Some(ref mut help) = self.widgets.help {
+            help.update_scroll(delta)
+        } else {
+            match self.widgets.focus {
+                WidgetFocus::SourceList => self.widgets.source_list.update_scroll(delta),
+                WidgetFocus::Disasm => {
+                    if let Some(ref mut da) = self.widgets.disasm {
+                        da.update_scroll(delta)
+                    }
+                }
+                WidgetFocus::Stack => {
+                    self.widgets.stack.as_mut().map(|d| d.update_scroll(delta));
+                }
+                WidgetFocus::Output => {
+                    self.widgets.output.update_scroll(delta);
+                }
+            }
+        }
     }
 
     fn render_inner_text(&self) -> Result<Text, Box<dyn std::error::Error>> {
@@ -611,7 +608,7 @@ impl<'a> Widget for &mut App<'a> {
         }
 
         // Help shows on top of all widgets
-        if let Some(ref help) = self.widgets.help {
+        if let Some(ref mut help) = self.widgets.help {
             let mut help_area = area;
             help_area.x += help_area.width / 4;
             help_area.width /= 2;
