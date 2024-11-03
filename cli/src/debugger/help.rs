@@ -11,25 +11,36 @@ use ratatui::{
 };
 
 pub(super) struct HelpWidget {
-    scroll: usize,
-    scroll_state: ScrollbarState,
+    scroll: (usize, usize),
+    scroll_state: (ScrollbarState, ScrollbarState),
 }
 
 impl HelpWidget {
     pub(super) fn new() -> Result<Self, Box<dyn std::error::Error>> {
         Ok(Self {
-            scroll: 0,
-            scroll_state: ScrollbarState::new(Self::text_lines().height()),
+            scroll: (0, 0),
+            scroll_state: (
+                ScrollbarState::new(Self::text_lines().width()),
+                ScrollbarState::new(Self::text_lines().width()),
+            ),
         })
     }
 
-    pub(super) fn update_scroll(&mut self, delta: i32) {
+    pub(super) fn update_scroll_y(&mut self, delta: i32) {
+        Self::update_scroll(delta, &mut self.scroll.0, &mut self.scroll_state.0);
+    }
+
+    pub(super) fn update_scroll_x(&mut self, delta: i32) {
+        Self::update_scroll(delta, &mut self.scroll.1, &mut self.scroll_state.1);
+    }
+
+    fn update_scroll(delta: i32, scroll: &mut usize, state: &mut ScrollbarState) {
         if delta < 0 {
-            self.scroll = self.scroll.saturating_sub(delta.abs() as usize);
+            *scroll = scroll.saturating_sub(delta.abs() as usize);
         } else {
-            self.scroll = self.scroll.saturating_add(delta as usize);
+            *scroll = scroll.saturating_add(delta as usize);
         }
-        self.scroll_state = self.scroll_state.position(self.scroll);
+        *state = state.position(*scroll);
     }
 
     fn text_lines() -> Text<'static> {
@@ -89,12 +100,6 @@ impl Widget for &mut HelpWidget {
     {
         let text_lines = HelpWidget::text_lines();
 
-        let sbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
-            .symbols(scrollbar::VERTICAL)
-            .begin_symbol(None)
-            .track_symbol(None)
-            .end_symbol(None);
-
         let title = Title::from(" Help ".bold());
         let block = Block::bordered()
             .title(title.alignment(Alignment::Center))
@@ -108,9 +113,15 @@ impl Widget for &mut HelpWidget {
 
         Paragraph::new(text_lines)
             .block(block)
-            .scroll((self.scroll as u16, 0))
+            .scroll((self.scroll.0 as u16, self.scroll.1 as u16))
             .render(area, buf);
 
-        sbar.render(inner, buf, &mut self.scroll_state);
+        let vert_sbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .symbols(scrollbar::VERTICAL)
+            .begin_symbol(None)
+            .track_symbol(None)
+            .end_symbol(None);
+
+        vert_sbar.render(inner, buf, &mut self.scroll_state.0);
     }
 }

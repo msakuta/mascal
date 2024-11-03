@@ -293,6 +293,8 @@ impl<'a> App<'a> {
                 }
                 (KeyEventKind::Press, KeyCode::Up) => self.update_scroll(-1),
                 (KeyEventKind::Press, KeyCode::Down) => self.update_scroll(1),
+                (KeyEventKind::Press, KeyCode::Left) => self.update_scroll_x(-1),
+                (KeyEventKind::Press, KeyCode::Right) => self.update_scroll_x(1),
                 _ => {}
             }
         }
@@ -301,7 +303,7 @@ impl<'a> App<'a> {
 
     fn update_scroll(&mut self, delta: i32) {
         if let Some(ref mut help) = self.widgets.help {
-            help.update_scroll(delta)
+            help.update_scroll_y(delta)
         } else {
             match self.widgets.focus {
                 WidgetFocus::SourceList => self.widgets.source_list.update_scroll(delta),
@@ -317,6 +319,12 @@ impl<'a> App<'a> {
                     self.widgets.output.update_scroll(delta);
                 }
             }
+        }
+    }
+
+    fn update_scroll_x(&mut self, delta: i32) {
+        if let Some(ref mut help) = self.widgets.help {
+            help.update_scroll_x(delta)
         }
     }
 
