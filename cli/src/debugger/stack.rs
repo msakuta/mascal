@@ -2,7 +2,7 @@ use mascal::{FunctionInfo, Vm};
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Rect},
-    style::{Style, Stylize},
+    style::{Color, Style, Stylize},
     symbols::{border, scrollbar},
     text::{Line, Text},
     widgets::{
@@ -12,13 +12,19 @@ use ratatui::{
 };
 
 pub(super) struct StackWidget {
-    text: Vec<String>,
+    text: Vec<VariableInfo>,
     scroll: usize,
     scroll_state: ScrollbarState,
     /// Cached height of rendered text area. Used for calculating scroll position.
     render_height: u16,
     pub(super) focus: bool,
     named_only: bool,
+}
+
+struct VariableInfo {
+    idx: usize,
+    name: String,
+    value: String,
 }
 
 impl StackWidget {
@@ -48,10 +54,10 @@ impl StackWidget {
                 if self.named_only && var_name.is_none() {
                     continue;
                 }
-                buf.push(if let Some(var_name) = var_name {
-                    format!("  [{i}] {value}    (Local: {var_name})")
-                } else {
-                    format!("  [{i}] {value}")
+                buf.push(VariableInfo {
+                    idx: i,
+                    name: var_name.cloned().unwrap_or_default(),
+                    value: value.to_string(),
                 });
             }
         }
@@ -90,14 +96,28 @@ impl Widget for &mut StackWidget {
             } else {
                 border::PLAIN
             });
+        let inner = block.inner(area);
 
-        let mut lines = vec![];
+        let max_width = self.text.iter().fold(4, |acc, cur| acc.max(cur.name.len()));
+
+        let header = vec![format!(
+            "  Idx   {:1$}   Value{2:3$}",
+            "Name", max_width, " ", inner.width as usize
+        )
+        .green()
+        .bg(Color::DarkGray)];
+
+        let mut lines = vec![header.into()];
         if self.scroll < self.text.len() {
-            lines.extend(
-                self.text[self.scroll..]
-                    .iter()
-                    .map(|v| Line::from(v.as_str())),
-            );
+            lines.extend(self.text[self.scroll..].iter().map(|v| {
+                Line::from(format!(
+                    "  {i:3}   {name:name_len$}   {value}",
+                    i = v.idx,
+                    name = v.name,
+                    name_len = max_width,
+                    value = v.value
+                ))
+            }));
         }
 
         let sbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
@@ -105,7 +125,6 @@ impl Widget for &mut StackWidget {
             .begin_symbol(None)
             .track_symbol(None)
             .end_symbol(None);
-        let inner = block.inner(area);
 
         Paragraph::new(Text::from(lines))
             .block(block)
