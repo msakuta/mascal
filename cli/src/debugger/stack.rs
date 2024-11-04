@@ -18,16 +18,18 @@ pub(super) struct StackWidget {
     /// Cached height of rendered text area. Used for calculating scroll position.
     render_height: u16,
     pub(super) focus: bool,
+    named_only: bool,
 }
 
 impl StackWidget {
-    pub(super) fn new() -> Result<Self, Box<dyn std::error::Error>> {
+    pub(super) fn new(named_only: bool) -> Result<Self, Box<dyn std::error::Error>> {
         Ok(Self {
             text: vec![],
             scroll: 0,
             scroll_state: ScrollbarState::new(1),
             render_height: 10,
             focus: false,
+            named_only,
         })
     }
 
@@ -43,6 +45,9 @@ impl StackWidget {
                 let var_name = debug
                     .and_then(|debug| debug.vars.iter().find(|(_, idx)| **idx == i))
                     .map(|(name, _)| name);
+                if self.named_only && var_name.is_none() {
+                    continue;
+                }
                 buf.push(if let Some(var_name) = var_name {
                     format!("  [{i}] {value}    (Local: {var_name})")
                 } else {
@@ -63,6 +68,10 @@ impl StackWidget {
             self.scroll = self.scroll.saturating_add(delta as usize);
         }
         self.scroll_state = self.scroll_state.position(self.scroll);
+    }
+
+    pub(super) fn toggle_named_only(&mut self) {
+        self.named_only = !self.named_only;
     }
 }
 

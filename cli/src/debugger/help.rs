@@ -53,7 +53,7 @@ impl HelpWidget {
             Line::from(vec!["  Toggle disassembly: ".into(), "D".blue().bold()]),
             Line::from(vec!["  Toggle stack trace: ".into(), "t".blue().bold()]),
             Line::from(vec![
-                "  Toggle local stack values: ".into(),
+                "  Toggle local stack widget: ".into(),
                 "k".blue().bold(),
             ]),
             Line::from(vec!["  Toggle output widget: ".into(), "o".blue().bold()]),
@@ -68,6 +68,10 @@ impl HelpWidget {
             Line::from(vec![
                 "  Scroll down current widget: ".into(),
                 "down".blue().bold(),
+            ]),
+            Line::from(vec![
+                "  Toggle filter only named variables in stack widget: ".into(),
+                "v".blue().bold(),
             ]),
             Line::from(vec!["  run current code: ".into(), "r".blue().bold()]),
             Line::from(vec![

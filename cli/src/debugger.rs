@@ -83,7 +83,7 @@ impl<'a> App<'a> {
                 source_list,
                 disasm: DisasmWidget::new(bytecode).ok(),
                 stack_trace: StackTraceWidget::new().ok(),
-                stack: StackWidget::new().ok(),
+                stack: StackWidget::new(bytecode.debug_info().is_some()).ok(),
                 output: OutputWidget::new(),
                 help: None,
             },
@@ -135,11 +135,33 @@ impl<'a> App<'a> {
                     if self.widgets.stack.is_some() {
                         self.widgets.stack = None;
                     } else {
-                        self.widgets.stack = StackWidget::new().ok();
+                        self.widgets.stack =
+                            StackWidget::new(self.bytecode.debug_info().is_some()).ok();
                     }
                 }
                 (KeyEventKind::Press, KeyCode::Char('o')) => {
                     self.widgets.output.toggle_visible();
+                }
+                (KeyEventKind::Press, KeyCode::Char('v')) => {
+                    if let Some(ref mut stack) = self.widgets.stack {
+                        stack.toggle_named_only();
+                        if let AppMode::StepRun {
+                            ref vm_history,
+                            btrace_level,
+                            selected_history,
+                            ..
+                        } = self.mode
+                        {
+                            if let Some(vm) = vm_history.get(selected_history) {
+                                let debug_fn = self
+                                    .bytecode
+                                    .debug_info()
+                                    .zip(vm.call_info(btrace_level))
+                                    .and_then(|(debug, ci)| debug.get(ci.bytecode().name()));
+                                stack.update(vm, btrace_level, debug_fn)?;
+                            }
+                        }
+                    }
                 }
                 (KeyEventKind::Press, KeyCode::Char('h')) => {
                     if self.widgets.help.is_some() {
