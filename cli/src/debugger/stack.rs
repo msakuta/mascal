@@ -104,8 +104,8 @@ impl Widget for &mut StackWidget {
             "  Idx   {:1$}   Value{2:3$}",
             "Name", max_width, " ", inner.width as usize
         )
-        .green()
-        .bg(Color::DarkGray)];
+        .black()
+        .bg(Color::Cyan)];
 
         let mut lines = vec![header.into()];
         if self.scroll < self.text.len() {
