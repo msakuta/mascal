@@ -2,7 +2,7 @@ use mascal::{Bytecode, FnBytecode, LineInfo};
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Rect},
-    style::{Style, Stylize},
+    style::{Color, Style, Stylize},
     symbols::{border, scrollbar},
     text::{Line, Text},
     widgets::{
@@ -12,7 +12,7 @@ use ratatui::{
 };
 
 pub(super) struct DisasmWidget {
-    text: String,
+    text: DisasmText,
     scroll: usize,
     scroll_state: ScrollbarState,
     /// Cached height of rendered text area. Used for calculating scroll position.
@@ -20,12 +20,18 @@ pub(super) struct DisasmWidget {
     pub(super) focus: bool,
 }
 
+enum DisasmText {
+    Source(String),
+    Function(Vec<String>),
+}
+
 impl DisasmWidget {
     pub(super) fn new(bytecode: &Bytecode) -> Result<Self, Box<dyn std::error::Error>> {
         let mut temp = vec![];
         bytecode.disasm(&mut temp)?;
-        let text = String::from_utf8(temp)?;
-        let length = text.chars().filter(|c| *c == '\n').count();
+        let source = String::from_utf8(temp)?;
+        let length = source.chars().filter(|c| *c == '\n').count();
+        let text = DisasmText::Source(source);
         Ok(Self {
             text,
             scroll: 0,
@@ -41,23 +47,26 @@ impl DisasmWidget {
         ip: usize,
         debug: Option<&[LineInfo]>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut temp = String::new();
+        let mut text = vec![];
         let mut lines = 0;
         for (i, inst) in bytecode.iter_instructions().enumerate() {
             let current = if i == ip { "*" } else { " " };
-            let line_num = debug.map_or_else(
-                || "   ".to_string(),
-                |debug| {
+            let line_num = debug
+                .and_then(|debug| {
                     debug
                         .iter()
                         .find(|line_info: &&LineInfo| line_info.instruction == (i as u32))
-                        .map_or_else(|| "    ".to_string(), |li| format!("{:04}", li.src_line))
-                },
-            );
-            temp += &format!("{current}  {} [{}] {}\n", line_num, i, inst);
+                })
+                .map_or_else(|| "    ".to_string(), |li| format!("{:4}", li.src_line));
+            text.push(format!(
+                "{current}  {line_num}   {i:4}   {op:12}   {arg0:3}   {arg1:3}\n",
+                op = inst.op().to_string(),
+                arg0 = inst.arg0(),
+                arg1 = inst.arg1()
+            ));
             lines += 1;
         }
-        self.text = temp;
+        self.text = DisasmText::Function(text);
         // When the instruction pointer moves by stepping the program, we want to follow its position.
         self.scroll = self.scroll.clamp(
             (ip + 3).saturating_sub(self.render_height as usize),
@@ -82,9 +91,11 @@ impl Widget for &mut DisasmWidget {
     where
         Self: Sized,
     {
-        let text_lines: Vec<_> = self.text.split('\n').collect();
-        let title =
-            Title::from(format!(" Disassembly {}/{} ", self.scroll, text_lines.len()).bold());
+        let line_count = match self.text {
+            DisasmText::Source(ref text) => text.split('\n').count(),
+            DisasmText::Function(ref text) => text.len(),
+        };
+        let title = Title::from(format!(" Disassembly {}/{} ", self.scroll, line_count).bold());
         let block = Block::bordered()
             .title(title.alignment(Alignment::Center))
             .border_style(Style::new().yellow())
@@ -93,10 +104,36 @@ impl Widget for &mut DisasmWidget {
             } else {
                 border::PLAIN
             });
+        let inner = block.inner(area);
 
-        let mut lines = vec![];
-        if self.scroll < text_lines.len() {
-            lines.extend(text_lines[self.scroll..].iter().map(|v| Line::from(*v)));
+        let mut lines;
+        let text_lines;
+        match self.text {
+            DisasmText::Source(ref text) => {
+                text_lines = text.split('\n').map(|s| s.to_string()).collect();
+                lines = vec![];
+            }
+            DisasmText::Function(ref text) => {
+                let header = vec![format!(
+                    "  Line#    Idx   Inst          Arg0  Arg1 {:1$}",
+                    " ", inner.width as usize
+                )
+                .black()
+                .bg(Color::Gray)];
+
+                text_lines = text.clone();
+                lines = vec![header.into()];
+            }
+        }
+
+        if self.scroll < line_count {
+            let end = self.scroll + inner.height.saturating_sub(1) as usize;
+
+            lines.extend(
+                text_lines[self.scroll..end.min(text_lines.len())]
+                    .iter()
+                    .map(|v| v.as_str().into()),
+            );
         }
 
         let sbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
@@ -104,7 +141,6 @@ impl Widget for &mut DisasmWidget {
             .begin_symbol(None)
             .track_symbol(None)
             .end_symbol(None);
-        let inner = block.inner(area);
 
         Paragraph::new(Text::from(lines))
             .block(block)

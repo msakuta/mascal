@@ -88,6 +88,15 @@ macro_rules! impl_op_from {
                 }
             }
         }
+
+        impl std::fmt::Display for OpCode {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                match self {
+                    $(Self::$op => write!(f, "{}", stringify!($op))?,)*
+                }
+                Ok(())
+            }
+        }
     }
 }
 
@@ -108,6 +117,7 @@ impl_op_from!(
     BitNot,
     Get,
     Set,
+    SetReg,
     Lt,
     Gt,
     Jmp,
@@ -130,6 +140,19 @@ impl Instruction {
     pub(crate) fn new(op: OpCode, arg0: u8, arg1: u16) -> Self {
         Self { op, arg0, arg1 }
     }
+
+    pub fn op(&self) -> OpCode {
+        self.op
+    }
+
+    pub fn arg0(&self) -> u8 {
+        self.arg0
+    }
+
+    pub fn arg1(&self) -> u16 {
+        self.arg1
+    }
+
     pub(crate) fn serialize(&self, writer: &mut impl Write) -> std::io::Result<()> {
         writer.write_all(&(self.op as u8).to_le_bytes())?;
         writer.write_all(&self.arg0.to_le_bytes())?;
