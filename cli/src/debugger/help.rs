@@ -16,14 +16,14 @@ pub(super) struct HelpWidget {
 }
 
 impl HelpWidget {
-    pub(super) fn new() -> Result<Self, Box<dyn std::error::Error>> {
-        Ok(Self {
+    pub(super) fn new() -> Self {
+        Self {
             scroll: (0, 0),
             scroll_state: (
                 ScrollbarState::new(Self::text_lines().width()),
                 ScrollbarState::new(Self::text_lines().width()),
             ),
-        })
+        }
     }
 
     pub(super) fn update_scroll_y(&mut self, delta: i32) {
@@ -49,6 +49,10 @@ impl HelpWidget {
                 "  Toggle help (this window): ".into(),
                 "h".blue().bold(),
             ]),
+            Line::from(vec![
+                "  Toggle View options widget: ".into(),
+                "v".blue().bold(),
+            ]),
             Line::from(vec!["  Toggle source list: ".into(), "l".blue().bold()]),
             Line::from(vec!["  Toggle disassembly: ".into(), "D".blue().bold()]),
             Line::from(vec!["  Toggle stack trace: ".into(), "t".blue().bold()]),
@@ -68,10 +72,6 @@ impl HelpWidget {
             Line::from(vec![
                 "  Scroll down current widget: ".into(),
                 "down".blue().bold(),
-            ]),
-            Line::from(vec![
-                "  Toggle filter only named variables in stack widget: ".into(),
-                "v".blue().bold(),
             ]),
             Line::from(vec!["  run current code: ".into(), "r".blue().bold()]),
             Line::from(vec![

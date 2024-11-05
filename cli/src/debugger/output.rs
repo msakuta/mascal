@@ -14,7 +14,6 @@ pub(super) struct OutputWidget {
     text: Vec<String>,
     scroll: usize,
     scroll_state: ScrollbarState,
-    visible: bool,
     /// Cached height of rendered text area. Used for calculating scroll position.
     render_height: u16,
     pub(super) focus: bool,
@@ -26,7 +25,6 @@ impl OutputWidget {
             text: vec![],
             scroll: 0,
             scroll_state: ScrollbarState::new(1),
-            visible: true,
             render_height: 10,
             focus: false,
         }
@@ -52,14 +50,6 @@ impl OutputWidget {
 
         self.scroll_state = ScrollbarState::new(self.text.len()).position(self.scroll);
         Ok(())
-    }
-
-    pub(super) fn toggle_visible(&mut self) {
-        self.visible = !self.visible;
-    }
-
-    pub(super) fn visible(&self) -> bool {
-        self.visible
     }
 
     pub(super) fn update_scroll(&mut self, delta: i32) {

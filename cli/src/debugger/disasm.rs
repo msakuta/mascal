@@ -4,7 +4,7 @@ use ratatui::{
     layout::{Alignment, Rect},
     style::{Color, Style, Stylize},
     symbols::{border, scrollbar},
-    text::{Line, Text},
+    text::Text,
     widgets::{
         block::Title, Block, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState,
         StatefulWidget, Widget,

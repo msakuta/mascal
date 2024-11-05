@@ -11,6 +11,8 @@ use ratatui::{
     },
 };
 
+use super::view_settings::ViewSettings;
+
 pub(super) struct StackWidget {
     text: Vec<VariableInfo>,
     scroll: usize,
@@ -18,7 +20,6 @@ pub(super) struct StackWidget {
     /// Cached height of rendered text area. Used for calculating scroll position.
     render_height: u16,
     pub(super) focus: bool,
-    named_only: bool,
 }
 
 struct VariableInfo {
@@ -28,15 +29,14 @@ struct VariableInfo {
 }
 
 impl StackWidget {
-    pub(super) fn new(named_only: bool) -> Result<Self, Box<dyn std::error::Error>> {
-        Ok(Self {
+    pub(super) fn new() -> Self {
+        Self {
             text: vec![],
             scroll: 0,
             scroll_state: ScrollbarState::new(1),
             render_height: 10,
             focus: false,
-            named_only,
-        })
+        }
     }
 
     pub(super) fn update(
@@ -44,6 +44,7 @@ impl StackWidget {
         vm: &Vm,
         level: usize,
         debug: Option<&FunctionInfo>,
+        vs: &ViewSettings,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut buf = vec![];
         if let Some(iter) = vm.iter_stack(level) {
@@ -51,7 +52,7 @@ impl StackWidget {
                 let var_name = debug
                     .and_then(|debug| debug.vars.iter().find(|(_, idx)| **idx == i))
                     .map(|(name, _)| name);
-                if self.named_only && var_name.is_none() {
+                if vs.show_named_locals && var_name.is_none() {
                     continue;
                 }
                 buf.push(VariableInfo {
@@ -74,10 +75,6 @@ impl StackWidget {
             self.scroll = self.scroll.saturating_add(delta as usize);
         }
         self.scroll_state = self.scroll_state.position(self.scroll);
-    }
-
-    pub(super) fn toggle_named_only(&mut self) {
-        self.named_only = !self.named_only;
     }
 }
 

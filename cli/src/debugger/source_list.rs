@@ -18,7 +18,6 @@ use ratatui::{
 use self::parser::{style_text, Lexer};
 
 pub(super) struct SourceListWidget {
-    pub(super) visible: bool,
     text: Vec<(String, Lexer)>,
     line: Option<LineInfo>,
     scroll: usize,
@@ -57,7 +56,6 @@ impl SourceListWidget {
         let length = text.len();
         (
             Self {
-                visible: true,
                 text,
                 line: None,
                 scroll: 0,

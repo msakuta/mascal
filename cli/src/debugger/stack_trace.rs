@@ -14,11 +14,11 @@ pub(super) struct StackTraceWidget {
 }
 
 impl StackTraceWidget {
-    pub(super) fn new() -> Result<Self, Box<dyn std::error::Error>> {
-        Ok(Self {
+    pub(super) fn new() -> Self {
+        Self {
             text: String::new(),
             scroll: 0,
-        })
+        }
     }
 
     pub(super) fn update(

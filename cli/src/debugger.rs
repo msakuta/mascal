@@ -6,6 +6,7 @@ mod output;
 mod source_list;
 mod stack;
 mod stack_trace;
+mod view_settings;
 
 use std::{cell::RefCell, collections::VecDeque, rc::Rc};
 
@@ -24,6 +25,7 @@ use ratatui::{
 };
 
 use ::mascal::{interpret, Bytecode, DebugInfo, Vm};
+use view_settings::{ViewSettings, ViewSettingsWidget};
 
 use self::{
     disasm::DisasmWidget, help::HelpWidget, output::OutputWidget, source_list::SourceListWidget,
@@ -48,6 +50,7 @@ struct App<'a> {
     /// Error string that is displayed on top of the debugger widget.
     /// Wrapped in a RefCell because rendering methods can have errors.
     error: RefCell<Option<String>>,
+    view_settings: ViewSettings,
     widgets: Widgets,
     exit: bool,
 }
@@ -63,10 +66,11 @@ enum WidgetFocus {
 struct Widgets {
     focus: WidgetFocus,
     source_list: SourceListWidget,
-    disasm: Option<DisasmWidget>,
-    stack_trace: Option<StackTraceWidget>,
-    stack: Option<StackWidget>,
+    disasm: DisasmWidget,
+    stack_trace: StackTraceWidget,
+    stack: StackWidget,
     output: OutputWidget,
+    view_settings: ViewSettingsWidget,
     help: Option<HelpWidget>,
 }
 
@@ -78,13 +82,15 @@ impl<'a> App<'a> {
             mode: Default::default(),
             output_buffer,
             error: RefCell::new(error.map(|e| e.to_string())),
+            view_settings: ViewSettings::new(bytecode.debug_info().is_some()),
             widgets: Widgets {
                 focus: WidgetFocus::SourceList,
                 source_list,
-                disasm: DisasmWidget::new(bytecode).ok(),
-                stack_trace: StackTraceWidget::new().ok(),
-                stack: StackWidget::new(bytecode.debug_info().is_some()).ok(),
+                disasm: DisasmWidget::new(bytecode).unwrap(),
+                stack_trace: StackTraceWidget::new(),
+                stack: StackWidget::new(),
                 output: OutputWidget::new(),
+                view_settings: ViewSettingsWidget::new(),
                 help: None,
             },
             exit: false,
@@ -113,61 +119,68 @@ impl<'a> App<'a> {
 
     fn inner_events(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if let event::Event::Key(key) = event::read()? {
+            if self.view_settings.view_settings {
+                if self
+                    .widgets
+                    .view_settings
+                    .handle_events(&key, &mut self.view_settings)?
+                {
+                    // When view settings are changed, some widgets may need to update.
+                    if let AppMode::StepRun {
+                        ref vm_history,
+                        btrace_level,
+                        selected_history,
+                        ..
+                    } = self.mode
+                    {
+                        if let Some(vm) = vm_history.get(selected_history) {
+                            let debug_fn = self
+                                .bytecode
+                                .debug_info()
+                                .zip(vm.call_info(btrace_level))
+                                .and_then(|(debug, ci)| debug.get(ci.bytecode().name()));
+                            self.widgets.stack.update(
+                                vm,
+                                btrace_level,
+                                debug_fn,
+                                &self.view_settings,
+                            )?;
+                        }
+                    }
+                    return Ok(());
+                }
+            }
+
             match (key.kind, key.code) {
                 (KeyEventKind::Press, KeyCode::Char('l')) => {
-                    self.widgets.source_list.visible = !self.widgets.source_list.visible;
+                    self.view_settings.source_list = !self.view_settings.source_list;
                 }
                 (KeyEventKind::Press, KeyCode::Char('D')) => {
-                    if self.widgets.disasm.is_some() {
-                        self.widgets.disasm = None;
-                    } else {
-                        self.widgets.disasm = DisasmWidget::new(self.bytecode).ok();
-                    }
+                    self.view_settings.disassembly = !self.view_settings.disassembly;
                 }
                 (KeyEventKind::Press, KeyCode::Char('t')) => {
-                    if self.widgets.stack_trace.is_some() {
-                        self.widgets.stack_trace = None;
-                    } else {
-                        self.widgets.stack_trace = StackTraceWidget::new().ok();
-                    }
+                    self.view_settings.stack_trace = !self.view_settings.stack_trace;
                 }
                 (KeyEventKind::Press, KeyCode::Char('k')) => {
-                    if self.widgets.stack.is_some() {
-                        self.widgets.stack = None;
-                    } else {
-                        self.widgets.stack =
-                            StackWidget::new(self.bytecode.debug_info().is_some()).ok();
-                    }
+                    self.view_settings.stack = !self.view_settings.stack;
                 }
                 (KeyEventKind::Press, KeyCode::Char('o')) => {
-                    self.widgets.output.toggle_visible();
+                    self.view_settings.output = !self.view_settings.output;
                 }
                 (KeyEventKind::Press, KeyCode::Char('v')) => {
-                    if let Some(ref mut stack) = self.widgets.stack {
-                        stack.toggle_named_only();
-                        if let AppMode::StepRun {
-                            ref vm_history,
-                            btrace_level,
-                            selected_history,
-                            ..
-                        } = self.mode
-                        {
-                            if let Some(vm) = vm_history.get(selected_history) {
-                                let debug_fn = self
-                                    .bytecode
-                                    .debug_info()
-                                    .zip(vm.call_info(btrace_level))
-                                    .and_then(|(debug, ci)| debug.get(ci.bytecode().name()));
-                                stack.update(vm, btrace_level, debug_fn)?;
-                            }
-                        }
+                    if !self.view_settings.view_settings {
+                        self.view_settings.view_settings = true;
+                        self.widgets.help = None;
+                    } else {
+                        self.view_settings.view_settings = false;
                     }
                 }
                 (KeyEventKind::Press, KeyCode::Char('h')) => {
                     if self.widgets.help.is_some() {
                         self.widgets.help = None;
                     } else {
-                        self.widgets.help = HelpWidget::new().ok();
+                        self.widgets.help = Some(HelpWidget::new());
+                        self.view_settings.view_settings = false;
                     }
                 }
                 (KeyEventKind::Press, KeyCode::Char('r')) => {
@@ -209,6 +222,7 @@ impl<'a> App<'a> {
                             *btrace_level,
                             self.bytecode.debug_info(),
                             &self.output_buffer,
+                            &self.view_settings,
                         )?;
                     }
                 }
@@ -229,6 +243,7 @@ impl<'a> App<'a> {
                             *btrace_level,
                             self.bytecode.debug_info(),
                             &self.output_buffer,
+                            &self.view_settings,
                         )?;
                     }
                 }
@@ -248,6 +263,7 @@ impl<'a> App<'a> {
                                 btrace_level,
                                 self.bytecode.debug_info(),
                                 &self.output_buffer,
+                                &self.view_settings,
                             )?;
                         }
                     }
@@ -267,6 +283,7 @@ impl<'a> App<'a> {
                                 btrace_level,
                                 self.bytecode.debug_info(),
                                 &self.output_buffer,
+                                &self.view_settings,
                             )?;
                         }
                     }
@@ -302,14 +319,8 @@ impl<'a> App<'a> {
                         };
                         let focus = self.widgets.focus;
                         self.widgets.source_list.focus = matches!(focus, WidgetFocus::SourceList);
-                        self.widgets
-                            .disasm
-                            .as_mut()
-                            .map(|d| d.focus = matches!(focus, WidgetFocus::Disasm));
-                        self.widgets
-                            .stack
-                            .as_mut()
-                            .map(|d| d.focus = matches!(focus, WidgetFocus::Stack));
+                        self.widgets.disasm.focus = matches!(focus, WidgetFocus::Disasm);
+                        self.widgets.stack.focus = matches!(focus, WidgetFocus::Stack);
                         self.widgets.output.focus = matches!(focus, WidgetFocus::Output);
                     }
                 }
@@ -330,12 +341,10 @@ impl<'a> App<'a> {
             match self.widgets.focus {
                 WidgetFocus::SourceList => self.widgets.source_list.update_scroll(delta),
                 WidgetFocus::Disasm => {
-                    if let Some(ref mut da) = self.widgets.disasm {
-                        da.update_scroll(delta)
-                    }
+                    self.widgets.disasm.update_scroll(delta);
                 }
                 WidgetFocus::Stack => {
-                    self.widgets.stack.as_mut().map(|d| d.update_scroll(delta));
+                    self.widgets.stack.update_scroll(delta);
                 }
                 WidgetFocus::Output => {
                     self.widgets.output.update_scroll(delta);
@@ -480,6 +489,7 @@ impl<'a> App<'a> {
                 btrace_level,
                 self.bytecode.debug_info(),
                 &self.output_buffer,
+                &self.view_settings,
             )?;
             vm_history.push_front(prev_vm);
             vm_history.push_front(next_vm);
@@ -512,22 +522,18 @@ impl Widgets {
         level: usize,
         debug: Option<&DebugInfo>,
         output_buffer: &Rc<RefCell<Vec<u8>>>,
+        vs: &ViewSettings,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(ci) = vm.call_info(level) {
             let debug_fn = debug.and_then(|debug| debug.get(ci.bytecode().name()));
             let ip = ci.instruction_ptr();
             self.source_list
                 .update(ip, debug_fn.map(|v| &v.line_info[..]))?;
-            if let Some(ref mut disasm) = self.disasm {
-                disasm.update(ci.bytecode(), ip, debug_fn.map(|v| &v.line_info[..]))?;
-            }
-            if let Some(ref mut stack) = self.stack {
-                stack.update(vm, level, debug_fn)?;
-            }
+            self.disasm
+                .update(ci.bytecode(), ip, debug_fn.map(|v| &v.line_info[..]))?;
+            self.stack.update(vm, level, debug_fn, vs)?;
         }
-        if let Some(ref mut stack_trace) = self.stack_trace {
-            stack_trace.update(vm, level)?;
-        }
+        self.stack_trace.update(vm, level)?;
         self.output.update(&output_buffer.borrow())?;
         Ok(())
     }
@@ -575,8 +581,7 @@ impl<'a> Widget for &mut App<'a> {
 
         let top_area = layout[0];
 
-        let top_widgets =
-            self.widgets.output.visible() as u16 + self.widgets.source_list.visible as u16;
+        let top_widgets = self.view_settings.output as u16 + self.view_settings.source_list as u16;
         let top_constraints: Vec<_> = (0..top_widgets)
             .map(|_| Constraint::Percentage(100 / top_widgets))
             .collect();
@@ -587,7 +592,7 @@ impl<'a> Widget for &mut App<'a> {
             .split(top_area);
 
         let mut horz_i = 0;
-        if self.widgets.output.visible() {
+        if self.view_settings.output {
             let mut output_area = top_layout[horz_i];
             if 4 < output_area.height {
                 output_area.y += 2;
@@ -597,7 +602,7 @@ impl<'a> Widget for &mut App<'a> {
             horz_i += 1;
         }
 
-        if self.widgets.source_list.visible {
+        if self.view_settings.source_list {
             let source_area = top_layout[horz_i];
             self.widgets.source_list.render(source_area, buf);
             // horz_i += 1;
@@ -605,9 +610,9 @@ impl<'a> Widget for &mut App<'a> {
 
         let bottom_area = layout[1];
         if 0 < bottom_area.height {
-            let widget_count = self.widgets.disasm.is_some() as u16
-                + self.widgets.stack_trace.is_some() as u16
-                + self.widgets.stack.is_some() as u16;
+            let widget_count = self.view_settings.disassembly as u16
+                + self.view_settings.stack_trace as u16
+                + self.view_settings.stack as u16;
             let bottom_constraints: Vec<_> = (0..widget_count)
                 .map(|_| Constraint::Percentage(100 / widget_count))
                 .collect();
@@ -618,23 +623,35 @@ impl<'a> Widget for &mut App<'a> {
                 .split(bottom_area);
 
             horz_i = 0;
-            if let Some(ref mut d) = self.widgets.stack {
+            if self.view_settings.stack {
                 let tr_area = bottom_layout[horz_i];
                 if 0 < tr_area.height {
-                    d.render(tr_area, buf);
+                    self.widgets.stack.render(tr_area, buf);
                 }
                 horz_i += 1;
             }
 
-            if let Some(d) = self.widgets.disasm.as_mut() {
+            if self.view_settings.disassembly {
                 let disasm_area = bottom_layout[horz_i];
-                d.render(disasm_area, buf);
+                self.widgets.disasm.render(disasm_area, buf);
                 horz_i += 1;
             }
 
-            if let Some(ref d) = self.widgets.stack_trace {
-                d.render(bottom_layout[horz_i], buf);
+            if self.view_settings.stack_trace {
+                self.widgets.stack_trace.render(bottom_layout[horz_i], buf);
             }
+        }
+
+        // View settings shows on the second top of all widgets
+        if self.view_settings.view_settings {
+            let mut help_area = area;
+            help_area.x += help_area.width / 4;
+            help_area.width /= 2;
+            help_area.y += help_area.height / 4;
+            help_area.height /= 2;
+            self.widgets
+                .view_settings
+                .render(help_area, buf, &self.view_settings);
         }
 
         // Help shows on top of all widgets
