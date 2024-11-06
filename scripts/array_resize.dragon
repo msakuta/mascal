@@ -2,6 +2,7 @@ var a: [i32] = [1,3,5];
 
 // Append an element to an array, but it has an intentional bug.
 fn append(v: [i32], a: i32) {
+    resize(v, len(v) + 1);
     v[len(v)] = a;
 }
 
