@@ -182,7 +182,7 @@ impl Value {
     pub fn array_assign(&self, idx: usize, value: Value) -> EvalResult<()> {
         match self {
             Value::Array(array) => {
-                array.borrow_mut().values[idx] = value;
+                *array.borrow_mut().values.eget_mut(idx)? = value;
             }
             _ => return Err(EvalError::IndexNonArray),
         }
