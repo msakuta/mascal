@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     interpreter::{EGetExt, EvalResult},
-    type_decl::TypeDecl,
+    type_decl::{ArraySize, TypeDecl},
     type_tags::*,
     EvalError, ReadError,
 };
@@ -215,6 +215,16 @@ impl Value {
         }
     }
 
+    pub fn array_resize(&self, new_len: usize, val: &Value) -> EvalResult<()> {
+        match self {
+            Value::Array(array) => {
+                array.borrow_mut().values.resize(new_len, val.clone());
+                Ok(())
+            }
+            _ => Err("len() must be called for an array".to_string().into()),
+        }
+    }
+
     pub fn tuple_get(&self, idx: u64) -> Result<Value, EvalError> {
         Ok(match self {
             Value::Tuple(tuple) => {
@@ -255,6 +265,28 @@ impl Value {
     }
 }
 
+impl std::convert::TryFrom<&Value> for usize {
+    type Error = ValueError;
+    fn try_from(value: &Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::F64(val) => if *val < 0. { Err(ValueError::Domain) } else { Ok(*val as usize) },
+            Value::F32(val) => if *val < 0. { Err(ValueError::Domain) } else { Ok(*val as usize) },
+            Value::I64(val) => Ok(*val as usize),
+            Value::I32(val) => Ok(*val as usize),
+            Value::Str(_) => Err(ValueError::Invalid(TypeDecl::Str, TypeDecl::I64)),
+            Value::Array(rc) => {
+                let arr = rc.borrow();
+                Err(ValueError::Invalid(TypeDecl::Array(Box::new(arr.type_decl.clone()), ArraySize::Any), TypeDecl::I64))
+            }
+            Value::Tuple(rc) => {
+                let tup = rc.borrow();
+                Err(ValueError::Invalid(TypeDecl::Tuple(tup.iter().map(|val| val.decl.clone()).collect()), TypeDecl::I64))
+            }
+        }
+    }
+}
+
+
 pub type TupleInt = Vec<TupleEntry>;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -268,3 +300,20 @@ impl TupleEntry {
         &self.value
     }
 }
+
+#[derive(Debug)]
+pub enum ValueError {
+    Domain,
+    Invalid(TypeDecl, TypeDecl),
+}
+
+impl std::fmt::Display for ValueError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Domain => write!(f, "Domain error"),
+            Self::Invalid(from, to) => write!(f, "Invalid conversion between types error from {from} to {to}"),
+        }
+    }
+}
+
+impl std::error::Error for ValueError {}

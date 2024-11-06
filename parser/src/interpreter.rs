@@ -5,10 +5,10 @@ use self::lvalue::{eval_lvalue, LValue};
 use crate::{
     parser::*,
     type_decl::ArraySize,
-    value::{ArrayInt, TupleEntry},
+    value::{ArrayInt, TupleEntry, ValueError},
     TypeDecl, Value,
 };
-use std::{cell::RefCell, collections::HashMap, io::Write, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, convert::TryInto, io::Write, rc::Rc};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum RunResult {
@@ -56,6 +56,13 @@ pub enum EvalError {
     NonLValue(String),
     PrematureEnd,
     IOError(std::io::Error),
+    ValueError(ValueError),
+}
+
+impl std::convert::From<ValueError> for EvalError {
+    fn from(value: ValueError) -> Self {
+        Self::ValueError(value)
+    }
 }
 
 impl std::error::Error for EvalError {}
@@ -124,6 +131,7 @@ impl std::fmt::Display for EvalError {
                 write!(f, "End of input bytecode encountered before seeing a Ret")
             }
             Self::IOError(e) => e.fmt(f),
+            Self::ValueError(e) => e.fmt(f),
         }
     }
 }
@@ -760,7 +768,16 @@ pub(crate) fn s_push(vals: &[Value]) -> Result<Value, EvalError> {
         let val = val.clone();
         arr.array_push(val).map(|_| Value::I32(0))
     } else {
-        Ok(Value::I32(0))
+        Err(EvalError::MissingArg("push requires 2 arguments".to_string()))
+    }
+}
+
+pub(crate) fn s_resize(vals: &[Value]) -> Result<Value, EvalError> {
+    if let [arr, len, ..] = vals {
+        let new_len = len.try_into()?;
+        arr.array_resize(new_len, &Value::default()).map(|_| Value::I32(0))
+    } else {
+        Err(EvalError::MissingArg("resize requires 2 arguments".to_string()))
     }
 }
 
@@ -963,6 +980,20 @@ pub(crate) fn std_functions<'src, 'native>() -> HashMap<String, FuncDef<'src, 'n
                     TypeDecl::Array(Box::new(TypeDecl::Any), ArraySize::Range(0..usize::MAX)),
                 ),
                 ArgDecl::new("value", TypeDecl::Any),
+            ],
+            None,
+        ),
+    );
+    functions.insert(
+        "resize".to_string(),
+        FuncDef::new_native(
+            &s_resize,
+            vec![
+                ArgDecl::new(
+                    "array",
+                    TypeDecl::Array(Box::new(TypeDecl::Any), ArraySize::Range(0..usize::MAX)),
+                ),
+                ArgDecl::new("new_len", TypeDecl::Any),
             ],
             None,
         ),
