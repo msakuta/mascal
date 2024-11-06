@@ -483,7 +483,7 @@ impl<'a> App<'a> {
                 return Err("Missing Vm".into());
             };
             let prev_vm = next_vm.deepclone();
-            next_vm.next_inst()?;
+            let res = next_vm.next_inst();
             self.widgets.update(
                 &mut next_vm,
                 btrace_level,
@@ -492,6 +492,8 @@ impl<'a> App<'a> {
                 &self.view_settings,
             )?;
             vm_history.push_front(prev_vm);
+            // We break here in case of an error to keep the state just before the error.
+            res?;
             vm_history.push_front(next_vm);
             if 100 < vm_history.len() {
                 vm_history.pop_back();
