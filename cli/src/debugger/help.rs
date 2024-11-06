@@ -57,7 +57,7 @@ impl HelpWidget {
             Line::from(vec!["  Toggle disassembly: ".into(), "D".blue().bold()]),
             Line::from(vec!["  Toggle stack trace: ".into(), "t".blue().bold()]),
             Line::from(vec![
-                "  Toggle local stack widget: ".into(),
+                "  Toggle local variables widget: ".into(),
                 "k".blue().bold(),
             ]),
             Line::from(vec!["  Toggle output widget: ".into(), "o".blue().bold()]),

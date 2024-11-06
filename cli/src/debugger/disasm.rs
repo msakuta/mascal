@@ -115,7 +115,7 @@ impl Widget for &mut DisasmWidget {
             }
             DisasmText::Function(ref text) => {
                 let header = vec![format!(
-                    "  Line#    Idx   Inst          Arg0  Arg1 {:1$}",
+                    "  Line#    Idx   OpCode        Arg0  Arg1 {:1$}",
                     " ", inner.width as usize
                 )
                 .black()

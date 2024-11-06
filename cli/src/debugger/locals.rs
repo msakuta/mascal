@@ -13,7 +13,7 @@ use ratatui::{
 
 use super::view_settings::ViewSettings;
 
-pub(super) struct StackWidget {
+pub(super) struct LocalsWidget {
     text: Vec<VariableInfo>,
     scroll: usize,
     scroll_state: ScrollbarState,
@@ -28,7 +28,7 @@ struct VariableInfo {
     value: String,
 }
 
-impl StackWidget {
+impl LocalsWidget {
     pub(super) fn new() -> Self {
         Self {
             text: vec![],
@@ -78,13 +78,13 @@ impl StackWidget {
     }
 }
 
-impl Widget for &mut StackWidget {
+impl Widget for &mut LocalsWidget {
     fn render(self, area: Rect, buf: &mut Buffer)
     where
         Self: Sized,
     {
         let title =
-            Title::from(format!(" Stack values {}/{} ", self.scroll, self.text.len()).bold());
+            Title::from(format!(" Local variables {}/{} ", self.scroll, self.text.len()).bold());
         let block = Block::bordered()
             .title(title.alignment(Alignment::Center))
             .border_style(Style::new().cyan())

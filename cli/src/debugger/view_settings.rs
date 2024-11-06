@@ -24,7 +24,7 @@ pub(super) struct ViewSettings {
     pub source_list: bool,
     pub disassembly: bool,
     pub stack_trace: bool,
-    pub stack: bool,
+    pub locals: bool,
     pub output: bool,
     /// Filter only named locals in the Stack widget.
     pub show_named_locals: bool,
@@ -37,7 +37,7 @@ impl ViewSettings {
             source_list: true,
             disassembly: true,
             stack_trace: true,
-            stack: true,
+            locals: true,
             output: true,
             show_named_locals,
         }
@@ -82,7 +82,7 @@ impl ViewSettingsWidget {
                         settings.stack_trace = !settings.stack_trace;
                     }
                     3 => {
-                        settings.stack = !settings.stack;
+                        settings.locals = !settings.locals;
                     }
                     4 => {
                         settings.output = !settings.output;
@@ -156,23 +156,23 @@ impl ViewSettingsWidget {
 
         let text = vec![
             Line::from(vec![format!(
-                " [{}] Show Source List",
+                " [{}] Show Source List widget",
                 bool_to_cross(view_settings.source_list)
             )
             .into()]),
             Line::from(vec![format!(
-                " [{}] Show Disassembly",
+                " [{}] Show Disassembly widget",
                 bool_to_cross(view_settings.disassembly)
             )
             .into()]),
             Line::from(vec![format!(
-                " [{}] Show Stack trace",
+                " [{}] Show Stack trace widget",
                 bool_to_cross(view_settings.stack_trace)
             )
             .into()]),
             Line::from(vec![format!(
-                " [{}] Show local stack widget",
-                bool_to_cross(view_settings.stack)
+                " [{}] Show Local variables widget",
+                bool_to_cross(view_settings.locals)
             )
             .into()]),
             Line::from(vec![format!(

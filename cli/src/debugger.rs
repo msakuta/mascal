@@ -2,9 +2,9 @@
 
 mod disasm;
 mod help;
+mod locals;
 mod output;
 mod source_list;
-mod stack;
 mod stack_trace;
 mod view_settings;
 
@@ -28,8 +28,8 @@ use ::mascal::{interpret, Bytecode, DebugInfo, Vm};
 use view_settings::{ViewSettings, ViewSettingsWidget};
 
 use self::{
-    disasm::DisasmWidget, help::HelpWidget, output::OutputWidget, source_list::SourceListWidget,
-    stack::StackWidget, stack_trace::StackTraceWidget,
+    disasm::DisasmWidget, help::HelpWidget, locals::LocalsWidget, output::OutputWidget,
+    source_list::SourceListWidget, stack_trace::StackTraceWidget,
 };
 
 pub(crate) fn run_debugger(mut bytecode: Bytecode) -> Result<(), Box<dyn std::error::Error>> {
@@ -58,7 +58,7 @@ struct App<'a> {
 #[derive(Clone, Copy)]
 enum WidgetFocus {
     SourceList,
-    Stack,
+    Locals,
     Disasm,
     Output,
 }
@@ -68,7 +68,7 @@ struct Widgets {
     source_list: SourceListWidget,
     disasm: DisasmWidget,
     stack_trace: StackTraceWidget,
-    stack: StackWidget,
+    locals: LocalsWidget,
     output: OutputWidget,
     view_settings: ViewSettingsWidget,
     help: Option<HelpWidget>,
@@ -88,7 +88,7 @@ impl<'a> App<'a> {
                 source_list,
                 disasm: DisasmWidget::new(bytecode).unwrap(),
                 stack_trace: StackTraceWidget::new(),
-                stack: StackWidget::new(),
+                locals: LocalsWidget::new(),
                 output: OutputWidget::new(),
                 view_settings: ViewSettingsWidget::new(),
                 help: None,
@@ -139,7 +139,7 @@ impl<'a> App<'a> {
                                 .debug_info()
                                 .zip(vm.call_info(btrace_level))
                                 .and_then(|(debug, ci)| debug.get(ci.bytecode().name()));
-                            self.widgets.stack.update(
+                            self.widgets.locals.update(
                                 vm,
                                 btrace_level,
                                 debug_fn,
@@ -162,7 +162,7 @@ impl<'a> App<'a> {
                     self.view_settings.stack_trace = !self.view_settings.stack_trace;
                 }
                 (KeyEventKind::Press, KeyCode::Char('k')) => {
-                    self.view_settings.stack = !self.view_settings.stack;
+                    self.view_settings.locals = !self.view_settings.locals;
                 }
                 (KeyEventKind::Press, KeyCode::Char('o')) => {
                     self.view_settings.output = !self.view_settings.output;
@@ -305,22 +305,22 @@ impl<'a> App<'a> {
                         self.widgets.focus = if key.modifiers.contains(KeyModifiers::SHIFT) {
                             match self.widgets.focus {
                                 WidgetFocus::SourceList => WidgetFocus::Disasm,
-                                WidgetFocus::Disasm => WidgetFocus::Stack,
-                                WidgetFocus::Stack => WidgetFocus::Output,
+                                WidgetFocus::Disasm => WidgetFocus::Locals,
+                                WidgetFocus::Locals => WidgetFocus::Output,
                                 WidgetFocus::Output => WidgetFocus::SourceList,
                             }
                         } else {
                             match self.widgets.focus {
                                 WidgetFocus::SourceList => WidgetFocus::Output,
                                 WidgetFocus::Disasm => WidgetFocus::SourceList,
-                                WidgetFocus::Stack => WidgetFocus::Disasm,
-                                WidgetFocus::Output => WidgetFocus::Stack,
+                                WidgetFocus::Locals => WidgetFocus::Disasm,
+                                WidgetFocus::Output => WidgetFocus::Locals,
                             }
                         };
                         let focus = self.widgets.focus;
                         self.widgets.source_list.focus = matches!(focus, WidgetFocus::SourceList);
                         self.widgets.disasm.focus = matches!(focus, WidgetFocus::Disasm);
-                        self.widgets.stack.focus = matches!(focus, WidgetFocus::Stack);
+                        self.widgets.locals.focus = matches!(focus, WidgetFocus::Locals);
                         self.widgets.output.focus = matches!(focus, WidgetFocus::Output);
                     }
                 }
@@ -343,8 +343,8 @@ impl<'a> App<'a> {
                 WidgetFocus::Disasm => {
                     self.widgets.disasm.update_scroll(delta);
                 }
-                WidgetFocus::Stack => {
-                    self.widgets.stack.update_scroll(delta);
+                WidgetFocus::Locals => {
+                    self.widgets.locals.update_scroll(delta);
                 }
                 WidgetFocus::Output => {
                     self.widgets.output.update_scroll(delta);
@@ -531,7 +531,7 @@ impl Widgets {
                 .update(ip, debug_fn.map(|v| &v.line_info[..]))?;
             self.disasm
                 .update(ci.bytecode(), ip, debug_fn.map(|v| &v.line_info[..]))?;
-            self.stack.update(vm, level, debug_fn, vs)?;
+            self.locals.update(vm, level, debug_fn, vs)?;
         }
         self.stack_trace.update(vm, level)?;
         self.output.update(&output_buffer.borrow())?;
@@ -612,7 +612,7 @@ impl<'a> Widget for &mut App<'a> {
         if 0 < bottom_area.height {
             let widget_count = self.view_settings.disassembly as u16
                 + self.view_settings.stack_trace as u16
-                + self.view_settings.stack as u16;
+                + self.view_settings.locals as u16;
             let bottom_constraints: Vec<_> = (0..widget_count)
                 .map(|_| Constraint::Percentage(100 / widget_count))
                 .collect();
@@ -623,10 +623,10 @@ impl<'a> Widget for &mut App<'a> {
                 .split(bottom_area);
 
             horz_i = 0;
-            if self.view_settings.stack {
+            if self.view_settings.locals {
                 let tr_area = bottom_layout[horz_i];
                 if 0 < tr_area.height {
-                    self.widgets.stack.render(tr_area, buf);
+                    self.widgets.locals.render(tr_area, buf);
                 }
                 horz_i += 1;
             }
