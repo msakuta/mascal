@@ -4,6 +4,9 @@ use crate::parser::{ExprEnum, Expression, Statement};
 
 type NameRangeMap = HashMap<String, (u32, u32)>;
 
+/// Measures complexity of a source code by a metric I invented.
+/// If the statements include a function definition, it will measure the function body
+/// and sum up to the result.
 pub fn complexity(ast: &[Statement]) -> usize {
     let mut names = NameRangeMap::new();
     let sum = stmts_complexity(ast, &mut names);
@@ -69,9 +72,12 @@ fn expr_complexity(ex: &Expression, names: &mut NameRangeMap) -> usize {
         | ExprEnum::ArrLiteral(_)
         | ExprEnum::TupleLiteral(_) => 0,
         ExprEnum::Variable(name) => {
-            let entry = names.entry(name.to_string()).or_default();
-            entry.0 = entry.0.min(ex.span.location_line());
-            entry.1 = entry.1.max(ex.span.location_line());
+            let line = ex.span.location_line();
+            let entry = names
+                .entry(name.to_string())
+                .or_insert_with(|| (line, line));
+            entry.0 = entry.0.min(line);
+            entry.1 = entry.1.max(line);
             0
         }
         ExprEnum::Cast(ex, _) => expr_complexity(ex, names),
