@@ -17,7 +17,9 @@ fn stmts_complexity(ast: &[Statement], names: &mut NameRangeMap) -> usize {
     for stmt in ast {
         match stmt {
             Statement::VarDecl(name, _ty, init) => {
-                let entry = names.entry(name.to_string()).or_default();
+                let entry = names
+                    .entry(name.to_string())
+                    .or_insert_with(|| (name.location_line(), name.location_line()));
                 entry.0 = entry.0.min(name.location_line());
                 entry.1 = entry.1.max(name.location_line());
                 if let Some(init) = init {
@@ -26,6 +28,33 @@ fn stmts_complexity(ast: &[Statement], names: &mut NameRangeMap) -> usize {
             }
             Statement::Expression(ex) => {
                 sum += expr_complexity(ex, names);
+            }
+            Statement::FnDecl {
+                name, args, stmts, ..
+            } => {
+                let mut names = NameRangeMap::new();
+                let line = name.location_line();
+                for arg in args {
+                    names.insert(arg.name.to_string(), (line, line));
+                }
+                sum += stmts_complexity(stmts, &mut names);
+                sum += names
+                    .iter()
+                    .fold(0, |acc, (_, val)| acc + (val.1 - val.0) as usize);
+            }
+            Statement::For(var, start, end, stmts) => {
+                let line = var.location_line();
+                names.entry(var.to_string()).or_insert((line, line));
+                sum += expr_complexity(start, names);
+                sum += expr_complexity(end, names);
+                sum += stmts_complexity(stmts, names);
+            }
+            Statement::Loop(stmts) => {
+                sum += stmts_complexity(stmts, names);
+            }
+            Statement::While(cond, stmts) => {
+                sum += expr_complexity(cond, names);
+                sum += stmts_complexity(stmts, names);
             }
             _ => {}
         }

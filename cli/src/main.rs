@@ -68,7 +68,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         if args.complexity {
             let comp = mascal::complexity::complexity(&result.1);
-            println!("Copmlexity: {comp}");
+            println!("Complexity: {comp}");
         }
 
         let source_file = source_file.unwrap_or("<Unknown>");
