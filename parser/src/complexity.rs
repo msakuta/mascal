@@ -109,7 +109,7 @@ fn expr_complexity(ex: &Expression, names: &mut NameRangeMap) -> usize {
         | ExprEnum::BitXor(lhs, rhs)
         | ExprEnum::And(lhs, rhs)
         | ExprEnum::Or(lhs, rhs) => expr_complexity(lhs, names) + expr_complexity(rhs, names),
-        ExprEnum::Not(ex) | ExprEnum::BitNot(ex) => expr_complexity(ex, names),
+        ExprEnum::Not(ex) | ExprEnum::BitNot(ex) | ExprEnum::Neg(ex) => expr_complexity(ex, names),
         ExprEnum::Conditional(cond, t_branch, f_branch) => {
             expr_complexity(cond, names)
                 + stmts_complexity(t_branch, names)
