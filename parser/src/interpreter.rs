@@ -768,16 +768,21 @@ pub(crate) fn s_push(vals: &[Value]) -> Result<Value, EvalError> {
         let val = val.clone();
         arr.array_push(val).map(|_| Value::I32(0))
     } else {
-        Err(EvalError::MissingArg("push requires 2 arguments".to_string()))
+        Err(EvalError::MissingArg(
+            "push requires 2 arguments".to_string(),
+        ))
     }
 }
 
 pub(crate) fn s_resize(vals: &[Value]) -> Result<Value, EvalError> {
     if let [arr, len, ..] = vals {
         let new_len = len.try_into()?;
-        arr.array_resize(new_len, &Value::default()).map(|_| Value::I32(0))
+        arr.array_resize(new_len, &Value::default())
+            .map(|_| Value::I32(0))
     } else {
-        Err(EvalError::MissingArg("resize requires 2 arguments".to_string()))
+        Err(EvalError::MissingArg(
+            "resize requires 2 arguments".to_string(),
+        ))
     }
 }
 

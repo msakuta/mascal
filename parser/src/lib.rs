@@ -7,6 +7,7 @@ macro_rules! dbg_println {
 
 mod bytecode;
 mod compiler;
+pub mod complexity;
 mod interpreter;
 mod parser;
 mod type_checker;
