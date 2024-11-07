@@ -359,6 +359,17 @@ impl<'a> Vm<'a> {
                 };
                 self.set(inst.arg0, result);
             }
+            OpCode::Neg => {
+                let val = self.get(inst.arg0);
+                let result = match val {
+                    Value::I32(i) => Value::I32(-i),
+                    Value::I64(i) => Value::I64(-i),
+                    Value::F32(i) => Value::F32(-i),
+                    Value::F64(i) => Value::F64(-i),
+                    _ => return Err(EvalError::NonIntegerBitwise(format!("{val:?}"))),
+                };
+                self.set(inst.arg0, result);
+            }
             OpCode::Get => {
                 let target_collection = &self.get(inst.arg0);
                 let target_index = &self.get(inst.arg1);

@@ -309,6 +309,7 @@ where
             TypeDecl::I32
         }
         ExprEnum::BitNot(val) => tc_expr(val, ctx)?,
+        ExprEnum::Neg(val) => tc_expr(val, ctx)?,
         ExprEnum::Add(lhs, rhs) => binary_op(&lhs, &rhs, e.span, ctx, "Add")?,
         ExprEnum::Sub(lhs, rhs) => binary_op(&lhs, &rhs, e.span, ctx, "Sub")?,
         ExprEnum::Mult(lhs, rhs) => binary_op(&lhs, &rhs, e.span, ctx, "Mult")?,

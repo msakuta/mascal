@@ -580,6 +580,16 @@ where
                 _ => return Err(EvalError::NonIntegerBitwise(format!("{val:?}"))),
             })
         }
+        ExprEnum::Neg(val) => {
+            let val = unwrap_run!(eval(val, ctx)?);
+            RunResult::Yield(match val {
+                Value::I32(i) => Value::I32(-i),
+                Value::I64(i) => Value::I64(-i),
+                Value::F32(i) => Value::F32(-i),
+                Value::F64(i) => Value::F64(-i),
+                _ => return Err(EvalError::NonIntegerBitwise(format!("{val:?}"))),
+            })
+        }
         ExprEnum::Add(lhs, rhs) => {
             let res = RunResult::Yield(binary_op_str(
                 &unwrap_run!(eval(lhs, ctx)?),

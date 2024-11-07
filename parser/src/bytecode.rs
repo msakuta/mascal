@@ -47,6 +47,8 @@ pub enum OpCode {
     /// it has bool type. It can distinguish logical or bitwise operation by the operand type.
     /// However, we do not have bool type (yet), so we need a dedicated operator for bitwise not, like C.
     BitNot,
+    /// Unary negation (-).
+    Neg,
     /// Get an element of an array (or a table in the future) at arg0 with the key at arg1, and make a copy at arg1.
     /// Array elements are always Rc wrapped, so the user can assign into it.
     Get,
@@ -115,6 +117,7 @@ impl_op_from!(
     Or,
     Not,
     BitNot,
+    Neg,
     Get,
     Set,
     SetReg,
