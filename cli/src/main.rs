@@ -43,6 +43,8 @@ struct Args {
     debugger: bool,
     #[clap(short = 'g', long, help = "Enable debug information in the bytecode")]
     debug_info: bool,
+    #[clap(short = 'C', long, help = "Calculate complexity of a source file")]
+    complexity: bool,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -63,6 +65,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 eprintln!("Type check error: {}", e.to_string().red());
                 return Ok(());
             }
+        }
+        if args.complexity {
+            let comp = mascal::complexity::complexity(&result.1);
+            println!("Complexity: {comp}");
         }
 
         let source_file = source_file.unwrap_or("<Unknown>");
