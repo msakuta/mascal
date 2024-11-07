@@ -269,23 +269,40 @@ impl std::convert::TryFrom<&Value> for usize {
     type Error = ValueError;
     fn try_from(value: &Value) -> Result<Self, Self::Error> {
         match value {
-            Value::F64(val) => if *val < 0. { Err(ValueError::Domain) } else { Ok(*val as usize) },
-            Value::F32(val) => if *val < 0. { Err(ValueError::Domain) } else { Ok(*val as usize) },
+            Value::F64(val) => {
+                if *val < 0. {
+                    Err(ValueError::Domain)
+                } else {
+                    Ok(*val as usize)
+                }
+            }
+            Value::F32(val) => {
+                if *val < 0. {
+                    Err(ValueError::Domain)
+                } else {
+                    Ok(*val as usize)
+                }
+            }
             Value::I64(val) => Ok(*val as usize),
             Value::I32(val) => Ok(*val as usize),
             Value::Str(_) => Err(ValueError::Invalid(TypeDecl::Str, TypeDecl::I64)),
             Value::Array(rc) => {
                 let arr = rc.borrow();
-                Err(ValueError::Invalid(TypeDecl::Array(Box::new(arr.type_decl.clone()), ArraySize::Any), TypeDecl::I64))
+                Err(ValueError::Invalid(
+                    TypeDecl::Array(Box::new(arr.type_decl.clone()), ArraySize::Any),
+                    TypeDecl::I64,
+                ))
             }
             Value::Tuple(rc) => {
                 let tup = rc.borrow();
-                Err(ValueError::Invalid(TypeDecl::Tuple(tup.iter().map(|val| val.decl.clone()).collect()), TypeDecl::I64))
+                Err(ValueError::Invalid(
+                    TypeDecl::Tuple(tup.iter().map(|val| val.decl.clone()).collect()),
+                    TypeDecl::I64,
+                ))
             }
         }
     }
 }
-
 
 pub type TupleInt = Vec<TupleEntry>;
 
@@ -311,7 +328,10 @@ impl std::fmt::Display for ValueError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Domain => write!(f, "Domain error"),
-            Self::Invalid(from, to) => write!(f, "Invalid conversion between types error from {from} to {to}"),
+            Self::Invalid(from, to) => write!(
+                f,
+                "Invalid conversion between types error from {from} to {to}"
+            ),
         }
     }
 }

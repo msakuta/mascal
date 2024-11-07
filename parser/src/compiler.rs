@@ -573,6 +573,11 @@ fn emit_expr<'src>(expr: &Expression<'src>, compiler: &mut Compiler) -> CompileR
             compiler.push_inst(OpCode::BitNot, val as u8, 0);
             Ok(val)
         }
+        ExprEnum::Neg(val) => {
+            let val = emit_expr(val, compiler)?;
+            compiler.push_inst(OpCode::Neg, val as u8, 0);
+            Ok(val)
+        }
         ExprEnum::Add(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::Add, lhs, rhs)?),
         ExprEnum::Sub(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::Sub, lhs, rhs)?),
         ExprEnum::Mult(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::Mul, lhs, rhs)?),
