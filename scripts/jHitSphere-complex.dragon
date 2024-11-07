@@ -1,0 +1,37 @@
+
+fn jHitSphere(obj: [f64; 3], radius: f64, src: [f64; 3], dir: [f64; 3], dt: f64) -> f64 {
+    var b;
+    var c;
+    var D;
+    var d;
+    var t0;
+    var t1;
+    var dirslen;
+    var ret;
+
+    var del = src - obj;
+
+    /* scalar product of the ray and the vector. */
+    b = dot(dir, del);
+
+    dirslen = length_squared(dir);
+    c = dirslen * (length_squared(del) - radius * radius);
+
+    /* Discriminant */
+    D = b * b - c;
+    if !(D > 0) {
+        0;
+    } else {
+        d = sqrt(D);
+
+        /* Avoid zerodiv */
+        if !(dirslen < 0.0 || dirslen > 0.0) {
+            0;
+        } else {
+            t0 = (-b - d) / dirslen;
+            t1 = (-b + d) / dirslen;
+
+            0.0 < t1 && t0 < dt;
+        }
+    }
+}
