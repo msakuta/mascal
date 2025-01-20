@@ -410,7 +410,7 @@ where
     'native: 'src,
 {
     Ok(match &e.expr {
-        ExprEnum::NumLiteral(val) => RunResult::Yield(val.clone()),
+        ExprEnum::NumLiteral(val, _) => RunResult::Yield(val.clone()),
         ExprEnum::StrLiteral(val) => RunResult::Yield(Value::Str(val.clone())),
         ExprEnum::ArrLiteral(val) => RunResult::Yield(Value::Array(ArrayInt::new(
             TypeDecl::Any,
@@ -1062,7 +1062,11 @@ where
             } => {
                 ctx.functions.insert(
                     name.to_string(),
-                    FuncDef::Code(FuncCode::new(stmts.clone(), args.clone(), ret_type.clone())),
+                    FuncDef::Code(FuncCode::new(
+                        stmts.clone(),
+                        args.clone(),
+                        ret_type.determine(),
+                    )),
                 );
             }
             Statement::Expression(e) => {

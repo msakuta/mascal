@@ -5,7 +5,9 @@ use nom::{Finish, IResult};
 use super::*;
 use crate::{
     parser::{source, span_source, Subslice},
-    type_check, TypeCheckContext,
+    type_check,
+    type_set::TypeSet,
+    TypeCheckContext,
 };
 use ExprEnum::*;
 
@@ -84,7 +86,7 @@ fn var_r(name: Span) -> Box<Expression> {
 
 /// Boxed numeric literal
 fn bnl(value: Value, span: Span) -> Box<Expression> {
-    Box::new(Expression::new(NumLiteral(value), span))
+    Box::new(Expression::new(NumLiteral(value, TypeSet::i64()), span))
 }
 
 #[test]
@@ -429,7 +431,7 @@ fn logic_eval_test() {
 
 /// Numeric literal without box
 fn nl(value: Value, span: Span) -> Expression {
-    Expression::new(NumLiteral(value), span)
+    Expression::new(NumLiteral(value, TypeSet::i64()), span)
 }
 
 #[test]
@@ -663,7 +665,7 @@ fn fn_array_decl_test() {
                 "a",
                 TypeDecl::Array(Box::new(TypeDecl::I32), ArraySize::Any)
             )],
-            ret_type: None,
+            ret_type: TypeSet::all(),
             stmts: Rc::new(vec![Statement::Expression(Expression::new(
                 VarAssign(
                     var_r(span.subslice(17, 1)),
@@ -776,16 +778,16 @@ fn array_index_assign_test() {
 #[test]
 fn array_sized_test() {
     let span = Span::new("var a: [i32; 3] = [1,2,3]; var b: [i32; 3] = [4,5,6]; a = b;");
-    let ast = source(span).finish().unwrap().1;
-    type_check(&ast, &mut TypeCheckContext::new(None)).unwrap();
+    let mut ast = source(span).finish().unwrap().1;
+    type_check(&mut ast, &mut TypeCheckContext::new(None)).unwrap();
     run0(&ast).unwrap();
 }
 
 #[test]
 fn array_sized_error_test() {
     let span = Span::new("var a: [i32; 3] = [1,2,3]; var b: [i32; 4] = [4,5,6,7]; a = b;");
-    let ast = source(span).finish().unwrap().1;
-    match type_check(&ast, &mut TypeCheckContext::new(Some("input"))) {
+    let mut ast = source(span).finish().unwrap().1;
+    match type_check(&mut ast, &mut TypeCheckContext::new(Some("input"))) {
         Ok(_) => panic!(),
         Err(e) => assert_eq!(e.to_string(), "Operation Assignment between incompatible type [i32; 3] and [i32; 4]: Array size is not compatible: 4 cannot assign to 3\ninput:1:57"),
     }
@@ -796,8 +798,8 @@ fn array_sized_error_test() {
 #[test]
 fn array_sized_cmp_error_test() {
     let span = Span::new("var a: [i32; 3] = [1,2,3]; var b: [i32; 4] = [4,5,6,7]; a < b;");
-    let ast = source(span).finish().unwrap().1;
-    match type_check(&ast, &mut TypeCheckContext::new(Some("input"))) {
+    let mut ast = source(span).finish().unwrap().1;
+    match type_check(&mut ast, &mut TypeCheckContext::new(Some("input"))) {
         Ok(_) => panic!(),
         Err(e) => assert_eq!(e.to_string(), "Operation LT between incompatible type [i32; 3] and [i32; 4]: Array size must be the same for comparison\ninput:1:57"),
     }
@@ -1008,8 +1010,14 @@ fn for_test() {
         source(span).finish().unwrap().1,
         vec![Statement::For(
             span.subslice(5, 1),
-            Expression::new(NumLiteral(Value::I64(0)), span.subslice(10, 1)),
-            Expression::new(NumLiteral(Value::I64(10)), span.subslice(13, 2)),
+            Expression::new(
+                NumLiteral(Value::I64(0), TypeSet::i64()),
+                span.subslice(10, 1)
+            ),
+            Expression::new(
+                NumLiteral(Value::I64(10), TypeSet::i64()),
+                span.subslice(13, 2)
+            ),
             vec![Statement::Expression(Expression::new(
                 FnInvoke("print", vec![FnArg::new(*var_r(span.subslice(24, 1)))],),
                 span.subslice(18, 8)

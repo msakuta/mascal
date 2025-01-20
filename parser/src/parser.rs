@@ -1,5 +1,6 @@
 use crate::{
     type_decl::{ArraySize, TypeDecl},
+    type_set::TypeSet,
     Value,
 };
 
@@ -77,7 +78,7 @@ pub enum Statement<'a> {
     FnDecl {
         name: Span<'a>,
         args: Vec<ArgDecl<'a>>,
-        ret_type: Option<TypeDecl>,
+        ret_type: TypeSet,
         stmts: Rc<Vec<Statement<'a>>>,
     },
     Expression(Expression<'a>),
@@ -89,7 +90,7 @@ pub enum Statement<'a> {
 
 #[derive(Debug, PartialEq, Clone)]
 pub(crate) enum ExprEnum<'a> {
-    NumLiteral(Value),
+    NumLiteral(Value, TypeSet),
     StrLiteral(String),
     ArrLiteral(Vec<Expression<'a>>),
     TupleLiteral(Vec<Expression<'a>>),
@@ -345,7 +346,10 @@ fn float_value(i: Span) -> IResult<Span, (Value, Span)> {
 
 fn double_expr(input: Span) -> IResult<Span, Expression> {
     let (r, (value, value_span)) = alt((float_value, decimal_value))(input)?;
-    Ok((r, Expression::new(ExprEnum::NumLiteral(value), value_span)))
+    Ok((
+        r,
+        Expression::new(ExprEnum::NumLiteral(value, TypeSet::int()), value_span),
+    ))
 }
 
 fn numeric_literal_expression(input: Span) -> IResult<Span, Expression> {
@@ -761,7 +765,7 @@ pub(crate) fn func_decl(input: Span) -> IResult<Span, Statement> {
         Statement::FnDecl {
             name,
             args,
-            ret_type,
+            ret_type: (&ret_type).into(),
             stmts: Rc::new(stmts),
         },
     ))

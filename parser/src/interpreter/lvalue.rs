@@ -43,7 +43,7 @@ where
 {
     use super::ExprEnum::*;
     match &expr.expr {
-        NumLiteral(_) | StrLiteral(_) | ArrLiteral(_) => {
+        NumLiteral(_, _) | StrLiteral(_) | ArrLiteral(_) => {
             Err(EvalError::AssignToLiteral(expr.span.to_string()))
         }
         Variable(name) => Ok(LValue::Variable(name.to_string())),

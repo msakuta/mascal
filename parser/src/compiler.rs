@@ -505,7 +505,7 @@ fn emit_stmts<'src>(
 fn emit_expr<'src>(expr: &Expression<'src>, compiler: &mut Compiler) -> CompileResult<'src, usize> {
     compiler.start_src_pos(expr.span.into());
     let res = match &expr.expr {
-        ExprEnum::NumLiteral(val) => Ok(compiler.find_or_create_literal(val)),
+        ExprEnum::NumLiteral(val, _) => Ok(compiler.find_or_create_literal(val)),
         ExprEnum::StrLiteral(val) => Ok(compiler.find_or_create_literal(&Value::Str(val.clone()))),
         ExprEnum::ArrLiteral(val) => {
             let mut ctx = EvalContext::new();

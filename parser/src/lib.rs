@@ -11,6 +11,7 @@ mod interpreter;
 mod parser;
 mod type_checker;
 mod type_decl;
+mod type_set;
 mod type_tags;
 mod value;
 mod vm;
