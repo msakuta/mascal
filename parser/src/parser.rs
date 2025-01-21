@@ -346,9 +346,13 @@ fn float_value(i: Span) -> IResult<Span, (Value, Span)> {
 
 fn double_expr(input: Span) -> IResult<Span, Expression> {
     let (r, (value, value_span)) = alt((float_value, decimal_value))(input)?;
+    let ts = match value {
+        Value::I64(_) => TypeSet::int(),
+        _ => TypeSet::float(),
+    };
     Ok((
         r,
-        Expression::new(ExprEnum::NumLiteral(value, TypeSet::int()), value_span),
+        Expression::new(ExprEnum::NumLiteral(value, ts), value_span),
     ))
 }
 

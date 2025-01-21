@@ -47,6 +47,14 @@ impl TypeSet {
         }
     }
 
+    pub fn float() -> Self {
+        Self {
+            f32: true,
+            f64: true,
+            ..Self::default()
+        }
+    }
+
     pub fn void() -> Self {
         Self {
             void: true,
