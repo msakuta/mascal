@@ -56,12 +56,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if args.ast_pretty {
             println!("Match: {:#?}", result.1);
         } else if args.ast {
-            println!("Match: {:?}", result.1);
+            format_stmts(&result.1, &mut std::io::stdout())?;
         }
         if args.type_check {
             if let Err(e) = type_check(&mut result.1, &mut TypeCheckContext::new(source_file)) {
                 eprintln!("Type check error: {}", e.to_string().red());
                 return Ok(());
+            }
+            if args.ast {
+                println!("AST after type inference:");
+                format_stmts(&result.1, &mut std::io::stdout())?;
             }
         }
 
