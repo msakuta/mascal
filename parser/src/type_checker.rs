@@ -1,6 +1,7 @@
 use std::{collections::HashMap, fmt::Display, rc::Rc};
 
 use crate::{
+    format_ast::format_stmt,
     interpreter::{std_functions, FuncCode},
     parser::{ExprEnum, Expression, Statement},
     type_decl::{ArraySize, TypeDecl},
@@ -256,7 +257,8 @@ where
                 .collect::<Result<Vec<_>, _>>()?;
             let _arg0 = {
                 let v = arg_types[0].clone();
-                if let TypeDecl::I64 = tc_coerce_type(&v, &TypeDecl::I64, args[0].span, ctx)? {
+                let coerced_ty = tc_coerce_type(&v, &TypeDecl::I64, args[0].span, ctx)?;
+                if TypeSet::i64() == coerced_ty {
                     v
                 } else {
                     return Err(TypeCheckError::new(
@@ -427,16 +429,17 @@ fn tc_coerce_type<'src>(
     target: &TypeDecl,
     span: Span<'src>,
     ctx: &TypeCheckContext<'src, '_, '_>,
-) -> Result<TypeDecl, TypeCheckError<'src>> {
+) -> Result<TypeSet, TypeCheckError<'src>> {
     // use TypeDecl::*;
     let target: TypeSet = target.into();
-    (value & &target).determine().ok_or_else(|| {
-        TypeCheckError::new(
-            "Coerced type could not be determined".to_string(),
-            span,
-            ctx.source_file,
-        )
-    })
+    Ok(value & &target)
+    // (value & &target).determine().ok_or_else(|| {
+    //     TypeCheckError::new(
+    //         "Coerced type could not be determined".to_string(),
+    //         span,
+    //         ctx.source_file,
+    //     )
+    // })
     // (Array(v_inner, v_len), Array(t_inner, t_len)) => {
     //     tc_array_size(v_len, t_len)
     //         .map_err(|e| TypeCheckError::new(e, span, ctx.source_file))?;
@@ -553,7 +556,7 @@ where
                 let init_type = tc_expr_forward(init_expr, ctx)?;
                 tc_coerce_type(&init_type, type_, init_expr.span, ctx)?
             } else {
-                type_.clone()
+                type_.into()
             };
             ctx.variables.insert(**var, init_type.into());
         }
@@ -653,13 +656,15 @@ where
     let mut res = TypeDecl::Any;
     match stmt {
         Statement::VarDecl(var, type_, initializer) => {
-            let init_type = if let Some(init_expr) = initializer {
-                let init_type = tc_expr_forward(init_expr, ctx)?;
-                tc_coerce_type(&init_type, type_, init_expr.span, ctx)?
-            } else {
-                type_.clone()
-            };
-            ctx.variables.insert(**var, init_type.into());
+            *type_ = ctx
+                .variables
+                .get(**var)
+                .unwrap()
+                .determine()
+                .ok_or_else(|| TypeCheckError::indeterminant_type(*var, ctx.source_file))?;
+            if let Some(initializer) = initializer {
+                tc_expr_propagate(initializer, ts, ctx)?;
+            }
         }
         Statement::FnDecl { stmts, .. } => {
             let mut stmts = Rc::make_mut(stmts);
@@ -733,16 +738,23 @@ where
                 let mut last_ty = TypeSet::default();
                 let stmts = Rc::make_mut(stmts);
                 for stmt in stmts.iter_mut() {
+                    let mut bytes = vec![];
+                    if let Some(s) = format_stmt(stmt, 0, &mut bytes)
+                        .ok()
+                        .and_then(|_| String::from_utf8(bytes).ok())
+                    {
+                        dbg_println!("stmt before {s}");
+                    }
                     last_ty = tc_stmt_forward(stmt, &mut inferer)?;
-                    // let mut bytes = vec![];
-                    // if let Some(s) = format_stmt(stmt, 0, &mut bytes)
-                    //     .ok()
-                    //     .and_then(|_| String::from_utf8(bytes).ok())
-                    // {
-                    //     dbg_println!("stmt ty {last_ty}: {}", s);
-                    // } else {
-                    //     dbg_println!("stmt ty {last_ty}");
-                    // }
+                    let mut bytes = vec![];
+                    if let Some(s) = format_stmt(stmt, 0, &mut bytes)
+                        .ok()
+                        .and_then(|_| String::from_utf8(bytes).ok())
+                    {
+                        dbg_println!("stmt ty {last_ty}: {}", s);
+                    } else {
+                        dbg_println!("stmt ty {last_ty}");
+                    }
                 }
                 let intersection = &last_ty & &ret_type;
                 if let Some(determined_ty) = intersection.determine() {
