@@ -11,3 +11,8 @@ fn f2(x: i32) {
 fn f3(s: str, x: i64) {
     strlen(s) + x
 }
+
+fn i64(i: i32) -> i64 {
+    var ret = i as i64;
+    ret
+}

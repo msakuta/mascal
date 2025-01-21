@@ -189,15 +189,7 @@ where
         ExprEnum::Variable(str) => ctx
             .get_var(str)
             .ok_or_else(|| TypeCheckError::undefined_var(str, e.span, ctx.source_file))?,
-        ExprEnum::Cast(ex, decl) => {
-            let res = tc_expr_forward(ex, ctx)?;
-            let decl_ts = decl.into();
-            if (&res & &decl_ts).is_none() {
-                return Err(TypeCheckError::indeterminant_type(ex.span, ctx.source_file));
-            }
-            // tc_cast_type(&res, decl, ex.span, ctx)?
-            decl_ts
-        }
+        ExprEnum::Cast(_ex, decl) => decl.into(),
         ExprEnum::VarAssign(lhs, rhs) => binary_op(&lhs, &rhs, e.span, ctx, "Assignment")?,
         ExprEnum::FnInvoke(fname, args) => {
             let fn_args = ctx
@@ -361,7 +353,7 @@ where
                 *var = ts.clone();
             }
         }
-        ExprEnum::Cast(expression, type_decl) => todo!(),
+        ExprEnum::Cast(ex, _ty) => tc_expr_propagate(ex, &TypeSet::all(), ctx)?,
         ExprEnum::VarAssign(expression, expression1) => todo!(),
         ExprEnum::FnInvoke(fname, args) => {
             let fn_decl = ctx
