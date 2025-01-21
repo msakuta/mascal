@@ -391,8 +391,6 @@ pub fn coerce_type(value: &Value, target: &TypeDecl) -> Result<Value, EvalError>
                 ));
             }
         }
-        TypeDecl::Float => Value::F64(coerce_f64(value)?),
-        TypeDecl::Integer => Value::I64(coerce_i64(value)?),
         TypeDecl::Tuple(_) => {
             if let Value::Tuple(_) = value {
                 return Ok(value.clone());

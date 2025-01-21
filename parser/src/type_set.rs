@@ -146,14 +146,6 @@ impl From<&TypeDecl> for TypeSet {
     fn from(value: &TypeDecl) -> Self {
         let mut ret = Self::default();
         match value {
-            TypeDecl::Integer => {
-                ret.i32 = true;
-                ret.i64 = true;
-            }
-            TypeDecl::Float => {
-                ret.f32 = true;
-                ret.f64 = true;
-            }
             TypeDecl::I32 => ret.i32 = true,
             TypeDecl::I64 => ret.i64 = true,
             TypeDecl::F32 => ret.f32 = true,
