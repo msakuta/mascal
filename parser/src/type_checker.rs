@@ -368,17 +368,20 @@ where
         ExprEnum::Not(expression) => todo!(),
         ExprEnum::BitNot(expression) => todo!(),
         ExprEnum::Neg(expression) => todo!(),
-        ExprEnum::Add(expression, expression1) => todo!(),
-        ExprEnum::Sub(expression, expression1) => todo!(),
-        ExprEnum::Mult(expression, expression1) => todo!(),
-        ExprEnum::Div(expression, expression1) => todo!(),
-        ExprEnum::LT(expression, expression1) => todo!(),
-        ExprEnum::GT(expression, expression1) => todo!(),
-        ExprEnum::BitAnd(expression, expression1) => todo!(),
-        ExprEnum::BitXor(expression, expression1) => todo!(),
-        ExprEnum::BitOr(expression, expression1) => todo!(),
-        ExprEnum::And(expression, expression1) => todo!(),
-        ExprEnum::Or(expression, expression1) => todo!(),
+        ExprEnum::Add(lhs, rhs)
+        | ExprEnum::Sub(lhs, rhs)
+        | ExprEnum::Mult(lhs, rhs)
+        | ExprEnum::Div(lhs, rhs)
+        | ExprEnum::LT(lhs, rhs)
+        | ExprEnum::GT(lhs, rhs)
+        | ExprEnum::BitAnd(lhs, rhs)
+        | ExprEnum::BitXor(lhs, rhs)
+        | ExprEnum::BitOr(lhs, rhs)
+        | ExprEnum::And(lhs, rhs)
+        | ExprEnum::Or(lhs, rhs) => {
+            tc_expr_propagate(lhs, ts, ctx)?;
+            tc_expr_propagate(rhs, ts, ctx)?;
+        }
         ExprEnum::Conditional(expression, vec, vec1) => todo!(),
         ExprEnum::Brace(vec) => todo!(),
     }

@@ -1,0 +1,9 @@
+fn infer() -> i32 {
+    var i = 32;
+    i
+}
+
+fn f2(x: i32) {
+    var interim = x + 2;
+    interim * 2
+}
