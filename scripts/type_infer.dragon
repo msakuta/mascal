@@ -7,3 +7,7 @@ fn f2(x: i32) {
     var interim = x + 2;
     interim * 2
 }
+
+fn f3(s: str, x: i64) {
+    strlen(s) + x
+}

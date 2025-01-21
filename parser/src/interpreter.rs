@@ -55,6 +55,7 @@ pub enum EvalError {
     IndexNonNum,
     NonLValue(String),
     PrematureEnd,
+    WrongArgType(String, String),
     IOError(std::io::Error),
     ValueError(ValueError),
 }
@@ -129,6 +130,9 @@ impl std::fmt::Display for EvalError {
             Self::NonLValue(ex) => write!(f, "Expression {} is not an lvalue.", ex),
             Self::PrematureEnd => {
                 write!(f, "End of input bytecode encountered before seeing a Ret")
+            }
+            Self::WrongArgType(arg, expected) => {
+                write!(f, "Argument {arg} type expected {expected}")
             }
             Self::IOError(e) => e.fmt(f),
             Self::ValueError(e) => e.fmt(f),
@@ -765,6 +769,14 @@ pub(crate) fn s_type(vals: &[Value]) -> Result<Value, EvalError> {
     }
 }
 
+pub(crate) fn s_strlen(vals: &[Value]) -> Result<Value, EvalError> {
+    if let [val, ..] = vals {
+        Ok(Value::I64(val.str_len()? as i64))
+    } else {
+        Ok(Value::I32(0))
+    }
+}
+
 pub(crate) fn s_len(vals: &[Value]) -> Result<Value, EvalError> {
     if let [val, ..] = vals {
         Ok(Value::I64(val.array_len()? as i64))
@@ -972,6 +984,14 @@ pub(crate) fn std_functions<'src, 'native>() -> HashMap<String, FuncDef<'src, 'n
             &s_type,
             vec![ArgDecl::new("value", TypeDecl::Any)],
             Some(TypeDecl::Str),
+        ),
+    );
+    functions.insert(
+        "strlen".to_string(),
+        FuncDef::new_native(
+            &s_strlen,
+            vec![ArgDecl::new("str", TypeDecl::Str)],
+            Some(TypeDecl::I64),
         ),
     );
     functions.insert(

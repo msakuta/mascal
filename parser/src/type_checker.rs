@@ -350,6 +350,7 @@ fn tc_expr_propagate<'src, 'b, 'native>(
 where
     'native: 'src,
 {
+    let span = e.span;
     match &mut e.expr {
         ExprEnum::NumLiteral(_, target_ts) => *target_ts = ts.clone(),
         ExprEnum::StrLiteral(_) => todo!(),
@@ -362,7 +363,16 @@ where
         }
         ExprEnum::Cast(expression, type_decl) => todo!(),
         ExprEnum::VarAssign(expression, expression1) => todo!(),
-        ExprEnum::FnInvoke(_, vec) => todo!(),
+        ExprEnum::FnInvoke(fname, args) => {
+            let fn_decl = ctx
+                .functions
+                .get(*fname)
+                .ok_or_else(|| TypeCheckError::undefined_fn(fname, span, ctx.source_file))?;
+            let params = fn_decl.args().clone();
+            for (arg, param) in args.iter_mut().zip(params.iter()).rev() {
+                tc_expr_propagate(&mut arg.expr, &(&param.ty).into(), ctx)?;
+            }
+        }
         ExprEnum::ArrIndex(expression, vec) => todo!(),
         ExprEnum::TupleIndex(expression, _) => todo!(),
         ExprEnum::Not(expression) => todo!(),

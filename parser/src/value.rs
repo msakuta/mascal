@@ -179,6 +179,17 @@ impl Value {
         })
     }
 
+    pub fn str_len(&self) -> EvalResult<usize> {
+        if let Self::Str(str) = self {
+            Ok(str.len())
+        } else {
+            Err(EvalError::WrongArgType(
+                "str".to_string(),
+                "str".to_string(),
+            ))
+        }
+    }
+
     pub fn array_assign(&self, idx: usize, value: Value) -> EvalResult<()> {
         match self {
             Value::Array(array) => {

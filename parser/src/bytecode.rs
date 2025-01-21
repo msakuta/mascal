@@ -13,7 +13,9 @@ use std::{
 pub use self::debug_info::{DebugInfo, FunctionInfo, LineInfo};
 
 use crate::{
-    interpreter::{s_hex_string, s_len, s_print, s_push, s_puts, s_resize, s_type, EvalError},
+    interpreter::{
+        s_hex_string, s_len, s_print, s_push, s_puts, s_resize, s_strlen, s_type, EvalError,
+    },
     parser::ReadError,
     value::Value,
 };
@@ -421,6 +423,7 @@ pub fn std_functions(
         }),
     );
     f("type".to_string(), Box::new(&s_type));
+    f("strlen".to_string(), Box::new(s_strlen));
     f("len".to_string(), Box::new(s_len));
     f("push".to_string(), Box::new(s_push));
     f("resize".to_string(), Box::new(s_resize));
