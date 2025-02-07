@@ -156,28 +156,25 @@ where
         ExprEnum::NumLiteral(_, ts) => ts.clone(),
         ExprEnum::StrLiteral(_val) => TypeSet::str(),
         ExprEnum::ArrLiteral(val) => {
-            if !val.is_empty() {
-                for (ex1, ex2) in val[..val.len() - 1].iter().zip(val[1..].iter()) {
-                    let el1 = tc_expr_forward(ex1, ctx)?;
-                    let el2 = tc_expr_forward(ex2, ctx)?;
-                    if el1 != el2 {
-                        return Err(TypeCheckError::new(
-                            format!("Types in an array is not homogeneous: {el1:?} and {el2:?}"),
-                            e.span,
-                            ctx.source_file,
-                        ));
-                    }
+            if val.is_empty() {
+                return Ok(TypeSet::array(TypeSet::all(), Some(0)));
+            }
+            for (ex1, ex2) in val[..val.len() - 1].iter().zip(val[1..].iter()) {
+                let el1 = tc_expr_forward(ex1, ctx)?;
+                let el2 = tc_expr_forward(ex2, ctx)?;
+                if el1 != el2 {
+                    return Err(TypeCheckError::new(
+                        format!("Types in an array is not homogeneous: {el1:?} and {el2:?}"),
+                        e.span,
+                        ctx.source_file,
+                    ));
                 }
             }
-            todo!(
-                "
             let ty = val
                 .first()
                 .map(|e| tc_expr_forward(e, ctx))
-                .unwrap_or(Ok(TypeDecl::Any))?;
-            TypeDecl::Array(Box::new(ty), ArraySize::Fixed(val.len()))
-            "
-            )
+                .unwrap_or(Ok(TypeSet::all()))?;
+            TypeSet::array(ty, Some(val.len()))
         }
         ExprEnum::TupleLiteral(val) => {
             let _ty = val
@@ -557,6 +554,7 @@ where
     let mut res = TypeSet::all();
     match stmt {
         Statement::VarDecl(var, type_, initializer) => {
+            println!("initializer: {:?}", initializer);
             let init_type = if let Some(init_expr) = initializer {
                 let init_type = tc_expr_forward(init_expr, ctx)?;
                 tc_coerce_type(&init_type, type_, init_expr.span, ctx)?
@@ -727,7 +725,7 @@ pub fn type_check<'src, 'ast, 'native>(
 where
     'native: 'src,
 {
-    for stmt in stmts {
+    for stmt in stmts.iter_mut() {
         match stmt {
             Statement::FnDecl {
                 name,
@@ -790,6 +788,8 @@ where
             _ => {}
         }
     }
+    tc_stmts_forward(stmts, ctx)?;
+    tc_stmts_propagate(stmts, &TypeSet::all(), ctx)?;
     Ok(())
 }
 
@@ -843,6 +843,7 @@ fn binary_op_type<'src>(
     ctx: &TypeCheckContext<'src, '_, '_>,
 ) -> Result<TypeSet, TypeCheckError<'src>> {
     use TypeDecl::*;
+    println!("binary_op_type: {} ? {}", lhs, rhs);
     let res = lhs & rhs;
     if res.is_none() {
         return Err(TypeCheckError::new(

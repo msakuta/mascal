@@ -65,8 +65,18 @@ fn f64<'a>(f: f64) -> ExprEnum<'a> {
     ExprEnum::NumLiteral(Value::F64(f), TypeSet::f64())
 }
 
+/// Generic float literal
+fn float<'a>(f: f64) -> ExprEnum<'a> {
+    ExprEnum::NumLiteral(Value::F64(f), TypeSet::float())
+}
+
 fn i64<'a>(i: i64) -> ExprEnum<'a> {
     ExprEnum::NumLiteral(Value::I64(i), TypeSet::i64())
+}
+
+/// Generic integer literal
+fn int<'a>(i: i64) -> ExprEnum<'a> {
+    ExprEnum::NumLiteral(Value::I64(i), TypeSet::int())
 }
 
 #[test]
@@ -110,11 +120,11 @@ fn test_add_paren() {
         res,
         Statement::Expression(Expression::new(
             Add(
-                Box::new(Expression::new(f64(123.4), span.take(5))),
+                Box::new(Expression::new(float(123.4), span.take(5))),
                 Box::new(Expression::new(
                     Add(
-                        Box::new(Expression::new(i64(456), span.subslice(9, 3))),
-                        Box::new(Expression::new(f64(789.5), span.subslice(15, 5))),
+                        Box::new(Expression::new(int(456), span.subslice(9, 3))),
+                        Box::new(Expression::new(float(789.5), span.subslice(15, 5))),
                     ),
                     span.subslice(8, 13)
                 ))
@@ -407,12 +417,12 @@ fn test_bit_or_var() {
             ExprEnum::And(
                 Box::new(Expression::new(
                     ExprEnum::BitOr(
-                        Box::new(Expression::new(i64(1), span.subslice(0, 1))),
-                        Box::new(Expression::new(i64(2), span.subslice(4, 1)))
+                        Box::new(Expression::new(int(1), span.subslice(0, 1))),
+                        Box::new(Expression::new(int(2), span.subslice(4, 1)))
                     ),
                     span.subslice(0, 5)
                 )),
-                Box::new(Expression::new(i64(3), span.subslice(9, 1)))
+                Box::new(Expression::new(int(3), span.subslice(9, 1)))
             ),
             span
         )

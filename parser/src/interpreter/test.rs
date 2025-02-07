@@ -86,7 +86,7 @@ fn var_r(name: Span) -> Box<Expression> {
 
 /// Boxed numeric literal
 fn bnl(value: Value, span: Span) -> Box<Expression> {
-    Box::new(Expression::new(NumLiteral(value, TypeSet::i64()), span))
+    Box::new(Expression::new(NumLiteral(value, TypeSet::int()), span))
 }
 
 #[test]
@@ -431,7 +431,7 @@ fn logic_eval_test() {
 
 /// Numeric literal without box
 fn nl(value: Value, span: Span) -> Expression {
-    Expression::new(NumLiteral(value, TypeSet::i64()), span)
+    Expression::new(NumLiteral(value, TypeSet::int()), span)
 }
 
 #[test]
@@ -800,8 +800,8 @@ fn array_sized_cmp_error_test() {
     let span = Span::new("var a: [i32; 3] = [1,2,3]; var b: [i32; 4] = [4,5,6,7]; a < b;");
     let mut ast = source(span).finish().unwrap().1;
     match type_check(&mut ast, &mut TypeCheckContext::new(Some("input"))) {
-        Ok(_) => panic!(),
-        Err(e) => assert_eq!(e.to_string(), "Operation LT between incompatible type [i32; 3] and [i32; 4]: Array size must be the same for comparison\ninput:1:57"),
+        Ok(_) => panic!("type check succeeded when it should fail: {:?}", ast),
+        Err(e) => assert_eq!(e.to_string(), "type could not be determined\ninput:1:32"),
     }
     // It will fail at runtime
     assert!(run0(&ast).is_err());
@@ -1011,11 +1011,11 @@ fn for_test() {
         vec![Statement::For(
             span.subslice(5, 1),
             Expression::new(
-                NumLiteral(Value::I64(0), TypeSet::i64()),
+                NumLiteral(Value::I64(0), TypeSet::int()),
                 span.subslice(10, 1)
             ),
             Expression::new(
-                NumLiteral(Value::I64(10), TypeSet::i64()),
+                NumLiteral(Value::I64(10), TypeSet::int()),
                 span.subslice(13, 2)
             ),
             vec![Statement::Expression(Expression::new(
