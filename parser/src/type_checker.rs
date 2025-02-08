@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fmt::Display, rc::Rc};
 
 use crate::{
-    format_ast::format_stmt,
+    format_ast::{format_expr, format_stmt},
     interpreter::{std_functions, FuncCode},
     parser::{ExprEnum, Expression, Statement},
     type_decl::{ArraySize, TypeDecl},
@@ -157,7 +157,7 @@ where
         ExprEnum::StrLiteral(_val) => TypeSet::str(),
         ExprEnum::ArrLiteral(val) => {
             if val.is_empty() {
-                return Ok(TypeSet::array(TypeSet::all(), Some(0)));
+                return Ok(TypeSet::array(TypeSet::all(), ArraySize::Fixed(0)));
             }
             for (ex1, ex2) in val[..val.len() - 1].iter().zip(val[1..].iter()) {
                 let el1 = tc_expr_forward(ex1, ctx)?;
@@ -174,7 +174,7 @@ where
                 .first()
                 .map(|e| tc_expr_forward(e, ctx))
                 .unwrap_or(Ok(TypeSet::all()))?;
-            TypeSet::array(ty, Some(val.len()))
+            TypeSet::array(ty, ArraySize::Fixed(val.len()))
         }
         ExprEnum::TupleLiteral(val) => {
             let _ty = val
@@ -343,7 +343,20 @@ where
     match &mut e.expr {
         ExprEnum::NumLiteral(_, target_ts) => *target_ts = ts.clone(),
         ExprEnum::StrLiteral(_) => todo!(),
-        ExprEnum::ArrLiteral(vec) => todo!(),
+        ExprEnum::ArrLiteral(vec) => {
+            if let Some((arr_ts, size)) = ts.and_then(|ts| ts.array.as_ref()) {
+                if !size.contains(vec.len()) {
+                    return Err(TypeCheckError::new(
+                        format!("Size is not compatible: {:?}", size),
+                        span,
+                        ctx.source_file,
+                    ));
+                }
+                for elem in vec {
+                    tc_expr_propagate(elem, arr_ts, ctx)?;
+                }
+            }
+        }
         ExprEnum::TupleLiteral(vec) => todo!(),
         ExprEnum::Variable(name) => {
             if let Some(var) = ctx.variables.get_mut(name) {
@@ -351,7 +364,9 @@ where
             }
         }
         ExprEnum::Cast(ex, _ty) => tc_expr_propagate(ex, &TypeSet::all(), ctx)?,
-        ExprEnum::VarAssign(expression, expression1) => todo!(),
+        ExprEnum::VarAssign(lhs, rhs) => {
+            tc_expr_propagate(rhs, dbg!(&tc_expr_forward(lhs, ctx)?), ctx)?
+        }
         ExprEnum::FnInvoke(fname, args) => {
             let fn_decl = ctx
                 .functions
@@ -429,8 +444,8 @@ fn tc_array_size(value: &ArraySize, target: &ArraySize) -> Result<(), String> {
 fn tc_coerce_type<'src>(
     value: &TypeSet,
     target: &TypeDecl,
-    span: Span<'src>,
-    ctx: &TypeCheckContext<'src, '_, '_>,
+    _span: Span<'src>,
+    _ctx: &TypeCheckContext<'src, '_, '_>,
 ) -> Result<TypeSet, TypeCheckError<'src>> {
     // use TypeDecl::*;
     let target: TypeSet = target.into();
@@ -554,8 +569,10 @@ where
     let mut res = TypeSet::all();
     match stmt {
         Statement::VarDecl(var, type_, initializer) => {
-            println!("initializer: {:?}", initializer);
             let init_type = if let Some(init_expr) = initializer {
+                let mut buf = vec![0u8; 0];
+                format_expr(init_expr, 0, &mut buf).unwrap();
+                println!("initializer: {}", String::from_utf8(buf).unwrap());
                 let init_type = tc_expr_forward(init_expr, ctx)?;
                 tc_coerce_type(&init_type, type_, init_expr.span, ctx)?
             } else {
@@ -652,11 +669,10 @@ pub fn tc_stmt_propagate<'src, 'ast, 'native>(
     stmt: &'ast mut Statement<'src>,
     ts: &TypeSet,
     ctx: &mut TypeCheckContext<'src, 'native, '_>,
-) -> Result<TypeDecl, TypeCheckError<'src>>
+) -> Result<(), TypeCheckError<'src>>
 where
     'native: 'src,
 {
-    let mut res = TypeDecl::Any;
     match stmt {
         Statement::VarDecl(var, type_, initializer) => {
             *type_ = ctx
@@ -670,7 +686,7 @@ where
             }
         }
         Statement::FnDecl { stmts, .. } => {
-            let mut stmts = Rc::make_mut(stmts);
+            let stmts = Rc::make_mut(stmts);
             tc_stmts_propagate(stmts, ts, ctx)?;
         }
         Statement::Expression(e) => {
@@ -679,7 +695,7 @@ where
         Statement::Loop(stmts) => {
             tc_stmts_propagate(stmts, &TypeSet::default(), ctx)?;
         }
-        Statement::While(cond, stmts) => {
+        Statement::While(_cond, stmts) => {
             tc_stmts_propagate(stmts, &TypeSet::default(), ctx)?;
         }
         Statement::For(iter, from, to, stmts) => {
@@ -701,7 +717,7 @@ where
         }
         Statement::Comment(_) => (),
     }
-    Ok(res)
+    Ok(())
 }
 
 pub fn tc_stmts_propagate<'src, 'ast, 'native>(

@@ -1,4 +1,4 @@
-use crate::TypeDecl;
+use crate::{type_decl::ArraySize, TypeDecl};
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub enum TypeSet {
@@ -6,6 +6,22 @@ pub enum TypeSet {
     #[default]
     Any,
     Set(TypeSetFlags),
+}
+
+impl TypeSet {
+    pub fn map<T>(&self, f: impl Fn(&TypeSetFlags) -> T) -> Option<T> {
+        match self {
+            Self::Any => None,
+            Self::Set(set) => Some(f(set)),
+        }
+    }
+
+    pub fn and_then<'a, T: 'a>(&'a self, f: impl Fn(&'a TypeSetFlags) -> Option<T>) -> Option<T> {
+        match self {
+            Self::Any => None,
+            Self::Set(set) => f(set),
+        }
+    }
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
@@ -16,7 +32,7 @@ pub struct TypeSetFlags {
     pub f64: bool,
     pub void: bool,
     pub string: bool,
-    pub array: Option<Box<ArrayTypeSet>>,
+    pub array: Option<(Box<TypeSet>, ArraySize)>,
 }
 
 impl TypeSet {
@@ -78,9 +94,9 @@ impl TypeSet {
         })
     }
 
-    pub fn array(ty: TypeSet, size: Option<usize>) -> Self {
+    pub fn array(ty: TypeSet, size: ArraySize) -> Self {
         Self::Set(TypeSetFlags {
-            array: Some(Box::new(ArrayTypeSet { ty, size })),
+            array: Some((Box::new(ty), size)),
             ..TypeSetFlags::default()
         })
     }
@@ -93,7 +109,13 @@ impl TypeSet {
         match self {
             Self::Any => false,
             Self::Set(set) => {
-                !set.i32 && !set.i64 && !set.f32 && !set.f64 && !set.string && !set.void
+                !set.i32
+                    && !set.i64
+                    && !set.f32
+                    && !set.f64
+                    && !set.string
+                    && !set.void
+                    && set.array.is_none()
             }
         }
     }
@@ -109,6 +131,16 @@ impl TypeSet {
             return Some(TypeDecl::F64);
         } else if self == &TypeDecl::Str.into() {
             return Some(TypeDecl::Str);
+        } else if let TypeSet::Set(set) = self {
+            if !set.i32 && !set.i64 && !set.f32 && !set.f64 {
+                if let Some((ty, size)) = set
+                    .array
+                    .as_ref()
+                    .and_then(|a| Some((a.0.determine()?, a.1.clone())))
+                {
+                    return Some(TypeDecl::Array(Box::new(ty), size));
+                }
+            }
         }
         None
     }
@@ -144,19 +176,11 @@ impl std::ops::BitAnd for TypeSet {
             .zip(rhs.array.as_ref())
             .and_then(|(set, rhs)| {
                 // The element type of the array has to be "Any" or determined, not a mix of 2 types
-                if set.ty != rhs.ty
-                    || set.size.is_some() && rhs.size.is_some() && set.size != rhs.size
-                {
+                if set.0 != rhs.0 {
                     return None;
                 }
-                Some(Box::new(ArrayTypeSet {
-                    ty: std::mem::take(&mut set.ty),
-                    size: if set.size.is_some() {
-                        set.size
-                    } else {
-                        rhs.size
-                    },
-                }))
+                let size = set.1.try_and(&rhs.1)?;
+                Some((std::mem::take(&mut set.0), size))
             });
         Self::Set(TypeSetFlags {
             i32: set.i32 & rhs.i32,
@@ -187,20 +211,11 @@ impl std::ops::BitAnd for &TypeSet {
             .zip(rhs.array.as_ref())
             .and_then(|(set, rhs)| {
                 // The element type of the array has to be "Any" or determined, not a mix of 2 types
-                println!("bitand {} & {}", self, rhs);
-                if set.ty != rhs.ty
-                    || set.size.is_some() && rhs.size.is_some() && set.size != rhs.size
-                {
-                    return None;
-                }
-                Some(Box::new(ArrayTypeSet {
-                    ty: set.ty.clone(),
-                    size: if set.size.is_some() {
-                        set.size
-                    } else {
-                        rhs.size
-                    },
-                }))
+                println!("bitand {:?} & {:?}", self, rhs);
+                let ty = set.0.as_ref() & &rhs.0;
+                let res = (Box::new(ty), set.1.try_and(&rhs.1)?);
+                println!("Array bitand result: {:?}", res);
+                Some(res)
             });
         TypeSet::Set(TypeSetFlags {
             i32: set.i32 & rhs.i32,
@@ -229,7 +244,7 @@ impl From<&TypeDecl> for TypeSet {
                 ret.f64 = true;
             }
             TypeDecl::Str => ret.string = true,
-            TypeDecl::Array(ty, _) => return TypeSet::array(ty.as_ref().into(), None),
+            TypeDecl::Array(ty, size) => return TypeSet::array(ty.as_ref().into(), size.clone()),
             TypeDecl::Tuple(_) => todo!(),
         }
         TypeSet::Set(ret)
@@ -283,7 +298,7 @@ impl std::fmt::Display for TypeSet {
         write_ty(set.void, "void")?;
         write_ty(set.string, "str")?;
         if let Some(array) = set.array.as_ref() {
-            write_ty(true, &array.to_string())?;
+            write_ty(true, &array_size_to_string(array))?;
         }
 
         // for st in &self.structs {
@@ -297,17 +312,10 @@ impl std::fmt::Display for TypeSet {
     }
 }
 
-#[derive(Default, Debug, Clone, PartialEq, Eq)]
-pub struct ArrayTypeSet {
-    ty: TypeSet,
-    size: Option<usize>,
-}
-
-impl std::fmt::Display for ArrayTypeSet {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.size {
-            Some(size) => write!(f, "[{}; {}]", self.ty, size),
-            None => write!(f, "[{}]", self.ty),
-        }
+fn array_size_to_string(this: &(Box<TypeSet>, ArraySize)) -> String {
+    match &this.1 {
+        ArraySize::Fixed(size) => format!("[{}; {}]", this.0, size),
+        ArraySize::Range(range) => format!("[{}; {:?}]", this.0, range),
+        _ => format!("[{}]", this.0),
     }
 }

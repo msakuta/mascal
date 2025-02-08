@@ -87,8 +87,8 @@ fn test_add() {
         res,
         Statement::Expression(Expression::new(
             Add(
-                Box::new(Expression::new(f64(123.4), span.take(5))),
-                Box::new(Expression::new(i64(456), span.take_split(8).0))
+                Box::new(Expression::new(float(123.4), span.take(5))),
+                Box::new(Expression::new(int(456), span.take_split(8).0))
             ),
             span
         ))
@@ -160,8 +160,8 @@ fn expr_test() {
         expr(span).finish().unwrap().1,
         Expression::new(
             Add(
-                Box::new(Expression::new(i64(1), span.subslice(1, 1))),
-                Box::new(Expression::new(i64(2), span.subslice(6, 1)))
+                Box::new(Expression::new(int(1), span.subslice(1, 1))),
+                Box::new(Expression::new(int(2), span.subslice(6, 1)))
             ),
             span.subslice(1, 6)
         )
@@ -175,16 +175,16 @@ fn expr_test() {
                     Sub(
                         Box::new(Expression::new(
                             Add(
-                                Box::new(Expression::new(i64(12), span.subslice(1, 2))),
-                                Box::new(Expression::new(i64(6), span.subslice(6, 1)))
+                                Box::new(Expression::new(int(12), span.subslice(1, 2))),
+                                Box::new(Expression::new(int(6), span.subslice(6, 1)))
                             ),
                             span.subslice(1, 6)
                         )),
-                        Box::new(Expression::new(i64(4), span.subslice(10, 1))),
+                        Box::new(Expression::new(int(4), span.subslice(10, 1))),
                     ),
                     span.subslice(1, 10)
                 )),
-                Box::new(Expression::new(i64(3), span.subslice(14, 1)))
+                Box::new(Expression::new(int(3), span.subslice(14, 1)))
             ),
             span.subslice(1, 14)
         )
@@ -196,18 +196,18 @@ fn expr_test() {
             Add(
                 Box::new(Expression::new(
                     Add(
-                        Box::new(Expression::new(i64(1), span.subslice(1, 1))),
+                        Box::new(Expression::new(int(1), span.subslice(1, 1))),
                         Box::new(Expression::new(
                             Mult(
-                                Box::new(Expression::new(i64(2), span.subslice(5, 1))),
-                                Box::new(Expression::new(i64(3), span.subslice(7, 1)))
+                                Box::new(Expression::new(int(2), span.subslice(5, 1))),
+                                Box::new(Expression::new(int(3), span.subslice(7, 1)))
                             ),
                             span.subslice(5, 3)
                         ))
                     ),
                     span.subslice(1, 7)
                 )),
-                Box::new(Expression::new(i64(4), span.subslice(11, 1)))
+                Box::new(Expression::new(int(4), span.subslice(11, 1)))
             ),
             span.subslice(1, 11)
         )
@@ -219,18 +219,18 @@ fn parens_test() {
     let span = Span::new(" (  2 )");
     assert_eq!(
         expr(span).finish().unwrap().1,
-        Expression::new(i64(2), span.subslice(1, 6))
+        Expression::new(int(2), span.subslice(1, 6))
     );
     let span = Span::new(" 2* (  3 + 4 ) ");
     assert_eq!(
         expr(span).finish().unwrap().1,
         Expression::new(
             Mult(
-                Box::new(Expression::new(i64(2), span.subslice(1, 1))),
+                Box::new(Expression::new(int(2), span.subslice(1, 1))),
                 Box::new(Expression::new(
                     Add(
-                        Box::new(Expression::new(i64(3), span.subslice(7, 1))),
-                        Box::new(Expression::new(i64(4), span.subslice(11, 1))),
+                        Box::new(Expression::new(int(3), span.subslice(7, 1))),
+                        Box::new(Expression::new(int(4), span.subslice(11, 1))),
                     ),
                     span.subslice(4, 11)
                 ))
@@ -247,22 +247,22 @@ fn parens_test() {
                     Div(
                         Box::new(Expression::new(
                             Mult(
-                                Box::new(Expression::new(i64(2), span.subslice(2, 1))),
-                                Box::new(Expression::new(i64(2), span.subslice(4, 1))),
+                                Box::new(Expression::new(int(2), span.subslice(2, 1))),
+                                Box::new(Expression::new(int(2), span.subslice(4, 1))),
                             ),
                             span.subslice(2, 3)
                         )),
                         Box::new(Expression::new(
                             Sub(
-                                Box::new(Expression::new(i64(5), span.subslice(10, 1))),
-                                Box::new(Expression::new(i64(1), span.subslice(14, 1))),
+                                Box::new(Expression::new(int(5), span.subslice(10, 1))),
+                                Box::new(Expression::new(int(1), span.subslice(14, 1))),
                             ),
                             span.subslice(8, 9)
                         )),
                     ),
                     span.subslice(2, 15)
                 )),
-                Box::new(Expression::new(i64(3), span.subslice(19, 1))),
+                Box::new(Expression::new(int(3), span.subslice(19, 1))),
             ),
             span.subslice(2, 18)
         )
@@ -291,7 +291,7 @@ fn fn_decl_test() {
                 Statement::Expression(Expression::new(
                     VarAssign(
                         var_r(span.subslice(14, 1)),
-                        Box::new(Expression::new(i64(123), span.subslice(18, 3)))
+                        Box::new(Expression::new(int(123), span.subslice(18, 3)))
                     ),
                     span.subslice(14, 7)
                 )),
@@ -316,7 +316,7 @@ fn fn_decl_test() {
             stmts: Rc::new(vec![Statement::Expression(Expression::new(
                 Mult(
                     var_r(span.subslice(15, 1)),
-                    Box::new(Expression::new(i64(2), span.subslice(19, 1)))
+                    Box::new(Expression::new(int(2), span.subslice(19, 1)))
                 ),
                 span.subslice(15, 5)
             ))])
@@ -328,11 +328,11 @@ fn fn_decl_test() {
         Statement::FnDecl {
             name: span.subslice(3, 1),
             args: vec![ArgDecl::new("a", TypeDecl::I32)],
-            ret_type: TypeSet::i64(),
+            ret_type: TypeSet::f64(),
             stmts: Rc::new(vec![Statement::Expression(Expression::new(
                 Mult(
                     var_r(span.subslice(22, 1)),
-                    Box::new(Expression::new(i64(2), span.subslice(26, 1)))
+                    Box::new(Expression::new(int(2), span.subslice(26, 1)))
                 ),
                 span.subslice(22, 5)
             ))])

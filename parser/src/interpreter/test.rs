@@ -789,7 +789,7 @@ fn array_sized_error_test() {
     let mut ast = source(span).finish().unwrap().1;
     match type_check(&mut ast, &mut TypeCheckContext::new(Some("input"))) {
         Ok(_) => panic!(),
-        Err(e) => assert_eq!(e.to_string(), "Operation Assignment between incompatible type [i32; 3] and [i32; 4]: Array size is not compatible: 4 cannot assign to 3\ninput:1:57"),
+        Err(e) => assert_eq!(e.to_string(), "Operation Assignment between incompatible type [i32; 3] and [i32; 4]: Binary operation incompatible\ninput:1:57"),
     }
     // It will run successfully although the typecheck fails.
     run0(&ast).unwrap();
@@ -801,7 +801,7 @@ fn array_sized_cmp_error_test() {
     let mut ast = source(span).finish().unwrap().1;
     match type_check(&mut ast, &mut TypeCheckContext::new(Some("input"))) {
         Ok(_) => panic!("type check succeeded when it should fail: {:?}", ast),
-        Err(e) => assert_eq!(e.to_string(), "type could not be determined\ninput:1:32"),
+        Err(e) => assert_eq!(e.to_string(), "Operation LT between incompatible type [i32; 3] and [i32; 4]: Comparison between incompatible types\ninput:1:57"),
     }
     // It will fail at runtime
     assert!(run0(&ast).is_err());
