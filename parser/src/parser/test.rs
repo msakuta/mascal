@@ -371,7 +371,7 @@ fn test_cmp_literal() {
         Expression::new(
             LT(
                 Box::new(Expression::new(Variable("a"), span.take(1))),
-                Box::new(Expression::new(i64(100), span.subslice(4, 3)))
+                Box::new(Expression::new(int(100), span.subslice(4, 3)))
             ),
             span,
         )
@@ -386,8 +386,8 @@ fn test_bit_or() {
         full_expression(span).finish().unwrap().1,
         Expression::new(
             ExprEnum::BitOr(
-                Box::new(Expression::new(i64(1), span.subslice(0, 1))),
-                Box::new(Expression::new(i64(2), span.subslice(4, 1)))
+                Box::new(Expression::new(int(1), span.subslice(0, 1))),
+                Box::new(Expression::new(int(2), span.subslice(4, 1)))
             ),
             span
         )
@@ -401,7 +401,7 @@ fn test_bit_not() {
     assert_eq!(
         full_expression(span).finish().unwrap().1,
         Expression::new(
-            ExprEnum::BitNot(Box::new(Expression::new(i64(1), span.subslice(1, 1)))),
+            ExprEnum::BitNot(Box::new(Expression::new(int(1), span.subslice(1, 1)))),
             span
         )
     );
@@ -439,12 +439,12 @@ fn test_bit_and_var() {
             ExprEnum::And(
                 Box::new(Expression::new(
                     ExprEnum::BitAnd(
-                        Box::new(Expression::new(i64(1), span.subslice(0, 1))),
-                        Box::new(Expression::new(i64(2), span.subslice(4, 1)))
+                        Box::new(Expression::new(int(1), span.subslice(0, 1))),
+                        Box::new(Expression::new(int(2), span.subslice(4, 1)))
                     ),
                     span.subslice(0, 5)
                 )),
-                Box::new(Expression::new(i64(3), span.subslice(9, 1)))
+                Box::new(Expression::new(int(3), span.subslice(9, 1)))
             ),
             span
         )
@@ -461,12 +461,12 @@ fn test_bit_xor_var() {
             ExprEnum::And(
                 Box::new(Expression::new(
                     ExprEnum::BitXor(
-                        Box::new(Expression::new(i64(1), span.subslice(0, 1))),
-                        Box::new(Expression::new(i64(2), span.subslice(4, 1)))
+                        Box::new(Expression::new(int(1), span.subslice(0, 1))),
+                        Box::new(Expression::new(int(2), span.subslice(4, 1)))
                     ),
                     span.subslice(0, 5)
                 )),
-                Box::new(Expression::new(i64(3), span.subslice(9, 1)))
+                Box::new(Expression::new(int(3), span.subslice(9, 1)))
             ),
             span
         )
@@ -484,8 +484,8 @@ fn test_bit_or_arg() {
                 "a",
                 vec![FnArg::new(Expression::new(
                     ExprEnum::BitOr(
-                        Box::new(Expression::new(i64(1), span.subslice(2, 1))),
-                        Box::new(Expression::new(i64(2), span.subslice(6, 1)))
+                        Box::new(Expression::new(int(1), span.subslice(2, 1))),
+                        Box::new(Expression::new(int(2), span.subslice(6, 1)))
                     ),
                     span.subslice(2, 5)
                 ))]
@@ -503,7 +503,7 @@ fn test_or_expr() {
         Expression::new(
             LT(
                 Box::new(Expression::new(Variable("a"), span.take(1))),
-                Box::new(Expression::new(i64(100), span.subslice(4, 3)))
+                Box::new(Expression::new(int(100), span.subslice(4, 3)))
             ),
             span,
         )
@@ -532,7 +532,7 @@ fn test_cond() {
                 Box::new(Expression::new(
                     LT(
                         Box::new(Expression::new(Variable("a"), span.subslice(3, 1))),
-                        Box::new(Expression::new(i64(100), span.subslice(7, 3)))
+                        Box::new(Expression::new(int(100), span.subslice(7, 3)))
                     ),
                     span.subslice(3, 8)
                 )),
@@ -572,7 +572,7 @@ fn test_tuple() {
         full_expression(span).finish().unwrap().1,
         Expression::new(
             TupleLiteral(vec![
-                Expression::new(i64(1), span.subslice(1, 1)),
+                Expression::new(int(1), span.subslice(1, 1)),
                 Expression::new(ExprEnum::StrLiteral("a".to_owned()), span.subslice(4, 3))
             ]),
             span
@@ -613,7 +613,7 @@ fn test_tuple_index() {
             TupleIndex(
                 Box::new(Expression::new(
                     TupleLiteral(vec![
-                        Expression::new(i64(1), span.subslice(1, 1)),
+                        Expression::new(int(1), span.subslice(1, 1)),
                         Expression::new(ExprEnum::StrLiteral("a".to_owned()), span.subslice(4, 3))
                     ]),
                     span.subslice(0, 8)
@@ -648,7 +648,7 @@ fn test_non_tuple() {
     let span = Span::new("(42)");
     assert_eq!(
         full_expression(span).finish().unwrap().1,
-        Expression::new(i64(42), span)
+        Expression::new(int(42), span)
     );
 }
 
@@ -667,7 +667,7 @@ fn test_single_tuple() {
     assert_eq!(
         full_expression(span).finish().unwrap().1,
         Expression::new(
-            TupleLiteral(vec![Expression::new(i64(42), span.subslice(1, 2))]),
+            TupleLiteral(vec![Expression::new(int(42), span.subslice(1, 2))]),
             span
         )
     );
@@ -683,9 +683,9 @@ fn test_tuple_decl() {
             TypeDecl::Tuple(vec![TypeDecl::I32, TypeDecl::Str, TypeDecl::F64]),
             Some(Expression::new(
                 TupleLiteral(vec![
-                    Expression::new(i64(42), span.subslice(26, 2)),
+                    Expression::new(int(42), span.subslice(26, 2)),
                     Expression::new(StrLiteral("a".to_string()), span.subslice(30, 3)),
-                    Expression::new(f64(3.14), span.subslice(35, 4))
+                    Expression::new(float(3.14), span.subslice(35, 4))
                 ]),
                 span.subslice(25, 15)
             ))
@@ -703,8 +703,8 @@ fn test_array_decl() {
             TypeDecl::Array(Box::new(TypeDecl::I32), ArraySize::Any),
             Some(Expression::new(
                 ArrLiteral(vec![
-                    Expression::new(i64(1), span.subslice(16, 1)),
-                    Expression::new(i64(2), span.subslice(19, 1)),
+                    Expression::new(int(1), span.subslice(16, 1)),
+                    Expression::new(int(2), span.subslice(19, 1)),
                 ]),
                 span.subslice(15, 6)
             ))
@@ -722,9 +722,9 @@ fn test_fixed_sz_array() {
             TypeDecl::Array(Box::new(TypeDecl::I32), ArraySize::Fixed(3)),
             Some(Expression::new(
                 ArrLiteral(vec![
-                    Expression::new(i64(1), span.subslice(19, 1)),
-                    Expression::new(i64(2), span.subslice(22, 1)),
-                    Expression::new(i64(3), span.subslice(25, 1)),
+                    Expression::new(int(1), span.subslice(19, 1)),
+                    Expression::new(int(2), span.subslice(22, 1)),
+                    Expression::new(int(3), span.subslice(25, 1)),
                 ]),
                 span.subslice(18, 9)
             ))
