@@ -257,17 +257,16 @@ where
                     ));
                 }
             };
-            let res = tc_expr_forward(ex, ctx)?;
-            res
-            // if let TypeDecl::Array(inner, _) =  {
-            //     *inner.clone()
-            // } else {
-            //     return Err(TypeCheckError::new(
-            //         "Subscript operator's first operand is not an array".to_string(),
-            //         ex.span,
-            //         ctx.source_file,
-            //     ));
-            // }
+            let res = dbg!(tc_expr_forward(ex, ctx)?);
+            if let Some((inner, _)) = res.and_then(|ts| ts.array.as_ref()) {
+                *inner.clone()
+            } else {
+                return Err(TypeCheckError::new(
+                    "Subscript operator's first operand is not an array".to_string(),
+                    ex.span,
+                    ctx.source_file,
+                ));
+            }
         }
         ExprEnum::TupleIndex(ex, index) => {
             let result = tc_expr_forward(ex, ctx)?;
@@ -364,9 +363,7 @@ where
             }
         }
         ExprEnum::Cast(ex, _ty) => tc_expr_propagate(ex, &TypeSet::all(), ctx)?,
-        ExprEnum::VarAssign(lhs, rhs) => {
-            tc_expr_propagate(rhs, &tc_expr_forward(lhs, ctx)?, ctx)?
-        }
+        ExprEnum::VarAssign(lhs, rhs) => tc_expr_propagate(rhs, &tc_expr_forward(lhs, ctx)?, ctx)?,
         ExprEnum::FnInvoke(fname, args) => {
             let fn_decl = ctx
                 .functions
@@ -453,7 +450,7 @@ fn tc_coerce_type<'src>(
         .try_intersect(&target)
         .map_err(|err| TypeCheckError::new(err, span, ctx.source_file))?;
     if res.is_none() {
-        return Err(TypeCheckError::indeterminant_type(span,ctx.source_file));
+        return Err(TypeCheckError::indeterminant_type(span, ctx.source_file));
     }
     Ok(res)
     // (value & &target).determine().ok_or_else(|| {
