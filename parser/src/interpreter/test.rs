@@ -789,7 +789,7 @@ fn array_sized_error_test() {
     let mut ast = source(span).finish().unwrap().1;
     match type_check(&mut ast, &mut TypeCheckContext::new(Some("input"))) {
         Ok(_) => panic!(),
-        Err(e) => assert_eq!(e.to_string(), "Operation Assignment between incompatible type [i32; 3] and [i32; 4]: Binary operation incompatible\ninput:1:57"),
+        Err(e) => assert_eq!(e.to_string(), "Operation Assignment between incompatible type [i32; 3] and [i32; 4]: Array size is not compatible: 3 cannot assign to 4\ninput:1:57"),
     }
     // It will run successfully although the typecheck fails.
     run0(&ast).unwrap();

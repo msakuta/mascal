@@ -402,7 +402,7 @@ where
     Ok(())
 }
 
-fn tc_array_size(value: &ArraySize, target: &ArraySize) -> Result<(), String> {
+pub(crate) fn tc_array_size(value: &ArraySize, target: &ArraySize) -> Result<(), String> {
     match (value, target) {
         (_, ArraySize::Any) => {}
         (ArraySize::Fixed(v_len), ArraySize::Fixed(t_len)) => {
@@ -444,12 +444,22 @@ fn tc_array_size(value: &ArraySize, target: &ArraySize) -> Result<(), String> {
 fn tc_coerce_type<'src>(
     value: &TypeSet,
     target: &TypeDecl,
-    _span: Span<'src>,
-    _ctx: &TypeCheckContext<'src, '_, '_>,
+    span: Span<'src>,
+    ctx: &TypeCheckContext<'src, '_, '_>,
 ) -> Result<TypeSet, TypeCheckError<'src>> {
     // use TypeDecl::*;
     let target: TypeSet = target.into();
-    Ok(value & &target)
+    let res = value
+        .try_intersect(&target)
+        .map_err(|err| TypeCheckError::new(err, span, ctx.source_file))?;
+    if res.is_none() {
+        return Err(TypeCheckError::new(
+            "Type could not be determined".to_string(),
+            span,
+            ctx.source_file,
+        ));
+    }
+    Ok(res)
     // (value & &target).determine().ok_or_else(|| {
     //     TypeCheckError::new(
     //         "Coerced type could not be determined".to_string(),
@@ -511,12 +521,10 @@ fn tc_cast_type<'src>(
     span: Span<'src>,
     ctx: &TypeCheckContext<'src, '_, '_>,
 ) -> Result<TypeSet, TypeCheckError<'src>> {
-    if (value & target).is_none() {
-        return Err(TypeCheckError::new(
-            "Type not compatible in cast".to_string(),
-            span,
-            ctx.source_file,
-        ));
+    let map_err = |e| TypeCheckError::new(e, span, ctx.source_file);
+
+    if value.try_intersect(target).map_err(map_err)?.is_none() {
+        return Err(map_err("Type not compatible in cast".to_string()));
     }
     Ok(target.clone())
     // use TypeDecl::*;
@@ -775,7 +783,9 @@ where
                         dbg_println!("stmt ty {last_ty}");
                     }
                 }
-                let intersection = &last_ty & &ret_type;
+                let intersection = last_ty
+                    .try_intersect(&ret_type)
+                    .map_err(|e| TypeCheckError::new(e, *name, ctx.source_file))?;
                 if let Some(determined_ty) = intersection.determine() {
                     let determined_ts = TypeSet::from(determined_ty);
                     *ret_type = determined_ts;
@@ -860,13 +870,10 @@ fn binary_op_type<'src>(
 ) -> Result<TypeSet, TypeCheckError<'src>> {
     use TypeDecl::*;
     println!("binary_op_type: {} ? {}", lhs, rhs);
-    let res = lhs & rhs;
+    let map_err = |err| TypeCheckError::new(err, span, ctx.source_file);
+    let res = lhs.try_intersect(rhs).map_err(map_err)?;
     if res.is_none() {
-        return Err(TypeCheckError::new(
-            "Binary operation incompatible".to_string(),
-            span,
-            ctx.source_file,
-        ));
+        return Err(map_err("Binary operation incompatible".to_string()));
     }
     // let res = match (&lhs, &rhs) {
     //     // `Any` type spreads contamination in the source code.

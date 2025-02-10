@@ -1,4 +1,4 @@
-use crate::{type_decl::ArraySize, TypeDecl};
+use crate::{type_checker::tc_array_size, type_decl::ArraySize, TypeDecl};
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub enum TypeSet {
@@ -194,30 +194,36 @@ impl std::ops::BitAnd for TypeSet {
     }
 }
 
-impl std::ops::BitAnd for &TypeSet {
-    type Output = TypeSet;
-    fn bitand(self, rhs: Self) -> Self::Output {
+impl TypeSet {
+    /// Try to retrieve intersection between operands, returning error when it yields empty set.
+    /// Logically it is similar to BitAnd operator trait, but we want to return the cause if we fail.
+    /// Note that `void` is a valid TypeSet, so it won't be an error.
+    pub fn try_intersect(&self, rhs: &Self) -> Result<Self, String> {
         // It's a bit annoying to repeat a similar logic in `BitAnd` for `TypeSet`, but we don't want to clone
         // when it's possible to avoid.
         let TypeSet::Set(set) = self else {
-            return rhs.clone();
+            return Ok(rhs.clone());
         };
         let TypeSet::Set(rhs) = rhs else {
-            return self.clone();
+            return Ok(self.clone());
         };
-        let array = set
-            .array
-            .as_ref()
-            .zip(rhs.array.as_ref())
-            .and_then(|(set, rhs)| {
-                // The element type of the array has to be "Any" or determined, not a mix of 2 types
-                println!("bitand {:?} & {:?}", self, rhs);
-                let ty = set.0.as_ref() & &rhs.0;
-                let res = (Box::new(ty), set.1.try_and(&rhs.1)?);
+        let pair = set.array.as_ref().zip(rhs.array.as_ref());
+        let array = if let Some((set, rhs)) = pair {
+            // The element type of the array has to be "Any" or determined, not a mix of 2 types
+            println!("bitand {:?} & {:?}", self, rhs);
+            let ty = set.0.as_ref().try_intersect(&rhs.0)?;
+            tc_array_size(&set.1, &rhs.1)?;
+            if let Some(size) = set.1.try_and(&rhs.1) {
+                let res = (Box::new(ty), size);
                 println!("Array bitand result: {:?}", res);
                 Some(res)
-            });
-        TypeSet::Set(TypeSetFlags {
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        Ok(TypeSet::Set(TypeSetFlags {
             i32: set.i32 & rhs.i32,
             i64: set.i64 & rhs.i64,
             f32: set.f32 & rhs.f32,
@@ -225,7 +231,7 @@ impl std::ops::BitAnd for &TypeSet {
             void: set.void & rhs.void,
             string: set.string & rhs.string,
             array,
-        })
+        }))
     }
 }
 
