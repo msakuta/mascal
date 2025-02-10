@@ -525,8 +525,8 @@ where
                     let run_result = run(&func.stmts, &mut subctx)?;
                     match unwrap_deref(run_result)? {
                         RunResult::Yield(v) => match &func.ret_type {
-                            Some(ty) => RunResult::Yield(coerce_type(&v, ty)?),
-                            None => RunResult::Yield(v),
+                            RetType::Some(ty) => RunResult::Yield(coerce_type(&v, ty)?),
+                            RetType::Void => RunResult::Yield(v),
                         },
                         RunResult::Break => return Err(EvalError::BreakInToplevel),
                     }
@@ -822,7 +822,7 @@ pub(crate) fn s_hex_string(vals: &[Value]) -> Result<Value, EvalError> {
 #[derive(Clone)]
 pub struct FuncCode<'src> {
     args: Vec<ArgDecl<'src>>,
-    pub(crate) ret_type: Option<TypeDecl>,
+    pub(crate) ret_type: RetType,
     /// Owning a clone of AST of statements is not quite efficient, but we could not get
     /// around the borrow checker.
     stmts: Rc<Vec<Statement<'src>>>,
@@ -832,12 +832,49 @@ impl<'src> FuncCode<'src> {
     pub(crate) fn new(
         stmts: Rc<Vec<Statement<'src>>>,
         args: Vec<ArgDecl<'src>>,
-        ret_type: Option<TypeDecl>,
+        ret_type: RetType,
     ) -> Self {
         Self {
             args,
             ret_type,
             stmts,
+        }
+    }
+}
+
+/// A type for function return types. It has one extra state to usual TypeDef,
+/// which is Void. It merely wraps TypeDecl and Void in an enum.
+/// It is almost equivalent to std::option::Option, except it has intention to
+/// indicate Void-able type.
+#[derive(Debug, PartialEq, Clone)]
+pub enum RetType {
+    Void,
+    Some(TypeDecl),
+}
+
+impl RetType {
+    pub fn unwrap_or(&self, default: TypeDecl) -> TypeDecl {
+        match self {
+            Self::Void => default,
+            Self::Some(val) => val.clone(),
+        }
+    }
+
+    pub fn unwrap_or_any(&self) -> TypeDecl {
+        self.unwrap_or(TypeDecl::Any)
+    }
+
+    pub fn ok_or_else<E>(&self, f: impl FnOnce() -> E) -> Result<TypeDecl, E> {
+        match self {
+            Self::Void => Err(f()),
+            Self::Some(val) => Ok(val.clone()),
+        }
+    }
+
+    pub fn as_opt(&self) -> Option<&TypeDecl> {
+        match self {
+            Self::Void => None,
+            Self::Some(val) => Some(val),
         }
     }
 }
@@ -1083,7 +1120,9 @@ where
                     FuncDef::Code(FuncCode::new(
                         stmts.clone(),
                         args.clone(),
-                        ret_type.determine(),
+                        ret_type
+                            .determine()
+                            .unwrap_or_else(|| RetType::Some(TypeDecl::Any)),
                     )),
                 );
             }

@@ -1,4 +1,4 @@
-use crate::{type_checker::tc_array_size, type_decl::ArraySize, TypeDecl};
+use crate::{interpreter::RetType, type_checker::tc_array_size, type_decl::ArraySize, TypeDecl};
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub enum TypeSet {
@@ -129,17 +129,34 @@ impl TypeSet {
         }
     }
 
-    pub fn determine(&self) -> Option<TypeDecl> {
+    pub fn is_void(&self) -> bool {
+        match self {
+            Self::Any => true,
+            Self::Set(set) => set.void,
+        }
+    }
+
+    /// This ugly nested Option indicates 2 separate things;
+    /// the outer option means if there is a determined type. If it is a Some,
+    /// the type set can be determined to one type.
+    /// The inner option means the absense of return value, commonly called "void" type
+    /// or unit "()" in Rust. It doesn't mean the type was not determined.
+    ///
+    /// We could not include the Void type to TypeDecl, because it is supposed to indicate
+    /// a valid value with data representation. Or can we?
+    pub fn determine(&self) -> Option<RetType> {
         if self == &TypeDecl::I32.into() {
-            return Some(TypeDecl::I32);
+            return Some(RetType::Some(TypeDecl::I32));
         } else if self == &TypeDecl::I64.into() {
-            return Some(TypeDecl::I64);
+            return Some(RetType::Some(TypeDecl::I64));
         } else if self == &TypeDecl::F32.into() {
-            return Some(TypeDecl::F32);
+            return Some(RetType::Some(TypeDecl::F32));
         } else if self == &TypeDecl::F64.into() {
-            return Some(TypeDecl::F64);
+            return Some(RetType::Some(TypeDecl::F64));
         } else if self == &TypeDecl::Str.into() {
-            return Some(TypeDecl::Str);
+            return Some(RetType::Some(TypeDecl::Str));
+        } else if self == &TypeSet::void() {
+            return Some(RetType::Void);
         } else if let TypeSet::Set(set) = self {
             if !set.i32 && !set.i64 && !set.f32 && !set.f64 {
                 if let Some((ty, size)) = set
@@ -147,11 +164,17 @@ impl TypeSet {
                     .as_ref()
                     .and_then(|a| Some((a.0.determine()?, a.1.clone())))
                 {
-                    return Some(TypeDecl::Array(Box::new(ty), size));
+                    // Void in nested data structures are considered invalid.
+                    return Some(RetType::Some(TypeDecl::Array(
+                        Box::new(ty.as_opt()?.clone()),
+                        size,
+                    )));
                 } else if let Some(tuple) = &set.tuple {
-                    let type_sets: Vec<TypeDecl> =
-                        tuple.iter().map(|a| a.determine()).collect::<Option<_>>()?;
-                    return Some(TypeDecl::Tuple(type_sets));
+                    let type_sets: Vec<TypeDecl> = tuple
+                        .iter()
+                        .map(|a| a.determine().and_then(|d| d.as_opt().cloned()))
+                        .collect::<Option<_>>()?;
+                    return Some(RetType::Some(TypeDecl::Tuple(type_sets)));
                 }
             }
         }
@@ -333,6 +356,15 @@ impl From<&mut Option<TypeDecl>> for TypeSet {
             Some(ref value) => Self::from(value),
             None => Self::all(),
         }
+    }
+}
+
+impl From<&RetType> for TypeSet {
+    fn from(value: &RetType) -> Self {
+        let RetType::Some(value) = value else {
+            return TypeSet::void();
+        };
+        value.into()
     }
 }
 

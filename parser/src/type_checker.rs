@@ -2,7 +2,7 @@ use std::{collections::HashMap, fmt::Display, rc::Rc};
 
 use crate::{
     format_ast::{format_expr, format_stmt},
-    interpreter::{std_functions, FuncCode},
+    interpreter::{std_functions, FuncCode, RetType},
     parser::{ExprEnum, Expression, Statement},
     type_decl::{ArraySize, TypeDecl},
     type_set::TypeSet,
@@ -88,6 +88,14 @@ impl<'src> TypeCheckError<'src> {
 
     pub(crate) fn indeterminant_type(span: Span<'src>, source_file: Option<&'src str>) -> Self {
         Self::new(format!("type could not be determined"), span, source_file)
+    }
+
+    pub(crate) fn void_value(span: Span<'src>, source_file: Option<&'src str>) -> Self {
+        Self::new(
+            format!("a value of type void is instantiated"),
+            span,
+            source_file,
+        )
     }
 }
 
@@ -235,8 +243,8 @@ where
                 .get_fn(*fname)
                 .ok_or_else(|| TypeCheckError::undefined_fn(fname, e.span, ctx.source_file))?;
             match func {
-                FuncDef::Code(code) => code.ret_type.clone().unwrap_or(TypeDecl::Any).into(),
-                FuncDef::Native(native) => native.ret_type.clone().unwrap_or(TypeDecl::Any).into(),
+                FuncDef::Code(code) => (&code.ret_type).into(),
+                FuncDef::Native(native) => (&native.ret_type).into(),
             }
         }
         ExprEnum::ArrIndex(ex, args) => {
@@ -374,7 +382,13 @@ where
                 tc_expr_propagate(&mut arg.expr, &(&param.ty).into(), ctx)?;
             }
         }
-        ExprEnum::ArrIndex(expression, vec) => todo!(),
+        ExprEnum::ArrIndex(ex, indices) => {
+            tc_expr_propagate(ex, &TypeSet::array(ts.clone(), ArraySize::Any), ctx)?;
+            for idx in indices {
+                // For now, array indices are always integers
+                tc_expr_propagate(idx, &TypeSet::int(), ctx)?;
+            }
+        }
         ExprEnum::TupleIndex(expression, _) => todo!(),
         ExprEnum::Not(expression) => todo!(),
         ExprEnum::BitNot(expression) => todo!(),
@@ -580,6 +594,7 @@ where
                 type_.into()
             };
             ctx.variables.insert(**var, init_type.into());
+            res = TypeSet::void();
         }
         Statement::FnDecl {
             name,
@@ -593,9 +608,9 @@ where
                 FuncDef::Code(FuncCode::new(
                     stmts.clone(),
                     args.clone(),
-                    Some(ret_type.determine().ok_or_else(|| {
+                    ret_type.determine().ok_or_else(|| {
                         TypeCheckError::indeterminant_type(*name, ctx.source_file)
-                    })?),
+                    })?,
                 )),
             );
             let mut subctx = TypeCheckContext::push_stack(ctx);
@@ -615,10 +630,19 @@ where
             }
             let last_stmt = tc_stmts_forward(stmts, &mut subctx)?;
             if let Some((ret_type, Statement::Expression(ret_expr))) =
-                ret_type.determine().map(|rt| rt.into()).zip(stmts.last())
+                ret_type.determine().zip(stmts.last())
             {
-                tc_coerce_type(&last_stmt, &ret_type, ret_expr.span, ctx)?;
+                if let RetType::Some(ret_type) = ret_type {
+                    tc_coerce_type(&last_stmt, &ret_type, ret_expr.span, ctx)?;
+                } else if !last_stmt.is_void() {
+                    return Err(TypeCheckError::new(
+                        "Function with void return type returned some value".to_string(),
+                        ret_expr.span,
+                        ctx.source_file,
+                    ));
+                }
             }
+            res = TypeSet::void();
         }
         Statement::Expression(e) => {
             res = tc_expr_forward(&e, ctx)?;
@@ -683,7 +707,8 @@ where
                 .determine()
                 .ok_or_else(|| TypeCheckError::indeterminant_type(*var, ctx.source_file))?;
             let propagating_type_set = (&propagating_type).into();
-            *decl_type = propagating_type;
+            *decl_type = propagating_type
+                .ok_or_else(|| TypeCheckError::void_value(*var, ctx.source_file))?;
             if let Some(initializer) = initializer {
                 tc_expr_propagate(initializer, &propagating_type_set, ctx)?;
             }
@@ -782,7 +807,7 @@ where
                     .try_intersect(&ret_type)
                     .map_err(|e| TypeCheckError::new(e, *name, ctx.source_file))?;
                 if let Some(determined_ty) = intersection.determine() {
-                    let determined_ts = TypeSet::from(determined_ty);
+                    let determined_ts = TypeSet::from(&determined_ty);
                     *ret_type = determined_ts;
                     dbg_println!(
                         "Function {}'s return type is inferred to be {}",
@@ -934,13 +959,16 @@ fn binary_cmp_type<'src>(
     ctx: &TypeCheckContext<'src, '_, '_>,
 ) -> Result<TypeSet, TypeCheckError<'src>> {
     use TypeDecl::*;
-    if *lhs != *rhs {
-        return Err(TypeCheckError::new(
-            "Comparison between incompatible types".to_string(),
+    lhs.try_intersect(rhs).map_err(|e| {
+        TypeCheckError::new(
+            format!(
+                "Comparison between incompatible types: {:?} and {:?}: {e}",
+                lhs, rhs
+            ),
             span,
             ctx.source_file,
-        ));
-    }
+        )
+    })?;
     // let res = match (&lhs, &rhs) {
     //     (Any, _) => I32,
     //     (_, Any) => I32,
