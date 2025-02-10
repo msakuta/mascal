@@ -365,7 +365,7 @@ where
         }
         ExprEnum::Cast(ex, _ty) => tc_expr_propagate(ex, &TypeSet::all(), ctx)?,
         ExprEnum::VarAssign(lhs, rhs) => {
-            tc_expr_propagate(rhs, dbg!(&tc_expr_forward(lhs, ctx)?), ctx)?
+            tc_expr_propagate(rhs, &tc_expr_forward(lhs, ctx)?, ctx)?
         }
         ExprEnum::FnInvoke(fname, args) => {
             let fn_decl = ctx
@@ -453,11 +453,7 @@ fn tc_coerce_type<'src>(
         .try_intersect(&target)
         .map_err(|err| TypeCheckError::new(err, span, ctx.source_file))?;
     if res.is_none() {
-        return Err(TypeCheckError::new(
-            "Type could not be determined".to_string(),
-            span,
-            ctx.source_file,
-        ));
+        return Err(TypeCheckError::indeterminant_type(span,ctx.source_file));
     }
     Ok(res)
     // (value & &target).determine().ok_or_else(|| {
@@ -682,15 +678,17 @@ where
     'native: 'src,
 {
     match stmt {
-        Statement::VarDecl(var, type_, initializer) => {
-            *type_ = ctx
+        Statement::VarDecl(var, decl_type, initializer) => {
+            let propagating_type = ctx
                 .variables
                 .get(**var)
                 .unwrap()
                 .determine()
                 .ok_or_else(|| TypeCheckError::indeterminant_type(*var, ctx.source_file))?;
+            let propagating_type_set = (&propagating_type).into();
+            *decl_type = propagating_type;
             if let Some(initializer) = initializer {
-                tc_expr_propagate(initializer, ts, ctx)?;
+                tc_expr_propagate(initializer, &propagating_type_set, ctx)?;
             }
         }
         Statement::FnDecl { stmts, .. } => {

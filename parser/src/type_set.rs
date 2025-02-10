@@ -237,6 +237,9 @@ impl TypeSet {
 
 impl From<&TypeDecl> for TypeSet {
     fn from(value: &TypeDecl) -> Self {
+        if matches!(value, TypeDecl::Any) {
+            return TypeSet::Any;
+        }
         let mut ret = TypeSetFlags::default();
         match value {
             TypeDecl::I32 => ret.i32 = true,
