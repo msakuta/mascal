@@ -195,7 +195,18 @@ where
             .get_var(str)
             .ok_or_else(|| TypeCheckError::undefined_var(str, e.span, ctx.source_file))?,
         ExprEnum::Cast(_ex, decl) => decl.into(),
-        ExprEnum::VarAssign(lhs, rhs) => binary_op(&lhs, &rhs, e.span, ctx, "Assignment")?,
+        ExprEnum::VarAssign(lhs, rhs) => {
+            if let Some((name, decl_ty)) = forward_lvalue(lhs, ctx)
+                .map_err(|err| TypeCheckError::new(err, e.span, ctx.source_file))?
+            {
+                let rhs_ty = tc_expr_forward(rhs, ctx)?;
+                let ty = decl_ty & rhs_ty;
+                dbg_println!("forward varassign {ty}");
+                ctx.variables.insert(name, ty);
+            }
+
+            binary_op(&lhs, &rhs, e.span, ctx, "Assignment")?
+        }
         ExprEnum::FnInvoke(fname, args) => {
             let fn_args = ctx
                 .get_fn(*fname)
@@ -349,7 +360,7 @@ where
     let span = e.span;
     match &mut e.expr {
         ExprEnum::NumLiteral(_, target_ts) => *target_ts = ts.clone(),
-        ExprEnum::StrLiteral(_) => todo!(),
+        ExprEnum::StrLiteral(_) => (), // String literals always of type string, so nothing to propagate
         ExprEnum::ArrLiteral(vec) => {
             if let Some((arr_ts, size)) = ts.and_then(|ts| ts.array.as_ref()) {
                 if !size.contains(vec.len()) {
@@ -407,10 +418,86 @@ where
             tc_expr_propagate(lhs, ts, ctx)?;
             tc_expr_propagate(rhs, ts, ctx)?;
         }
-        ExprEnum::Conditional(expression, vec, vec1) => todo!(),
+        ExprEnum::Conditional(cond, t_branch, f_branch) => {
+            tc_expr_propagate(cond, &TypeSet::i32(), ctx)?;
+            tc_stmts_propagate(t_branch, ts, ctx)?;
+            if let Some(f_branch) = f_branch {
+                tc_stmts_propagate(f_branch, ts, ctx)?;
+            }
+        }
         ExprEnum::Brace(vec) => todo!(),
     }
     Ok(())
+}
+
+fn forward_lvalue<'src, 'b, 'native>(
+    ex: &'b Expression<'src>,
+    ctx: &mut TypeCheckContext<'src, 'native, '_>,
+) -> Result<Option<(&'src str, TypeSet)>, String> {
+    match &ex.expr {
+        ExprEnum::NumLiteral(_, _) => Err("Numeric literal cannot be a lvalue".to_string()),
+        ExprEnum::StrLiteral(_) => Err("Literal string cannot be a lvalue".to_string()),
+        ExprEnum::ArrLiteral(_) => Err("Array literal cannot be a lvalue".to_string()),
+        ExprEnum::TupleLiteral(_) => Err("Tuple literal cannot be a lvalue".to_string()),
+        ExprEnum::Variable(name) => {
+            let ts = ctx
+                .variables
+                .get(name)
+                .ok_or_else(|| format!("Variable {name} not found"))?;
+            Ok(Some((name, ts.clone())))
+        }
+        ExprEnum::VarAssign(_lhs, _rhs) => {
+            // Variable assign expression yields rvalue by convention. For example, `(a = b) = c` won't work, because
+            // `a = b` is not an lvalue. However, `a = b = c` will work, since it is parsed as `a = (b = c)` and the
+            // left hand side is an lvalue for both assignments.
+            // This is the same for C (gcc gives "lvalue required as left operand of assignment" error).
+            Ok(None)
+        }
+        ExprEnum::FnInvoke(_, _) => Err("Function return value cannot be a lvalue".to_string()),
+        ExprEnum::Cast(_, _) => Err("Cast expression cannot be a lvalue".to_string()),
+        ExprEnum::ArrIndex(ex, idx) => {
+            let prior = forward_lvalue(&ex, ctx)?;
+            if let Some((name, ts)) = prior {
+                if let Some(arr) = ts.and_then(|ts| ts.array.as_ref()) {
+                    Ok(Some((name, *arr.0.clone())))
+                } else {
+                    Ok(None)
+                }
+            } else {
+                Ok(None)
+            }
+        }
+        ExprEnum::TupleIndex(ex, idx) => {
+            let prior = forward_lvalue(&ex, ctx)?;
+            if let Some((name, ts)) = prior {
+                if let Some(tuple) = ts.and_then(|ts| ts.tuple.as_ref()) {
+                    Ok(tuple.get(*idx).map(|v| ((name, v.clone()))))
+                } else {
+                    Ok(None)
+                }
+            } else {
+                Ok(None)
+            }
+        }
+        ExprEnum::Neg(_)
+        | ExprEnum::Add(_, _)
+        | ExprEnum::Sub(_, _)
+        | ExprEnum::Mult(_, _)
+        | ExprEnum::Div(_, _)
+        | ExprEnum::LT(_, _)
+        | ExprEnum::GT(_, _)
+        | ExprEnum::And(_, _)
+        | ExprEnum::Or(_, _)
+        | ExprEnum::Not(_)
+        | ExprEnum::BitAnd(_, _)
+        | ExprEnum::BitOr(_, _)
+        | ExprEnum::BitXor(_, _)
+        | ExprEnum::BitNot(_)
+        | ExprEnum::Conditional(_, _, _) => {
+            Err("Arithmetic expression cannot be a lvalue".to_string())
+        }
+        ExprEnum::Brace(_) => Err("Brace expression cannot be a lvalue".to_string()),
+    }
 }
 
 pub(crate) fn tc_array_size(value: &ArraySize, target: &ArraySize) -> Result<(), String> {
@@ -584,16 +671,23 @@ where
     let mut res = TypeSet::all();
     match stmt {
         Statement::VarDecl(var, type_, initializer) => {
-            let init_type = if let Some(init_expr) = initializer {
-                let mut buf = vec![0u8; 0];
-                format_expr(init_expr, 0, &mut buf).unwrap();
-                println!("initializer: {}", String::from_utf8(buf).unwrap());
-                let init_type = tc_expr_forward(init_expr, ctx)?;
-                tc_coerce_type(&init_type, type_, init_expr.span, ctx)?
+            if matches!(type_, TypeDecl::Any) {
+                let init_type = if let Some(init_expr) = initializer {
+                    let mut buf = vec![0u8; 0];
+                    format_expr(init_expr, 0, &mut buf).unwrap();
+                    println!("initializer: {}", String::from_utf8(buf).unwrap());
+                    let init_type = tc_expr_forward(init_expr, ctx)?;
+                    tc_coerce_type(&init_type, type_, init_expr.span, ctx)?
+                } else {
+                    type_.into()
+                };
+                ctx.variables.insert(**var, init_type.into());
             } else {
-                type_.into()
-            };
-            ctx.variables.insert(**var, init_type.into());
+                // If the declaration has a type declaraction, we respect it.
+                // Namely, don't fix a type of `var a: [i32] = [1, 2, 3]` to `[i32; 3]` because
+                // we may want to push to this array later.
+                ctx.variables.insert(**var, type_.into());
+            }
             res = TypeSet::void();
         }
         Statement::FnDecl {
