@@ -89,7 +89,10 @@ pub fn format_expr(
         }
         ExprEnum::TupleLiteral(vec) => {
             write!(f, "(")?;
-            for elem in vec {
+            for (i, elem) in vec.iter().enumerate() {
+                if i != 0 {
+                    write!(f, ", ")?;
+                }
                 format_expr(elem, level + 1, f)?;
             }
             write!(f, ")")?;
