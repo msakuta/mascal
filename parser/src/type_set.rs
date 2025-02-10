@@ -33,6 +33,7 @@ pub struct TypeSetFlags {
     pub void: bool,
     pub string: bool,
     pub array: Option<(Box<TypeSet>, ArraySize)>,
+    pub tuple: Option<Vec<TypeSet>>,
 }
 
 impl TypeSet {
@@ -101,6 +102,13 @@ impl TypeSet {
         })
     }
 
+    pub fn tuple(type_sets: Vec<TypeSet>) -> Self {
+        Self::Set(TypeSetFlags {
+            tuple: Some(type_sets),
+            ..TypeSetFlags::default()
+        })
+    }
+
     pub fn all() -> Self {
         Self::Any
     }
@@ -116,6 +124,7 @@ impl TypeSet {
                     && !set.string
                     && !set.void
                     && set.array.is_none()
+                    && set.tuple.is_none()
             }
         }
     }
@@ -139,6 +148,10 @@ impl TypeSet {
                     .and_then(|a| Some((a.0.determine()?, a.1.clone())))
                 {
                     return Some(TypeDecl::Array(Box::new(ty), size));
+                } else if let Some(tuple) = &set.tuple {
+                    let type_sets: Vec<TypeDecl> =
+                        tuple.iter().map(|a| a.determine()).collect::<Option<_>>()?;
+                    return Some(TypeDecl::Tuple(type_sets));
                 }
             }
         }
@@ -182,6 +195,22 @@ impl std::ops::BitAnd for TypeSet {
                 let size = set.1.try_and(&rhs.1)?;
                 Some((std::mem::take(&mut set.0), size))
             });
+        let tuple = set
+            .tuple
+            .as_mut()
+            .zip(rhs.tuple.as_ref())
+            .and_then(|(set, rhs)| {
+                if set.len() != rhs.len() {
+                    return None;
+                }
+                Some(
+                    std::mem::take(set)
+                        .into_iter()
+                        .zip(rhs.iter())
+                        .map(|(set, rhs)| set & rhs.clone())
+                        .collect(),
+                )
+            });
         Self::Set(TypeSetFlags {
             i32: set.i32 & rhs.i32,
             i64: set.i64 & rhs.i64,
@@ -190,6 +219,7 @@ impl std::ops::BitAnd for TypeSet {
             void: set.void & rhs.void,
             string: set.string & rhs.string,
             array,
+            tuple,
         })
     }
 }
@@ -223,6 +253,25 @@ impl TypeSet {
         } else {
             None
         };
+
+        let tuple = if let Some((set, rhs)) = set.tuple.as_ref().zip(rhs.tuple.as_ref()) {
+            if set.len() != rhs.len() {
+                return Err(format!(
+                    "Tuple size is not the same: {} != {}",
+                    set.len(),
+                    rhs.len()
+                ));
+            }
+            Some(
+                set.iter()
+                    .zip(rhs.iter())
+                    .map(|(set, rhs)| set.try_intersect(rhs))
+                    .collect::<Result<_, _>>()?,
+            )
+        } else {
+            None
+        };
+
         Ok(TypeSet::Set(TypeSetFlags {
             i32: set.i32 & rhs.i32,
             i64: set.i64 & rhs.i64,
@@ -231,6 +280,7 @@ impl TypeSet {
             void: set.void & rhs.void,
             string: set.string & rhs.string,
             array,
+            tuple,
         }))
     }
 }
@@ -254,7 +304,9 @@ impl From<&TypeDecl> for TypeSet {
             }
             TypeDecl::Str => ret.string = true,
             TypeDecl::Array(ty, size) => return TypeSet::array(ty.as_ref().into(), size.clone()),
-            TypeDecl::Tuple(_) => todo!(),
+            TypeDecl::Tuple(types) => {
+                return TypeSet::tuple(types.iter().map(|ty| ty.into()).collect())
+            }
         }
         TypeSet::Set(ret)
     }

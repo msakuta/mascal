@@ -177,11 +177,11 @@ where
             TypeSet::array(ty, ArraySize::Fixed(val.len()))
         }
         ExprEnum::TupleLiteral(val) => {
-            let _ty = val
+            let type_sets = val
                 .iter()
                 .map(|e| tc_expr_forward(e, ctx))
                 .collect::<Result<Vec<_>, _>>()?;
-            todo!("TypeDecl::Tuple(ty)")
+            TypeSet::tuple(type_sets)
         }
         ExprEnum::Variable(str) => ctx
             .get_var(str)
@@ -257,7 +257,7 @@ where
                     ));
                 }
             };
-            let res = dbg!(tc_expr_forward(ex, ctx)?);
+            let res = tc_expr_forward(ex, ctx)?;
             if let Some((inner, _)) = res.and_then(|ts| ts.array.as_ref()) {
                 *inner.clone()
             } else {
@@ -270,24 +270,24 @@ where
         }
         ExprEnum::TupleIndex(ex, index) => {
             let result = tc_expr_forward(ex, ctx)?;
-            // if let TypeDecl::Tuple(inner) = result {
-            //     inner
-            //         .get(*index)
-            //         .ok_or_else(|| {
-            //             TypeCheckError::new(
-            //                 "Tuple index out of range".to_string(),
-            //                 ex.span,
-            //                 ctx.source_file,
-            //             )
-            //         })?
-            //         .clone()
-            // } else {
-            return Err(TypeCheckError::new(
-                "Tuple index applied to a non-tuple".to_string(),
-                ex.span,
-                ctx.source_file,
-            ));
-            // }
+            if let Some(tuple) = result.and_then(|s| s.tuple.as_ref()) {
+                tuple
+                    .get(*index)
+                    .ok_or_else(|| {
+                        TypeCheckError::new(
+                            "Tuple index out of range".to_string(),
+                            ex.span,
+                            ctx.source_file,
+                        )
+                    })?
+                    .clone()
+            } else {
+                return Err(TypeCheckError::new(
+                    "Tuple index applied to a non-tuple".to_string(),
+                    ex.span,
+                    ctx.source_file,
+                ));
+            }
         }
         ExprEnum::Not(val) => {
             tc_expr_forward(val, ctx)?;
