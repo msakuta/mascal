@@ -22,6 +22,16 @@ impl TypeSet {
             Self::Set(set) => f(set),
         }
     }
+
+    pub fn and_then_mut<'a, T: 'a>(
+        &'a mut self,
+        f: impl Fn(&'a mut TypeSetFlags) -> Option<T>,
+    ) -> Option<T> {
+        match self {
+            Self::Any => None,
+            Self::Set(set) => f(set),
+        }
+    }
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]

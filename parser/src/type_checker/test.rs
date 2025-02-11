@@ -1,4 +1,4 @@
-use crate::parser::Subslice;
+use crate::{format_stmts, parser::Subslice};
 
 use super::*;
 
@@ -70,12 +70,12 @@ fn test_array_range_longer() {
 #[test]
 fn test_array_range_shorter_err() {
     let span = Span::new(r#"var a: [i32; ..3] = [0, 1, 2, 3];"#);
-    let (_, ast) = crate::parser::source(span).unwrap();
-    let res = tc_stmts_forward(&ast, &mut TypeCheckContext::new(None));
+    let (_, mut ast) = crate::parser::source(span).unwrap();
+    let res = type_check(&mut ast, &mut TypeCheckContext::new(None));
     assert_eq!(
         res,
         Err(TypeCheckError::new(
-            "Array range is not compatible: 4 cannot assign to ..3".to_string(),
+            "Size is not compatible: 4 is not contained in ..3".to_string(),
             span.subslice(20, 12),
             None
         ))
@@ -85,12 +85,13 @@ fn test_array_range_shorter_err() {
 #[test]
 fn test_array_range_longer_err() {
     let span = Span::new(r#"var a: [i32; 3..] = [0, 1];"#);
-    let (_, ast) = crate::parser::source(span).unwrap();
-    let res = tc_stmts_forward(&ast, &mut TypeCheckContext::new(None));
+    let (_, mut ast) = crate::parser::source(span).unwrap();
+    format_stmts(&ast, &mut std::io::stdout()).unwrap();
+    let res = type_check(&mut ast, &mut TypeCheckContext::new(None));
     assert_eq!(
         res,
         Err(TypeCheckError::new(
-            "Array range is not compatible: 2 cannot assign to 3..".to_string(),
+            "Size is not compatible: 2 is not contained in 3..".to_string(),
             span.subslice(20, 6),
             None
         ))

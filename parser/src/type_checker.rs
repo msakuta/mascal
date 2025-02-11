@@ -151,6 +151,35 @@ impl<'src, 'native, 'ctx> TypeCheckContext<'src, 'native, 'ctx> {
             source_file: super_ctx.source_file,
         }
     }
+
+    fn set_var_type(&mut self, var_ref: &VarRef<'src>, ty: &TypeSet) {
+        if let Some(var_ty) = self.get_var_mut(var_ref) {
+            *var_ty = ty.clone();
+        }
+    }
+
+    /// Peel off variable reference to constrain the type set
+    fn get_var_mut(&mut self, var_ref: &VarRef<'src>) -> Option<&mut TypeSet> {
+        match var_ref {
+            VarRef::Variable(name) => Some(self.variables.entry(name).or_default()),
+            VarRef::Array(int) => {
+                if let Some(var) = self.get_var_mut(int) {
+                    var.and_then_mut(|v| v.array.as_mut())
+                        .map(|(var_int, _)| &mut *var_int.as_mut())
+                } else {
+                    None
+                }
+            }
+            VarRef::Tuple(int, idx) => {
+                if let Some(var) = self.get_var_mut(int) {
+                    var.and_then_mut(|v| v.tuple.as_mut())
+                        .and_then(|var_int| var_int.get_mut(*idx))
+                } else {
+                    None
+                }
+            }
+        }
+    }
 }
 
 fn tc_expr_forward<'src, 'b, 'native>(
@@ -196,13 +225,16 @@ where
             .ok_or_else(|| TypeCheckError::undefined_var(str, e.span, ctx.source_file))?,
         ExprEnum::Cast(_ex, decl) => decl.into(),
         ExprEnum::VarAssign(lhs, rhs) => {
-            if let Some((name, decl_ty)) = forward_lvalue(lhs, ctx)
-                .map_err(|err| TypeCheckError::new(err, e.span, ctx.source_file))?
+            let span = e.span;
+            if let Some((var_ref, decl_ty)) = forward_lvalue(lhs, ctx)
+                .map_err(|err| TypeCheckError::new(err, span, ctx.source_file))?
             {
                 let rhs_ty = tc_expr_forward(rhs, ctx)?;
-                let ty = decl_ty & rhs_ty;
-                dbg_println!("forward varassign {ty}");
-                ctx.variables.insert(name, ty);
+                let ty = decl_ty
+                    .clone()
+                    .try_intersect(&rhs_ty)
+                    .map_err(|err| TypeCheckError::new(err, span, ctx.source_file))?;
+                ctx.set_var_type(&var_ref, &ty);
             }
 
             binary_op(&lhs, &rhs, e.span, ctx, "Assignment")?
@@ -281,7 +313,10 @@ where
                 *inner.clone()
             } else {
                 return Err(TypeCheckError::new(
-                    "Subscript operator's first operand is not an array".to_string(),
+                    format!(
+                        "Subscript operator's first operand is not an array but {}",
+                        res
+                    ),
                     ex.span,
                     ctx.source_file,
                 ));
@@ -365,7 +400,11 @@ where
             if let Some((arr_ts, size)) = ts.and_then(|ts| ts.array.as_ref()) {
                 if !size.contains(vec.len()) {
                     return Err(TypeCheckError::new(
-                        format!("Size is not compatible: {:?}", size),
+                        format!(
+                            "Size is not compatible: {} is not contained in {}",
+                            vec.len(),
+                            size
+                        ),
                         span,
                         ctx.source_file,
                     ));
@@ -430,10 +469,23 @@ where
     Ok(())
 }
 
+/// An abstract type that represents a path to a part of type constraint.
+/// For example, if you have a variable and type `var a: [x]` where x is unknown,
+/// `a[0] = 1 as i32` will constrain `x` to be i32.
+/// We need a way to represent this information, starting from the variable name,
+/// and the chain of suffixes.
+enum VarRef<'src> {
+    Variable(&'src str),
+    Array(Box<VarRef<'src>>),
+    Tuple(Box<VarRef<'src>>, usize),
+}
+
+/// Try to evaluate expression as an lvalue and return its variable name and TypeSet,
+/// or None if it doesn't yield an lvalue.
 fn forward_lvalue<'src, 'b, 'native>(
     ex: &'b Expression<'src>,
     ctx: &mut TypeCheckContext<'src, 'native, '_>,
-) -> Result<Option<(&'src str, TypeSet)>, String> {
+) -> Result<Option<(VarRef<'src>, TypeSet)>, String> {
     match &ex.expr {
         ExprEnum::NumLiteral(_, _) => Err("Numeric literal cannot be a lvalue".to_string()),
         ExprEnum::StrLiteral(_) => Err("Literal string cannot be a lvalue".to_string()),
@@ -444,22 +496,22 @@ fn forward_lvalue<'src, 'b, 'native>(
                 .variables
                 .get(name)
                 .ok_or_else(|| format!("Variable {name} not found"))?;
-            Ok(Some((name, ts.clone())))
+            Ok(Some((VarRef::Variable(name), ts.clone())))
         }
         ExprEnum::VarAssign(_lhs, _rhs) => {
             // Variable assign expression yields rvalue by convention. For example, `(a = b) = c` won't work, because
             // `a = b` is not an lvalue. However, `a = b = c` will work, since it is parsed as `a = (b = c)` and the
             // left hand side is an lvalue for both assignments.
-            // This is the same for C (gcc gives "lvalue required as left operand of assignment" error).
+            // This is the same for C (gcc gives "lvalue required as left operand of assignment" error in the former case).
             Ok(None)
         }
         ExprEnum::FnInvoke(_, _) => Err("Function return value cannot be a lvalue".to_string()),
         ExprEnum::Cast(_, _) => Err("Cast expression cannot be a lvalue".to_string()),
-        ExprEnum::ArrIndex(ex, idx) => {
+        ExprEnum::ArrIndex(ex, _idx) => {
             let prior = forward_lvalue(&ex, ctx)?;
-            if let Some((name, ts)) = prior {
+            if let Some((var_ref, ts)) = prior {
                 if let Some(arr) = ts.and_then(|ts| ts.array.as_ref()) {
-                    Ok(Some((name, *arr.0.clone())))
+                    Ok(Some((VarRef::Array(Box::new(var_ref)), *arr.0.clone())))
                 } else {
                     Ok(None)
                 }
@@ -469,9 +521,11 @@ fn forward_lvalue<'src, 'b, 'native>(
         }
         ExprEnum::TupleIndex(ex, idx) => {
             let prior = forward_lvalue(&ex, ctx)?;
-            if let Some((name, ts)) = prior {
+            if let Some((var_ref, ts)) = prior {
                 if let Some(tuple) = ts.and_then(|ts| ts.tuple.as_ref()) {
-                    Ok(tuple.get(*idx).map(|v| ((name, v.clone()))))
+                    Ok(tuple
+                        .get(*idx)
+                        .map(|v| ((VarRef::Tuple(Box::new(var_ref), *idx), v.clone()))))
                 } else {
                     Ok(None)
                 }
@@ -1056,7 +1110,7 @@ fn binary_cmp_type<'src>(
     lhs.try_intersect(rhs).map_err(|e| {
         TypeCheckError::new(
             format!(
-                "Comparison between incompatible types: {:?} and {:?}: {e}",
+                "Comparison between incompatible types: {} and {}: {e}",
                 lhs, rhs
             ),
             span,
