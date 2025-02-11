@@ -155,3 +155,26 @@ i = aa[1: i32|i64];
 "#;
     assert_eq!(inferred, expected);
 }
+
+#[test]
+fn test_tuple_propagate() {
+    let span = Span::new(
+        r#"
+    var i: i32 = 0;
+    var a = [1,2,3];
+    a[0] = i
+    "#,
+    );
+    let (_, mut ast) = crate::parser::source(span).unwrap();
+    type_check(&mut ast, &mut TypeCheckContext::new(None)).unwrap();
+
+    // TODO: compare AST without spaces or span differences
+    let mut buf = vec![0u8; 0];
+    format_stmts(&ast, &mut buf).unwrap();
+    let inferred = String::from_utf8(buf).unwrap();
+    let expected = r#"var i: i32 = 0: i32;
+var a: [i32; 3] = [1: i32, 2: i32, 3: i32];
+a[0: i32|i64] = i;
+"#;
+    assert_eq!(inferred, expected);
+}
