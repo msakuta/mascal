@@ -109,6 +109,31 @@ fn test_array_range_full() {
 }
 
 #[test]
+fn test_chain_assign() {
+    let span = Span::new(
+        r#"var a = 1;
+var b = 3;
+var c: i32 = 12;
+
+a = b = c;
+"#,
+    );
+    let (_, mut ast) = crate::parser::source(span).unwrap();
+    type_check(&mut ast, &mut TypeCheckContext::new(None)).unwrap();
+
+    // TODO: compare AST without spaces or span differences
+    let mut buf = vec![0u8; 0];
+    format_stmts(&ast, &mut buf).unwrap();
+    let inferred = String::from_utf8(buf).unwrap();
+    let expected = r#"var a: i32 = 1: i32;
+var b: i32 = 3: i32;
+var c: i32 = 12: i32;
+a = b = c;
+"#;
+    assert_eq!(inferred, expected);
+}
+
+#[test]
 fn test_array_propagate() {
     let span = Span::new(
         r#"
