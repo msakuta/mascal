@@ -457,6 +457,11 @@ where
             }
         }
         ExprEnum::TupleIndex(ex, idx) => {
+            // This is not the most efficient method to update an element in a tuple.
+            // It searches existing tuple type yielded by the subexpression and replace the item given
+            // by the caller.
+            // TODO: We could propagate path (VecRef) to update the element by tc_expr_propagate,
+            // for a better performance.
             if let Some(existing_tuple) = tc_expr_forward(ex, ctx)?.and_then(|v| v.tuple.as_ref()) {
                 let mut altered_tuple = existing_tuple.clone();
                 altered_tuple[*idx] = altered_tuple[*idx]
