@@ -107,3 +107,26 @@ fn test_array_range_full() {
         TypeSet::i32()
     );
 }
+
+#[test]
+fn test_array_propagate() {
+    let span = Span::new(
+        r#"
+    var aa: [i32] = [1,2,3];
+    var i = 0;
+    i = aa[1];
+    "#,
+    );
+    let (_, mut ast) = crate::parser::source(span).unwrap();
+    type_check(&mut ast, &mut TypeCheckContext::new(None)).unwrap();
+
+    // TODO: compare AST without spaces or span differences
+    let mut buf = vec![0u8; 0];
+    format_stmts(&ast, &mut buf).unwrap();
+    let inferred = String::from_utf8(buf).unwrap();
+    let expected = r#"var aa: [i32] = [1: i32, 2: i32, 3: i32];
+var i: i32 = 0: i32;
+i = aa[1: i32|i64];
+"#;
+    assert_eq!(inferred, expected);
+}
