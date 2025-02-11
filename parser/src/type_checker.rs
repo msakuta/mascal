@@ -414,7 +414,24 @@ where
                 }
             }
         }
-        ExprEnum::TupleLiteral(vec) => todo!(),
+        ExprEnum::TupleLiteral(vec) => {
+            if let Some(tuple) = ts.and_then(|ts| ts.tuple.as_ref()) {
+                if tuple.len() != vec.len() {
+                    return Err(TypeCheckError::new(
+                        format!(
+                            "Tuple sizes are not the same: {} != {}",
+                            tuple.len(),
+                            vec.len()
+                        ),
+                        span,
+                        ctx.source_file,
+                    ));
+                }
+                for (target, source) in vec.iter_mut().zip(tuple.iter()) {
+                    tc_expr_propagate(target, source, ctx)?;
+                }
+            }
+        }
         ExprEnum::Variable(name) => {
             if let Some(var) = ctx.variables.get_mut(name) {
                 *var = ts.clone();
@@ -439,7 +456,15 @@ where
                 tc_expr_propagate(idx, &TypeSet::int(), ctx)?;
             }
         }
-        ExprEnum::TupleIndex(expression, _) => todo!(),
+        ExprEnum::TupleIndex(ex, idx) => {
+            if let Some(existing_tuple) = tc_expr_forward(ex, ctx)?.and_then(|v| v.tuple.as_ref()) {
+                let mut altered_tuple = existing_tuple.clone();
+                altered_tuple[*idx] = altered_tuple[*idx]
+                    .try_intersect(ts)
+                    .map_err(|e| TypeCheckError::new(e, span, ctx.source_file))?;
+                tc_expr_propagate(ex, &TypeSet::tuple(altered_tuple), ctx)?;
+            }
+        }
         ExprEnum::Not(expression) => todo!(),
         ExprEnum::BitNot(expression) => todo!(),
         ExprEnum::Neg(expression) => todo!(),
