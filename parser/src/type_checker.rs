@@ -629,7 +629,6 @@ fn tc_coerce_type<'src>(
     span: Span<'src>,
     ctx: &TypeCheckContext<'src, '_, '_>,
 ) -> Result<TypeSet, TypeCheckError<'src>> {
-    // use TypeDecl::*;
     let target: TypeSet = target.into();
     let res = value
         .try_intersect(&target)
@@ -638,50 +637,6 @@ fn tc_coerce_type<'src>(
         return Err(TypeCheckError::indeterminant_type(span, ctx.source_file));
     }
     Ok(res)
-    // (value & &target).determine().ok_or_else(|| {
-    //     TypeCheckError::new(
-    //         "Coerced type could not be determined".to_string(),
-    //         span,
-    //         ctx.source_file,
-    //     )
-    // })
-    // (Array(v_inner, v_len), Array(t_inner, t_len)) => {
-    //     tc_array_size(v_len, t_len)
-    //         .map_err(|e| TypeCheckError::new(e, span, ctx.source_file))?;
-    //     Array(
-    //         Box::new(tc_coerce_type(v_inner, t_inner, span, ctx)?),
-    //         t_len.clone(),
-    //     )
-    // }
-    // (Float, Float) => Float,
-    // (Integer, Integer) => Integer,
-    // (Tuple(v_inner), Tuple(t_inner)) => {
-    //     if v_inner.len() != t_inner.len() {
-    //         return Err(TypeCheckError::new(
-    //             "Tuples size does not match".to_string(),
-    //             span,
-    //             ctx.source_file,
-    //         ));
-    //     }
-    //     Tuple(
-    //         v_inner
-    //             .iter()
-    //             .zip(t_inner.iter())
-    //             .map(|(v, t)| tc_coerce_type(v, t, span, ctx))
-    //             .collect::<Result<_, _>>()?,
-    //     )
-    // }
-    // _ => {
-    // return Err(TypeCheckError::new(
-    //     format!(
-    //         "Type check error! {:?} cannot be assigned to {:?}",
-    //         value, target
-    //     ),
-    //     span,
-    //     ctx.source_file,
-    // ));
-    // }
-    // })
 }
 
 fn array_range_verify(range: &std::ops::Range<usize>) -> Result<(), String> {
@@ -691,58 +646,6 @@ fn array_range_verify(range: &std::ops::Range<usize>) -> Result<(), String> {
         ));
     }
     Ok(())
-}
-
-fn tc_cast_type<'src>(
-    value: &TypeSet,
-    target: &TypeSet,
-    span: Span<'src>,
-    ctx: &TypeCheckContext<'src, '_, '_>,
-) -> Result<TypeSet, TypeCheckError<'src>> {
-    let map_err = |e| TypeCheckError::new(e, span, ctx.source_file);
-
-    if value.try_intersect(target).map_err(map_err)?.is_none() {
-        return Err(map_err("Type not compatible in cast".to_string()));
-    }
-    Ok(target.clone())
-    // use TypeDecl::*;
-    // Ok(match (value, target) {
-    //     (_, Any) => value.clone(),
-    //     (Any, _) => target.clone(),
-    //     (I32 | I64 | F32 | F64 | Integer | Float, F64) => F64,
-    //     (I32 | I64 | F32 | F64 | Integer | Float, F32) => F32,
-    //     (I32 | I64 | F32 | F64 | Integer | Float, I64) => I64,
-    //     (I32 | I64 | F32 | F64 | Integer | Float, I32) => I32,
-    //     (Str, Str) => Str,
-    //     (Array(v_inner, v_len), Array(t_inner, t_len)) => {
-    //         if let Some((v_len, t_len)) = v_len.zip(t_len) {
-    //             if v_len < t_len {
-    //                 return Err(TypeCheckError::new(
-    //                     "Assignee array is smaller than assigner".to_string(),
-    //                     span,
-    //                     ctx.source_file,
-    //                 ));
-    //             }
-    //         }
-    //         // Array doesn't recursively type cast for performance reasons.
-    //         Array(
-    //             Box::new(tc_coerce_type(v_inner, t_inner, span, ctx)?),
-    //             t_len.clone(),
-    //         )
-    //     }
-    //     (I32 | I64 | F32 | F64 | Integer | Float, Float) => Float,
-    //     (I32 | I64 | F32 | F64 | Integer | Float, Integer) => Integer,
-    //     _ => {
-    //         return Err(TypeCheckError::new(
-    //             format!(
-    //                 "Type check error! {:?} cannot be casted to {:?}",
-    //                 value, target
-    //             ),
-    //             span,
-    //             ctx.source_file,
-    //         ))
-    //     }
-    // })
 }
 
 fn tc_stmt_forward<'src, 'ast, 'native>(
@@ -1063,53 +966,12 @@ fn binary_op_type<'src>(
     span: Span<'src>,
     ctx: &TypeCheckContext<'src, '_, '_>,
 ) -> Result<TypeSet, TypeCheckError<'src>> {
-    use TypeDecl::*;
     println!("binary_op_type: {} ? {}", lhs, rhs);
     let map_err = |err| TypeCheckError::new(err, span, ctx.source_file);
     let res = lhs.try_intersect(rhs).map_err(map_err)?;
     if res.is_none() {
         return Err(map_err("Binary operation incompatible".to_string()));
     }
-    // let res = match (&lhs, &rhs) {
-    //     // `Any` type spreads contamination in the source code.
-    //     (Any, _) => Any,
-    //     (_, Any) => Any,
-    //     (F64, F64) => F64,
-    //     (F32, F32) => F32,
-    //     (I64, I64) => I64,
-    //     (I32, I32) => I32,
-    //     (Str, Str) => Str,
-    //     (Float, Float) => Float,
-    //     (Integer, Integer) => Integer,
-    //     (Float, F64) | (F64, Float) => F64,
-    //     (Float, F32) | (F32, Float) => F32,
-    //     (Integer, I64) | (I64, Integer) => I64,
-    //     (Integer, I32) | (I32, Integer) => I32,
-    //     (Array(lhs, lhs_len), Array(rhs, rhs_len)) => {
-    //         tc_array_size(rhs_len, lhs_len)
-    //             .map_err(|e| TypeCheckError::new(e, span, ctx.source_file))?;
-    //         if let Some((lhs_len, rhs_len)) = lhs_len.zip(rhs_len) {
-    //             if lhs_len < rhs_len {
-    //                 return Err(TypeCheckError::new(
-    //                     "Binary operation between an array with different length".to_string(),
-    //                     span,
-    //                     ctx.source_file,
-    //                 ));
-    //             }
-    //         }
-    //         return Ok(Array(
-    //             Box::new(binary_op_type(lhs, rhs, span, ctx)?),
-    //             lhs_len.or(rhs_len),
-    //         ));
-    //     }
-    //     _ => {
-    //         return Err(TypeCheckError::new(
-    //             "Binary operation incompatible".to_string(),
-    //             span,
-    //             ctx.source_file,
-    //         ))
-    //     }
-    // };
     Ok(res)
 }
 
@@ -1133,7 +995,6 @@ fn binary_cmp_type<'src>(
     span: Span<'src>,
     ctx: &TypeCheckContext<'src, '_, '_>,
 ) -> Result<TypeSet, TypeCheckError<'src>> {
-    use TypeDecl::*;
     lhs.try_intersect(rhs).map_err(|e| {
         TypeCheckError::new(
             format!(
@@ -1144,36 +1005,6 @@ fn binary_cmp_type<'src>(
             ctx.source_file,
         )
     })?;
-    // let res = match (&lhs, &rhs) {
-    //     (Any, _) => I32,
-    //     (_, Any) => I32,
-    //     (F64, F64) => I32,
-    //     (F32, F32) => I32,
-    //     (I64, I64) => I32,
-    //     (I32, I32) => I32,
-    //     (Str, Str) => I32,
-    //     (Float, Float) => I32,
-    //     (Integer, Integer) => I32,
-    //     (Float, F64 | F32) | (F64 | F32, Float) => I32,
-    //     (Integer, I64 | I32) | (I64 | I32, Integer) => I32,
-    //     (Array(lhs, lhs_len), Array(rhs, rhs_len)) => {
-    //         if lhs_len != rhs_len {
-    //             return Err(TypeCheckError::new(
-    //                 "Array size must be the same for comparison".to_string(),
-    //                 span,
-    //                 ctx.source_file,
-    //             ));
-    //         }
-    //         return binary_cmp_type(lhs, rhs, span, ctx);
-    //     }
-    //     _ => {
-    //         return Err(TypeCheckError::new(
-    //             "Binary comparison incompatible".to_string(),
-    //             span,
-    //             ctx.source_file,
-    //         ))
-    //     }
-    // };
     Ok(TypeSet::i32())
 }
 
