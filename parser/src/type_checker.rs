@@ -433,8 +433,11 @@ where
             }
         }
         ExprEnum::Variable(name) => {
+            let source_file = ctx.source_file;
             if let Some(var) = ctx.variables.get_mut(name) {
-                *var = ts.clone();
+                *var = var
+                    .try_intersect(ts)
+                    .map_err(|e| TypeCheckError::new(e, span, source_file))?;
             }
         }
         ExprEnum::Cast(ex, _ty) => tc_expr_propagate(ex, &TypeSet::all(), ctx)?,
@@ -494,7 +497,11 @@ where
                 tc_stmts_propagate(f_branch, ts, ctx)?;
             }
         }
-        ExprEnum::Brace(vec) => tc_stmts_propagate(vec, ts, ctx)?,
+        ExprEnum::Brace(stmts) => {
+            let mut subctx = TypeCheckContext::push_stack(ctx);
+            tc_stmts_forward(stmts, &mut subctx)?;
+            tc_stmts_propagate(stmts, ts, &mut subctx)?
+        }
     }
     Ok(())
 }
@@ -504,6 +511,7 @@ where
 /// `a[0] = 1 as i32` will constrain `x` to be i32.
 /// We need a way to represent this information, starting from the variable name,
 /// and the chain of suffixes.
+#[derive(Debug)]
 enum VarRef<'src> {
     Variable(&'src str),
     Array(Box<VarRef<'src>>),
@@ -523,8 +531,7 @@ fn forward_lvalue<'src, 'b, 'native>(
         ExprEnum::TupleLiteral(_) => Err("Tuple literal cannot be a lvalue".to_string()),
         ExprEnum::Variable(name) => {
             let ts = ctx
-                .variables
-                .get(name)
+                .get_var(name)
                 .ok_or_else(|| format!("Variable {name} not found"))?;
             Ok(Some((VarRef::Variable(name), ts.clone())))
         }
@@ -662,7 +669,6 @@ where
                 let init_type = if let Some(init_expr) = initializer {
                     let mut buf = vec![0u8; 0];
                     format_expr(init_expr, 0, &mut buf).unwrap();
-                    println!("initializer: {}", String::from_utf8(buf).unwrap());
                     let init_type = tc_expr_forward(init_expr, ctx)?;
                     tc_coerce_type(&init_type, type_, init_expr.span, ctx)?
                 } else {
@@ -828,7 +834,7 @@ where
 
 pub fn tc_stmts_propagate<'src, 'ast, 'native>(
     stmts: &'ast mut Vec<Statement<'src>>,
-    ts: &TypeSet,
+    _ts: &TypeSet,
     ctx: &mut TypeCheckContext<'src, 'native, '_>,
 ) -> Result<(), TypeCheckError<'src>>
 where
@@ -966,7 +972,6 @@ fn binary_op_type<'src>(
     span: Span<'src>,
     ctx: &TypeCheckContext<'src, '_, '_>,
 ) -> Result<TypeSet, TypeCheckError<'src>> {
-    println!("binary_op_type: {} ? {}", lhs, rhs);
     let map_err = |err| TypeCheckError::new(err, span, ctx.source_file);
     let res = lhs.try_intersect(rhs).map_err(map_err)?;
     if res.is_none() {
