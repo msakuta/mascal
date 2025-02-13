@@ -1,5 +1,5 @@
 use crate::{
-    interpreter::{coerce_f32, coerce_f64, coerce_i32, coerce_i64},
+    coercion::{coerce_f32, coerce_f64, coerce_i32, coerce_i64},
     type_decl::{ArraySize, TypeDecl},
     type_set::TypeSet,
     Value,

@@ -4,10 +4,8 @@ use std::{collections::HashMap, io::Write};
 
 use crate::{
     bytecode::{Bytecode, FnBytecode, FnProto, FnProtos, OpCode},
-    interpreter::{
-        binary_op, binary_op_int, binary_op_str, coerce_f64, coerce_i64, coerce_type, truthy,
-        EvalError, EvalResult,
-    },
+    coercion::{coerce_f64, coerce_i64, coerce_type},
+    interpreter::{binary_op, binary_op_int, binary_op_str, truthy, EvalError, EvalResult},
     type_decl::TypeDecl,
     Value,
 };
