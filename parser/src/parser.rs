@@ -1,4 +1,5 @@
 use crate::{
+    interpreter::{coerce_f32, coerce_f64, coerce_i32, coerce_i64},
     type_decl::{ArraySize, TypeDecl},
     type_set::TypeSet,
     Value,
@@ -339,13 +340,45 @@ fn float_value(i: Span) -> IResult<Span, (Value, Span)> {
 
 fn double_expr(input: Span) -> IResult<Span, Expression> {
     let (r, (value, value_span)) = alt((float_value, decimal_value))(input)?;
-    let ts = match value {
-        Value::I64(_) => TypeSet::int(),
-        _ => TypeSet::float(),
+    let (r, type_spec) = opt(alt((tag("i32"), tag("i64"), tag("f32"), tag("f64"))))(r)?;
+    let (value, ts) = if let Some(ty) = type_spec {
+        let map_err = |_e| {
+            nom::Err::Error(nom::error::Error::new(
+                value_span,
+                nom::error::ErrorKind::Digit,
+            ))
+        };
+        match *ty {
+            "f64" => (
+                Value::F64(coerce_f64(&value).map_err(map_err)?),
+                TypeSet::f64(),
+            ),
+            "f32" => (
+                Value::F32(coerce_f32(&value).map_err(map_err)?),
+                TypeSet::f32(),
+            ),
+            "i64" => (
+                Value::I64(coerce_i64(&value).map_err(map_err)?),
+                TypeSet::i64(),
+            ),
+            "i32" => (
+                Value::I32(coerce_i32(&value).map_err(map_err)?),
+                TypeSet::i32(),
+            ),
+            unknown => {
+                unreachable!("Type should have recognized by the parser: \"{}\"", unknown)
+            }
+        }
+    } else {
+        let ty = match value {
+            Value::I64(_) => TypeSet::int(),
+            _ => TypeSet::float(),
+        };
+        (value, ty)
     };
     Ok((
         r,
-        Expression::new(ExprEnum::NumLiteral(value, ts), value_span),
+        Expression::new(ExprEnum::NumLiteral(value, ts), calc_offset(input, r)),
     ))
 }
 

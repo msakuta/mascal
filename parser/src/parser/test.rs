@@ -65,9 +65,17 @@ fn f64<'a>(f: f64) -> ExprEnum<'a> {
     ExprEnum::NumLiteral(Value::F64(f), TypeSet::f64())
 }
 
+fn f32<'a>(f: f32) -> ExprEnum<'a> {
+    ExprEnum::NumLiteral(Value::F32(f), TypeSet::f32())
+}
+
 /// Generic float literal
 fn float<'a>(f: f64) -> ExprEnum<'a> {
     ExprEnum::NumLiteral(Value::F64(f), TypeSet::float())
+}
+
+fn i32<'a>(i: i32) -> ExprEnum<'a> {
+    ExprEnum::NumLiteral(Value::I32(i), TypeSet::i32())
 }
 
 fn i64<'a>(i: i64) -> ExprEnum<'a> {
@@ -266,6 +274,42 @@ fn parens_test() {
             ),
             span.subslice(2, 18)
         )
+    );
+}
+
+#[test]
+fn test_literal_suffix_i32() {
+    let span = Span::new("2i32");
+    assert_eq!(
+        expr(span).finish().unwrap().1,
+        Expression::new(i32(2), span)
+    );
+}
+
+#[test]
+fn test_literal_suffix_i64() {
+    let span = Span::new("3i64");
+    assert_eq!(
+        expr(span).finish().unwrap().1,
+        Expression::new(i64(3), span)
+    );
+}
+
+#[test]
+fn test_literal_suffix_f32() {
+    let span = Span::new("10.f32");
+    assert_eq!(
+        expr(span).finish().unwrap().1,
+        Expression::new(f32(10.), span)
+    );
+}
+
+#[test]
+fn test_literal_suffix_f64() {
+    let span = Span::new("12.f64");
+    assert_eq!(
+        expr(span).finish().unwrap().1,
+        Expression::new(f64(12.), span)
     );
 }
 
