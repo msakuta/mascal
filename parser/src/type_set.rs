@@ -1,4 +1,4 @@
-use crate::{interpreter::RetType, type_checker::tc_array_size, type_decl::ArraySize, TypeDecl};
+use crate::{interpreter::RetType, type_decl::ArraySize, type_infer::tc_array_size, TypeDecl};
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub enum TypeSet {

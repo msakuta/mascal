@@ -1,3 +1,8 @@
+//! Type inferer/checker implementation.
+//! Type inference and type checking is mostly the same, except that type inference can actively
+//! modify the AST to resolve missing type annotations.
+//! We name this module after inference because it represents the value more.
+
 use std::{collections::HashMap, fmt::Display, rc::Rc};
 
 use crate::{
