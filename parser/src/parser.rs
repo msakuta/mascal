@@ -289,14 +289,7 @@ fn cast(i: Span) -> IResult<Span, Expression> {
 
 pub(crate) fn type_spec(input: Span) -> IResult<Span, TypeDecl> {
     let (r, type_) = opt(delimited(ws(char(':')), type_decl, multispace0))(input)?;
-    Ok((
-        r,
-        if let Some(a) = type_ {
-            a
-        } else {
-            TypeDecl::Any
-        },
-    ))
+    Ok((r, type_.unwrap_or(TypeDecl::Any)))
 }
 
 fn var_decl(input: Span) -> IResult<Span, Statement> {

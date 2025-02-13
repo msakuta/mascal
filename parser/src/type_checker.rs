@@ -881,7 +881,7 @@ where
             let propagating_type = ctx
                 .variables
                 .get(**var)
-                .unwrap()
+                .ok_or_else(|| TypeCheckError::undefined_var(var, *var, ctx.source_file))?
                 .determine()
                 .ok_or_else(|| TypeCheckError::indeterminant_type(*var, ctx.source_file))?;
             let propagating_type_set = (&propagating_type).into();
@@ -891,10 +891,7 @@ where
                 tc_expr_propagate(initializer, &propagating_type_set, ctx)?;
             }
         }
-        Statement::FnDecl { stmts, .. } => {
-            let stmts = Rc::make_mut(stmts);
-            tc_stmts_propagate(stmts, ts, ctx)?;
-        }
+        Statement::FnDecl { .. } => {}
         Statement::Expression(e) => {
             tc_expr_propagate(e, ts, ctx)?;
         }
