@@ -91,7 +91,6 @@ impl TypeDecl {
                     e
                 })?,
             ),
-            REF_TAG => todo!(),
             _ => unreachable!(),
         })
     }

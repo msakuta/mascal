@@ -29,6 +29,7 @@ pub enum ReadError {
     NoMainFound,
     UndefinedOpCode(u8),
     UnknownTag([u8; 2]),
+    UnknownTypeTag(u8),
 }
 
 impl From<std::io::Error> for ReadError {
@@ -51,6 +52,9 @@ impl std::fmt::Display for ReadError {
             ReadError::NoMainFound => write!(f, "No main function found"),
             ReadError::UndefinedOpCode(code) => write!(f, "Opcode \"{code:02X}\" unrecognized!"),
             ReadError::UnknownTag(code) => write!(f, "Unknwon tag \"{code:?}\" encountered"),
+            ReadError::UnknownTypeTag(code) => {
+                write!(f, "Unknwon type tag \"{code:?}\" encountered")
+            }
         }
     }
 }

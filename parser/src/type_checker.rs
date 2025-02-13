@@ -494,7 +494,7 @@ where
                 tc_stmts_propagate(f_branch, ts, ctx)?;
             }
         }
-        ExprEnum::Brace(vec) => todo!(),
+        ExprEnum::Brace(vec) => tc_stmts_propagate(vec, ts, ctx)?,
     }
     Ok(())
 }

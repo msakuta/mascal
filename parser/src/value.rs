@@ -175,7 +175,7 @@ impl Value {
                     .collect::<Result<_, _>>()?;
                 Self::Tuple(Rc::new(RefCell::new(values)))
             }
-            _ => todo!(),
+            tag_byte => return Err(ReadError::UnknownTypeTag(tag_byte)),
         })
     }
 
