@@ -6,7 +6,7 @@ use crate::{
     parser::{ExprEnum, Expression, Statement},
     type_decl::{ArraySize, TypeDecl},
     type_set::TypeSet,
-    FuncDef, Span, Value,
+    FuncDef, Span,
 };
 
 #[derive(Debug, PartialEq)]
@@ -470,9 +470,9 @@ where
                 tc_expr_propagate(ex, &TypeSet::tuple(altered_tuple), ctx)?;
             }
         }
-        ExprEnum::Not(expression) => todo!(),
-        ExprEnum::BitNot(expression) => todo!(),
-        ExprEnum::Neg(expression) => todo!(),
+        ExprEnum::Not(ex) | ExprEnum::BitNot(ex) | ExprEnum::Neg(ex) => {
+            tc_expr_propagate(ex, ts, ctx)?;
+        }
         ExprEnum::Add(lhs, rhs)
         | ExprEnum::Sub(lhs, rhs)
         | ExprEnum::Mult(lhs, rhs)

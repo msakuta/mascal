@@ -125,9 +125,9 @@ a = b = c;
     let mut buf = vec![0u8; 0];
     format_stmts(&ast, &mut buf).unwrap();
     let inferred = String::from_utf8(buf).unwrap();
-    let expected = r#"var a: i32 = 1: i32;
-var b: i32 = 3: i32;
-var c: i32 = 12: i32;
+    let expected = r#"var a: i32 = 1i32;
+var b: i32 = 3i32;
+var c: i32 = 12i32;
 a = b = c;
 "#;
     assert_eq!(inferred, expected);
@@ -149,9 +149,9 @@ fn test_array_propagate() {
     let mut buf = vec![0u8; 0];
     format_stmts(&ast, &mut buf).unwrap();
     let inferred = String::from_utf8(buf).unwrap();
-    let expected = r#"var aa: [i32] = [1: i32, 2: i32, 3: i32];
-var i: i32 = 0: i32;
-i = aa[1: i32|i64];
+    let expected = r#"var aa: [i32] = [1i32, 2i32, 3i32];
+var i: i32 = 0i32;
+i = aa[1(i32|i64)];
 "#;
     assert_eq!(inferred, expected);
 }
@@ -172,9 +172,9 @@ fn test_tuple_propagate() {
     let mut buf = vec![0u8; 0];
     format_stmts(&ast, &mut buf).unwrap();
     let inferred = String::from_utf8(buf).unwrap();
-    let expected = r#"var i: i32 = 0: i32;
-var a: [i32; 3] = [1: i32, 2: i32, 3: i32];
-a[0: i32|i64] = i;
+    let expected = r#"var i: i32 = 0i32;
+var a: [i32; 3] = [1i32, 2i32, 3i32];
+a[0(i32|i64)] = i;
 "#;
     assert_eq!(inferred, expected);
 }
