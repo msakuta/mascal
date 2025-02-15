@@ -86,11 +86,26 @@ pub enum Statement<'a> {
         ret_type: TypeSet,
         stmts: Rc<Vec<Statement<'a>>>,
     },
-    Expression(Expression<'a>),
+    Expression {
+        ex: Expression<'a>,
+        semicolon: bool,
+    },
     Loop(Vec<Statement<'a>>),
     While(Expression<'a>, Vec<Statement<'a>>),
     For(Span<'a>, Expression<'a>, Expression<'a>, Vec<Statement<'a>>),
     Break,
+}
+
+impl<'a> Statement<'a> {
+    fn expects_semicolon(&self) -> bool {
+        matches!(
+            self,
+            Self::Expression {
+                semicolon: false,
+                ..
+            } | Self::Break
+        )
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -669,8 +684,11 @@ pub(crate) fn conditional(i: Span) -> IResult<Span, Expression> {
             delimited(ws(char('{')), source, ws(char('}'))),
             map_res(
                 conditional,
-                |v| -> Result<Vec<Statement>, nom::error::Error<&str>> {
-                    Ok(vec![Statement::Expression(v)])
+                |ex| -> Result<Vec<Statement>, nom::error::Error<&str>> {
+                    Ok(vec![Statement::Expression {
+                        ex,
+                        semicolon: false,
+                    }])
                 },
             ),
         )),
@@ -767,7 +785,13 @@ pub(crate) fn full_expression(input: Span) -> IResult<Span, Expression> {
 
 fn expression_statement(input: Span) -> IResult<Span, Statement> {
     let (r, val) = full_expression(input)?;
-    Ok((r, Statement::Expression(val)))
+    Ok((
+        r,
+        Statement::Expression {
+            ex: val,
+            semicolon: false,
+        },
+    ))
 }
 
 pub(crate) fn func_arg(r: Span) -> IResult<Span, ArgDecl> {
@@ -799,7 +823,9 @@ pub(crate) fn func_decl(input: Span) -> IResult<Span, Statement> {
         Statement::FnDecl {
             name,
             args,
-            ret_type: (&ret_type).into(),
+            ret_type: ret_type
+                .map(|t| t.into())
+                .unwrap_or_else(|| TypeSet::void()),
             stmts: Rc::new(stmts),
         },
     ))
@@ -834,45 +860,49 @@ fn break_stmt(input: Span) -> IResult<Span, Statement> {
     Ok((r, Statement::Break))
 }
 
-fn general_statement<'a>(last: bool) -> impl Fn(Span<'a>) -> IResult<Span<'a>, Statement> {
-    let terminator = move |i| -> IResult<Span, ()> {
-        let mut semicolon = pair(tag(";"), multispace0);
-        if last {
-            Ok((opt(semicolon)(i)?.0, ()))
-        } else {
-            Ok((semicolon(i)?.0, ()))
-        }
-    };
-    move |input: Span| {
-        alt((
-            var_decl,
-            func_decl,
-            loop_stmt,
-            while_stmt,
-            for_stmt,
-            terminated(break_stmt, terminator),
-            terminated(expression_statement, terminator),
-            comment_stmt,
-        ))(input)
-    }
-}
-
-pub(crate) fn last_statement(input: Span) -> IResult<Span, Statement> {
-    general_statement(true)(input)
-}
-
 pub(crate) fn statement(input: Span) -> IResult<Span, Statement> {
-    general_statement(false)(input)
+    alt((
+        var_decl,
+        func_decl,
+        loop_stmt,
+        while_stmt,
+        for_stmt,
+        break_stmt,
+        expression_statement,
+        comment_stmt,
+    ))(input)
 }
 
-pub fn source(input: Span) -> IResult<Span, Vec<Statement>> {
-    let (r, mut v) = many0(statement)(input)?;
-    let (r, last) = opt(last_statement)(r)?;
-    let (r, _) = opt(multispace0)(r)?;
-    if let Some(last) = last {
-        v.push(last);
+pub fn source(mut input: Span) -> IResult<Span, Vec<Statement>> {
+    // This ugly loop with pushing to the vec is necessary to cary over parsed state (stmt.expects_semicolon())
+    // which can affect the next statement's syntax.
+    let mut v = vec![];
+    loop {
+        let (mut r, mut stmt) = match statement(input) {
+            Ok((r, stmt)) => (r, stmt),
+            Err(e) => {
+                if matches!(e, nom::Err::Failure(_)) {
+                    return Err(e);
+                } else {
+                    return Ok((input, v));
+                }
+            }
+        };
+        if stmt.expects_semicolon() {
+            let (rr, semicolon) = opt(ws(tag(";")))(r)?;
+            if semicolon.is_some() {
+                if let Statement::Expression {
+                    ref mut semicolon, ..
+                } = stmt
+                {
+                    *semicolon = true;
+                }
+            }
+            r = rr;
+        }
+        v.push(stmt);
+        input = r;
     }
-    Ok((r, v))
 }
 
 pub fn span_source(input: &str) -> IResult<Span, Vec<Statement>> {
@@ -880,4 +910,4 @@ pub fn span_source(input: &str) -> IResult<Span, Vec<Statement>> {
 }
 
 #[cfg(test)]
-mod test;
+pub(crate) mod test;

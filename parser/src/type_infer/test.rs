@@ -174,7 +174,7 @@ fn test_tuple_propagate() {
     let inferred = String::from_utf8(buf).unwrap();
     let expected = r#"var i: i32 = 0i32;
 var a: [i32; 3] = [1i32, 2i32, 3i32];
-a[0(i32|i64)] = i;
+a[0(i32|i64)] = i
 "#;
     assert_eq!(inferred, expected);
 }

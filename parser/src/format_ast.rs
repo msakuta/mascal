@@ -173,10 +173,14 @@ pub fn format_stmt(
             }
             writeln!(f, ";")
         }
-        Statement::Expression(ex) => {
+        Statement::Expression { ex, semicolon } => {
             write!(f, "{indent}")?;
             format_expr(ex, level, f)?;
-            writeln!(f, ";")?;
+            if *semicolon {
+                writeln!(f, ";")?;
+            } else {
+                writeln!(f, "")?;
+            }
             Ok(())
         }
         Statement::FnDecl {

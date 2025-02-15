@@ -92,3 +92,12 @@ impl<'src> From<std::io::Error> for CompileError<'src> {
         }
     }
 }
+
+impl<'src> From<EvalError> for CompileError<'src> {
+    fn from(value: EvalError) -> Self {
+        Self {
+            span: None,
+            kind: CompileErrorKind::EvalError(value),
+        }
+    }
+}

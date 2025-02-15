@@ -720,8 +720,13 @@ where
                 subctx.variables.insert(arg.name, arg.ty.clone().into());
             }
             let last_stmt = tc_stmts_forward(stmts, &mut subctx)?;
-            if let Some((ret_type, Statement::Expression(ret_expr))) =
-                ret_type.determine().zip(stmts.last())
+            if let Some((
+                ret_type,
+                Statement::Expression {
+                    ex: ret_expr,
+                    semicolon: false,
+                },
+            )) = ret_type.determine().zip(stmts.last())
             {
                 if let RetType::Some(ret_type) = ret_type {
                     tc_coerce_type(&last_stmt, &ret_type, ret_expr.span, ctx)?;
@@ -735,8 +740,11 @@ where
             }
             res = TypeSet::void();
         }
-        Statement::Expression(e) => {
-            res = tc_expr_forward(&e, ctx)?;
+        Statement::Expression { ex, semicolon } => {
+            let expr_res = tc_expr_forward(&ex, ctx)?;
+            if !semicolon {
+                res = expr_res;
+            }
         }
         Statement::Loop(e) => {
             res = tc_stmts_forward(e, ctx)?;
@@ -805,7 +813,7 @@ where
             }
         }
         Statement::FnDecl { .. } => {}
-        Statement::Expression(e) => {
+        Statement::Expression { ex: e, .. } => {
             tc_expr_propagate(e, ts, ctx)?;
         }
         Statement::Loop(stmts) => {
@@ -838,13 +846,17 @@ where
 
 pub fn tc_stmts_propagate<'src, 'ast, 'native>(
     stmts: &'ast mut Vec<Statement<'src>>,
-    _ts: &TypeSet,
+    ts: &TypeSet,
     ctx: &mut TypeCheckContext<'src, 'native, '_>,
 ) -> Result<(), TypeCheckError<'src>>
 where
     'native: 'src,
 {
-    for stmt in stmts.iter_mut().rev() {
+    let mut iter = stmts.iter_mut().rev();
+    if let Some(stmt) = iter.next() {
+        tc_stmt_propagate(stmt, ts, ctx)?;
+    }
+    for stmt in iter {
         tc_stmt_propagate(stmt, &TypeSet::default(), ctx)?;
     }
     Ok(())

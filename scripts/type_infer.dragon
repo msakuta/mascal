@@ -3,13 +3,13 @@ fn infer() -> i32 {
     i
 }
 
-fn f2(x: i32) {
+fn f2(x: i32) -> i32 {
     var const_2 = 2;
     var interim = x + const_2;
     interim * 2
 }
 
-fn f3(s: str, x: i64) {
+fn f3(s: str, x: i64) -> i64 {
     strlen(s) + x
 }
 
@@ -18,7 +18,7 @@ fn i64(i: i32) -> i64 {
     ret
 }
 
-fn f4(x: f64) {
+fn f4(x: f64) -> f64 {
     var const_2 = 2.;
     var interim = x + const_2;
     interim * 2.

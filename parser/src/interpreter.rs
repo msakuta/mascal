@@ -974,8 +974,15 @@ where
                     )),
                 );
             }
-            Statement::Expression(e) => {
-                res = eval(&e, ctx)?;
+            Statement::Expression { ex, semicolon } => {
+                let ex_res = eval(&ex, ctx)?;
+                if let RunResult::Yield(ex_res) = ex_res {
+                    if *semicolon {
+                        res = RunResult::Yield(ex_res);
+                    } else {
+                        res = RunResult::Yield(ex_res);
+                    }
+                }
                 if let RunResult::Break = res {
                     return Ok(res);
                 }

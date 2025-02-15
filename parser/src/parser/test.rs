@@ -4,6 +4,22 @@ use super::*;
 use nom::Finish;
 use ExprEnum::*;
 
+/// Shorthand for an expression statement without semicolon
+pub(crate) fn expr_nosemi(ex: Expression) -> Statement {
+    Statement::Expression {
+        ex,
+        semicolon: false,
+    }
+}
+
+/// Shorthand for an expression statement with semicolon
+pub(crate) fn expr_semi(ex: Expression) -> Statement {
+    Statement::Expression {
+        ex,
+        semicolon: true,
+    }
+}
+
 #[test]
 fn test_comments() {
     let res = comment_stmt(Span::new("/* x * y */")).unwrap();
@@ -93,13 +109,13 @@ fn test_add() {
     let res = expression_statement(span).finish().unwrap().1;
     assert_eq!(
         res,
-        Statement::Expression(Expression::new(
+        expr_nosemi(Expression::new(
             Add(
                 Box::new(Expression::new(float(123.4), span.take(5))),
                 Box::new(Expression::new(int(456), span.take_split(8).0))
             ),
             span
-        ))
+        ),)
     );
 }
 
@@ -126,7 +142,7 @@ fn test_add_paren() {
     let res = expression_statement(span).finish().unwrap().1;
     assert_eq!(
         res,
-        Statement::Expression(Expression::new(
+        expr_nosemi(Expression::new(
             Add(
                 Box::new(Expression::new(float(123.4), span.take(5))),
                 Box::new(Expression::new(
@@ -330,16 +346,16 @@ fn fn_decl_test() {
         Statement::FnDecl {
             name: span.subslice(3, 1),
             args: vec![ArgDecl::new("a", TypeDecl::Any)],
-            ret_type: TypeSet::all(),
+            ret_type: TypeSet::void(),
             stmts: Rc::new(vec![
-                Statement::Expression(Expression::new(
+                expr_semi(Expression::new(
                     VarAssign(
                         var_r(span.subslice(14, 1)),
                         Box::new(Expression::new(int(123), span.subslice(18, 3)))
                     ),
                     span.subslice(14, 7)
-                )),
-                Statement::Expression(Expression::new(
+                ),),
+                expr_semi(Expression::new(
                     Mult(var_r(span.subslice(27, 1)), var_r(span.subslice(31, 1))),
                     span.subslice(27, 5)
                 ))
@@ -356,8 +372,8 @@ fn fn_decl_test() {
         Statement::FnDecl {
             name: span.subslice(3, 1),
             args: vec![ArgDecl::new("a", TypeDecl::I32)],
-            ret_type: TypeSet::all(),
-            stmts: Rc::new(vec![Statement::Expression(Expression::new(
+            ret_type: TypeSet::void(),
+            stmts: Rc::new(vec![expr_nosemi(Expression::new(
                 Mult(
                     var_r(span.subslice(15, 1)),
                     Box::new(Expression::new(int(2), span.subslice(19, 1)))
@@ -373,7 +389,7 @@ fn fn_decl_test() {
             name: span.subslice(3, 1),
             args: vec![ArgDecl::new("a", TypeDecl::I32)],
             ret_type: TypeSet::f64(),
-            stmts: Rc::new(vec![Statement::Expression(Expression::new(
+            stmts: Rc::new(vec![expr_nosemi(Expression::new(
                 Mult(
                     var_r(span.subslice(22, 1)),
                     Box::new(Expression::new(int(2), span.subslice(26, 1)))
@@ -559,7 +575,7 @@ fn test_stmt() {
     let span = Span::new("  b  ;");
     assert_eq!(
         source(span).finish().unwrap().1,
-        vec![Statement::Expression(Expression::new(
+        vec![expr_semi(Expression::new(
             Variable("b"),
             span.subslice(2, 1)
         ))]
@@ -580,7 +596,7 @@ fn test_cond() {
                     ),
                     span.subslice(3, 8)
                 )),
-                vec![Statement::Expression(Expression::new(
+                vec![expr_nosemi(Expression::new(
                     Variable("b"),
                     span.subslice(13, 1)
                 ))],
