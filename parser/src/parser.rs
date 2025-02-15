@@ -884,7 +884,7 @@ pub fn source(mut input: Span) -> IResult<Span, Vec<Statement>> {
                 if matches!(e, nom::Err::Failure(_)) {
                     return Err(e);
                 } else {
-                    return Ok((input, v));
+                    return Ok((ws_comment(input)?.0, v));
                 }
             }
         };
