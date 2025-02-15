@@ -125,9 +125,12 @@ pub fn type_check(src: &str) -> Result<JsValue, JsValue> {
     mascal::type_check(&mut parse_result.1, &mut ctx)
         .map_err(|e| JsValue::from_str(&format!("Error on type check: {}", e)))?;
     let mut buf = vec![];
-    format_stmts(&parse_result.1, &mut buf).map_err(|e| JsValue::from_str(&format!("AST formatting error: {e}")))?;
+    format_stmts(&parse_result.1, &mut buf)
+        .map_err(|e| JsValue::from_str(&format!("AST formatting error: {e}")))?;
     let res = String::from_utf8(buf).map_err(|e| JsValue::from_str(&format!("UTF8 error: {e}")))?;
-    Ok(JsValue::from_str(&format!("OK,\n\nType inference result:\n\n{res}")))
+    Ok(JsValue::from_str(&format!(
+        "OK,\n\nType inference result:\n\n{res}"
+    )))
 }
 
 #[wasm_bindgen]

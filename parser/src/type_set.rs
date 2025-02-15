@@ -384,7 +384,7 @@ impl std::fmt::Display for TypeSet {
             return write!(f, "any");
         };
         let mut written = false;
-        let mut write_ty = |val, name| {
+        let mut write_ty = |val, name: &str| {
             if val {
                 if written {
                     write!(f, "|")?;
@@ -402,6 +402,20 @@ impl std::fmt::Display for TypeSet {
         write_ty(set.string, "str")?;
         if let Some(array) = set.array.as_ref() {
             write_ty(true, &array_size_to_string(array))?;
+        }
+
+        if let Some(tuple) = set.tuple.as_ref() {
+            write_ty(
+                true,
+                &tuple.iter().fold("".to_string(), |acc, cur| {
+                    let str = cur.to_string();
+                    if acc.is_empty() {
+                        str
+                    } else {
+                        acc + ", " + &str
+                    }
+                }),
+            )?;
         }
 
         // for st in &self.structs {

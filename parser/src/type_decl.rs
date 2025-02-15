@@ -112,9 +112,14 @@ impl std::fmt::Display for TypeDecl {
             TypeDecl::Tuple(inner) => write!(
                 f,
                 "({})",
-                inner
-                    .iter()
-                    .fold(String::new(), |acc, cur| { acc + &cur.to_string() })
+                inner.iter().fold(String::new(), |acc, cur| {
+                    let str = cur.to_string();
+                    if acc.is_empty() {
+                        str
+                    } else {
+                        acc + ", " + &str
+                    }
+                })
             )?,
         }
         Ok(())
