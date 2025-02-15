@@ -420,7 +420,7 @@ fn array_size_to_string(this: &(Box<TypeSet>, ArraySize)) -> String {
     }
 }
 
-fn tc_array_size(value: &ArraySize, target: &ArraySize) -> Result<(), String> {
+fn _tc_array_size(value: &ArraySize, target: &ArraySize) -> Result<(), String> {
     match (value, target) {
         (_, ArraySize::Any) => {}
         (ArraySize::Fixed(v_len), ArraySize::Fixed(t_len)) => {
@@ -431,8 +431,8 @@ fn tc_array_size(value: &ArraySize, target: &ArraySize) -> Result<(), String> {
             }
         }
         (ArraySize::Range(v_range), ArraySize::Range(t_range)) => {
-            array_range_verify(v_range)?;
-            array_range_verify(t_range)?;
+            _array_range_verify(v_range)?;
+            _array_range_verify(t_range)?;
             if t_range.end < v_range.end || v_range.start < t_range.start {
                 return Err(format!(
                     "Array range is not compatible: {value} cannot assign to {target}"
@@ -440,7 +440,7 @@ fn tc_array_size(value: &ArraySize, target: &ArraySize) -> Result<(), String> {
             }
         }
         (ArraySize::Fixed(v_len), ArraySize::Range(t_range)) => {
-            array_range_verify(t_range)?;
+            _array_range_verify(t_range)?;
             if *v_len < t_range.start || t_range.end < *v_len {
                 return Err(format!(
                     "Array range is not compatible: {v_len} cannot assign to {target}"
@@ -448,7 +448,7 @@ fn tc_array_size(value: &ArraySize, target: &ArraySize) -> Result<(), String> {
             }
         }
         (ArraySize::Any, ArraySize::Range(t_range)) => {
-            array_range_verify(t_range)?;
+            _array_range_verify(t_range)?;
         }
         _ => {
             return Err(format!(
@@ -459,7 +459,7 @@ fn tc_array_size(value: &ArraySize, target: &ArraySize) -> Result<(), String> {
     Ok(())
 }
 
-fn array_range_verify(range: &std::ops::Range<usize>) -> Result<(), String> {
+fn _array_range_verify(range: &std::ops::Range<usize>) -> Result<(), String> {
     if range.end < range.start {
         return Err(format!(
             "Array size has invalid range: {range:?}; start should be less than end"
