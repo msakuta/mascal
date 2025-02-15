@@ -889,6 +889,19 @@ where
                         })?,
                     )),
                 );
+            }
+            _ => {}
+        }
+    }
+
+    for stmt in stmts.iter_mut() {
+        match stmt {
+            Statement::FnDecl {
+                name,
+                args,
+                ret_type,
+                stmts,
+            } => {
                 let mut inferer = TypeCheckContext::push_stack(ctx);
                 inferer.variables = args
                     .iter()
