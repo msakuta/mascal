@@ -52,7 +52,7 @@ document.getElementById("clearCanvas").addEventListener("click", () => {
 });
 
 const initalSrc = `
-fn fact(n) {
+fn fact(n: i64) -> i64 {
     if n < 1 {
         1
     } else {
@@ -60,7 +60,7 @@ fn fact(n) {
     }
 }
 
-print(fact(10));
+print(fact(5));
 `;
 
 const samples = document.getElementById("samples");
