@@ -744,6 +744,8 @@ where
             let expr_res = tc_expr_forward(&ex, ctx)?;
             if !semicolon {
                 res = expr_res;
+            } else {
+                res = TypeSet::void();
             }
         }
         Statement::Loop(e) => {

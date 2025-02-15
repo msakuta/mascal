@@ -4,7 +4,7 @@ fn fact(n: i64) -> i64 {
         1
     } else {
         n * fact(n - 1)
-    };
+    }
 }
 
-print(fact(10));
+print(fact(5));
