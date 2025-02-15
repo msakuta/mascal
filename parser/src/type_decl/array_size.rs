@@ -53,7 +53,7 @@ impl ArraySize {
             (this, Self::Any) => Some(this.clone()),
             (Self::Range(lhs), Self::Range(rhs)) => {
                 let min = lhs.clone().min()?.max(rhs.clone().min()?);
-                let max = lhs.clone().max()?.min(rhs.clone().min()?);
+                let max = lhs.clone().max()?.min(rhs.clone().max()?);
                 Some(if max - min <= 1 {
                     Self::Fixed(min)
                 } else {

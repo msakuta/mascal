@@ -273,15 +273,12 @@ impl TypeSet {
         let pair = set.array.as_ref().zip(rhs.array.as_ref());
         let array = if let Some((set, rhs)) = pair {
             // The element type of the array has to be "Any" or determined, not a mix of 2 types
-            println!("bitand {:?} & {:?}", self, rhs);
             let ty = set.0.as_ref().try_intersect(&rhs.0)?;
-            tc_array_size(&set.1, &rhs.1)?;
             if let Some(size) = set.1.try_and(&rhs.1) {
                 let res = (Box::new(ty), size);
-                println!("Array bitand result: {:?}", res);
                 Some(res)
             } else {
-                None
+                return Err(format!("Array size is not compatible: {} cannot assign to {}", rhs.1, set.1));
             }
         } else {
             None
