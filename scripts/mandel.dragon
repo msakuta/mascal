@@ -23,33 +23,33 @@ puts(nl);
 
 /* Determine whether the specific location diverges. */
 /* Solve for z = z^2 + c in the complex plane. */
-fn mandelconverger(real, imag, iters, creal, cimag) {
+fn mandelconverger(real: f64, imag: f64, iters: i64, creal: f64, cimag: f64) -> i64 {
     for iters in 0 .. 255 {
         if real*real + imag*imag > 4 {
             break;
         };
         var next_r = real*real - imag*imag + creal;
-        imag = 2*real*imag + cimag;
+        imag = 2.*real*imag + cimag;
         real = next_r;
     }
     iters
 }
 
 /* Return the number of iterations required for the iteration to escape */
-fn mandelconverge(real, imag) {
-  mandelconverger(real, imag, 0, real, imag);
+fn mandelconverge(real: f64, imag: f64) -> i64 {
+  mandelconverger(real, imag, 0, real, imag)
 }
 
 /* Compute and plot the mandelbrot set with the specified 2 dimensional range
  info. */
-fn mandelhelp(xmin, xmax, xstep,   ymin, ymax, ystep,   nl) {
+fn mandelhelp(xmin: f64, xmax: f64, xstep: f64,   ymin: f64, ymax: f64, ystep: f64) {
     var steps: i64 = (ymax - ymin) / ystep;
     print("xstep", xstep, "ysteps", steps, "ystep", ystep);
     for iy in 0 .. steps {
-        var y = iy * (ymax - ymin) * ystep + ymin;
+        var y = iy as f64 * (ymax - ymin) * ystep as f64 + ymin;
         var xsteps: i64 = (xmax - xmin) / xstep;
         for ix in 0 .. xsteps {
-            var x = ix * (xmax - xmin) * xstep + xmin;
+            var x = ix as f64 * (xmax - xmin) * xstep as f64 + xmin;
             printdensity(mandelconverge(x,y));
         }
         puts("\n");
@@ -58,9 +58,11 @@ fn mandelhelp(xmin, xmax, xstep,   ymin, ymax, ystep,   nl) {
 
 /* mandel - This is a convenient helper function for plotting the mandelbrot set
  from the specified position with the specified Magnification. */
-fn mandel(realstart, imagstart, realmag, imagmag,   nl,) {
-  mandelhelp(realstart, realstart+realmag*78, realmag,
-             imagstart, imagstart+imagmag*40, imagmag,  nl);
+fn mandel(realstart: f64, imagstart: f64, realmag: f64, imagmag: f64) {
+  var realend = realstart+realmag*78.;
+  var imagend = imagstart+imagmag*40.;
+  mandelhelp(realstart, realend, realmag,
+             imagstart, imagend, imagmag);
 }
 
-mandel(-2.3, -2.0, 0.025, 0.05, nl, );
+mandel(-2.3, -2.0, 0.025, 0.05);
