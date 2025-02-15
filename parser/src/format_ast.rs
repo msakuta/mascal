@@ -189,31 +189,31 @@ pub fn format_stmt(
             ret_type,
             stmts,
         } => {
-            write!(f, "fn {}(", name)?;
+            write!(f, "{indent}fn {}(", name)?;
             format_params(&args, f)?;
             writeln!(f, ") -> {} {{", ret_type)?;
             for stmt in stmts.iter() {
                 format_stmt(stmt, level + 1, f)?;
             }
-            writeln!(f, "}}")?;
+            writeln!(f, "{indent}}}")?;
             Ok(())
         }
         Statement::Loop(stmts) => {
-            write!(f, "loop {{")?;
+            write!(f, "{indent}loop {{")?;
             for stmt in stmts {
-                format_stmt(stmt, level, f)?;
+                format_stmt(stmt, level + 1, f)?;
             }
-            write!(f, "}}")?;
+            write!(f, "{indent}}}")?;
             Ok(())
         }
         Statement::While(cond, stmts) => {
-            write!(f, "while ")?;
+            write!(f, "{indent}while ")?;
             format_expr(cond, level, f)?;
-            write!(f, "{{")?;
+            writeln!(f, " {{")?;
             for stmt in stmts {
-                format_stmt(stmt, level, f)?;
+                format_stmt(stmt, level + 1, f)?;
             }
-            write!(f, "}}")?;
+            writeln!(f, "{indent}}}")?;
             Ok(())
         }
         Statement::For(name, start, end, stmts) => {
