@@ -449,8 +449,7 @@ where
         ExprEnum::VarAssign(lhs, rhs) => tc_expr_propagate(rhs, &tc_expr_forward(lhs, ctx)?, ctx)?,
         ExprEnum::FnInvoke(fname, args) => {
             let fn_decl = ctx
-                .functions
-                .get(*fname)
+                .get_fn(*fname)
                 .ok_or_else(|| TypeCheckError::undefined_fn(fname, span, ctx.source_file))?;
             let params = fn_decl.args().clone();
             for (arg, param) in args.iter_mut().zip(params.iter()).rev() {
@@ -866,7 +865,17 @@ where
                 ret_type,
                 stmts,
             } => {
-                let mut inferer = TypeCheckContext::new(ctx.source_file);
+                ctx.functions.insert(
+                    name.to_string(),
+                    FuncDef::Code(FuncCode::new(
+                        stmts.clone(),
+                        args.clone(),
+                        ret_type.determine().ok_or_else(|| {
+                            TypeCheckError::indeterminant_type(*name, ctx.source_file)
+                        })?,
+                    )),
+                );
+                let mut inferer = TypeCheckContext::push_stack(ctx);
                 inferer.variables = args
                     .iter()
                     .map(|param| (param.name, param.ty.clone().into()))
@@ -903,14 +912,10 @@ where
                         name,
                         ret_type
                     );
-                    for stmt in stmts.iter_mut().rev() {
-                        tc_stmt_propagate(stmt, &ret_type, &mut inferer)?;
-                    }
+                    tc_stmts_propagate(stmts, &ret_type, &mut inferer)?;
                 } else if *ret_type == TypeSet::void() {
                     dbg_println!("Function {} returns void; coercing", name);
-                    for stmt in stmts.iter_mut().rev() {
-                        tc_stmt_propagate(stmt, &ret_type, &mut inferer)?;
-                    }
+                    tc_stmts_propagate(stmts, &ret_type, &mut inferer)?;
                 } else {
                     dbg_println!(
                         "Function {}'s return type could not be determined: {}",
