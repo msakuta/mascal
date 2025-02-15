@@ -278,7 +278,10 @@ impl TypeSet {
                 let res = (Box::new(ty), size);
                 Some(res)
             } else {
-                return Err(format!("Array size is not compatible: {} cannot assign to {}", rhs.1, set.1));
+                return Err(format!(
+                    "Array size is not compatible: {} cannot assign to {}",
+                    rhs.1, set.1
+                ));
             }
         } else {
             None
