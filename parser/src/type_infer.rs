@@ -104,10 +104,41 @@ impl<'src> TypeCheckError<'src> {
     }
 }
 
+/// A type information about a variable in the type inference context.
+/// The difference between parameter and non-parameter (locally declared variables)
+/// is that the former cannot be modified.
+#[derive(Clone, Default, Debug)]
+struct VariableType {
+    parameter: bool,
+    ts: TypeSet,
+}
+
+impl VariableType {
+    fn parameter(ts: TypeSet) -> Self {
+        Self {
+            parameter: true,
+            ts,
+        }
+    }
+
+    fn local(ts: TypeSet) -> Self {
+        Self {
+            parameter: false,
+            ts,
+        }
+    }
+}
+
+impl std::fmt::Display for VariableType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.ts.fmt(f)
+    }
+}
+
 #[derive(Clone)]
 pub struct TypeCheckContext<'src, 'native, 'ctx> {
     /// Variables table for type checking.
-    variables: HashMap<&'src str, TypeSet>,
+    variables: HashMap<&'src str, VariableType>,
     /// Function names are owned strings because it can be either from source or native.
     functions: HashMap<String, FuncDef<'src, 'native>>,
     super_context: Option<&'ctx TypeCheckContext<'src, 'native, 'ctx>>,
@@ -124,7 +155,7 @@ impl<'src, 'native, 'ctx> TypeCheckContext<'src, 'native, 'ctx> {
         }
     }
 
-    fn get_var(&self, name: &str) -> Option<TypeSet> {
+    fn get_var(&self, name: &str) -> Option<VariableType> {
         if let Some(val) = self.variables.get(name) {
             Some(val.clone())
         } else if let Some(super_ctx) = self.super_context {
@@ -163,10 +194,27 @@ impl<'src, 'native, 'ctx> TypeCheckContext<'src, 'native, 'ctx> {
         }
     }
 
+    fn intersect_var_type(&mut self, var_ref: &VarRef<'src>, ty: &TypeSet) -> Result<(), String> {
+        if let Some(var_ty) = self.get_var_mut(var_ref) {
+            *var_ty = var_ty.try_intersect(ty)?;
+        }
+        Ok(())
+    }
+
     /// Peel off variable reference to constrain the type set
     fn get_var_mut(&mut self, var_ref: &VarRef<'src>) -> Option<&mut TypeSet> {
         match var_ref {
-            VarRef::Variable(name) => Some(self.variables.entry(name).or_default()),
+            VarRef::Variable(name) => {
+                // We do not get mutable reference to super context, since we do not support inter-function
+                // type inference (yet).
+                let entry = self.variables.entry(name).or_default();
+                // Parameter type cannot be inferred. It should be given in the declaration.
+                if entry.parameter {
+                    None
+                } else {
+                    Some(&mut entry.ts)
+                }
+            }
             VarRef::Array(int) => {
                 if let Some(var) = self.get_var_mut(int) {
                     var.and_then_mut(|v| v.array.as_mut())
@@ -225,9 +273,11 @@ where
                 .collect::<Result<Vec<_>, _>>()?;
             TypeSet::tuple(type_sets)
         }
-        ExprEnum::Variable(str) => ctx
-            .get_var(str)
-            .ok_or_else(|| TypeCheckError::undefined_var(str, e.span, ctx.source_file))?,
+        ExprEnum::Variable(str) => {
+            ctx.get_var(str)
+                .ok_or_else(|| TypeCheckError::undefined_var(str, e.span, ctx.source_file))?
+                .ts
+        }
         ExprEnum::Cast(_ex, decl) => decl.into(),
         ExprEnum::VarAssign(lhs, rhs) => {
             let span = e.span;
@@ -439,11 +489,8 @@ where
         }
         ExprEnum::Variable(name) => {
             let source_file = ctx.source_file;
-            if let Some(var) = ctx.variables.get_mut(name) {
-                *var = var
-                    .try_intersect(ts)
-                    .map_err(|e| TypeCheckError::new(e, span, source_file))?;
-            }
+            ctx.intersect_var_type(&VarRef::Variable(name), ts)
+                .map_err(|e| TypeCheckError::new(e, span, source_file))?;
         }
         ExprEnum::Cast(ex, _ty) => tc_expr_propagate(ex, &TypeSet::all(), ctx)?,
         ExprEnum::VarAssign(lhs, rhs) => tc_expr_propagate(rhs, &tc_expr_forward(lhs, ctx)?, ctx)?,
@@ -484,8 +531,6 @@ where
         | ExprEnum::Sub(lhs, rhs)
         | ExprEnum::Mult(lhs, rhs)
         | ExprEnum::Div(lhs, rhs)
-        | ExprEnum::LT(lhs, rhs)
-        | ExprEnum::GT(lhs, rhs)
         | ExprEnum::BitAnd(lhs, rhs)
         | ExprEnum::BitXor(lhs, rhs)
         | ExprEnum::BitOr(lhs, rhs)
@@ -493,6 +538,19 @@ where
         | ExprEnum::Or(lhs, rhs) => {
             tc_expr_propagate(lhs, ts, ctx)?;
             tc_expr_propagate(rhs, ts, ctx)?;
+        }
+        ExprEnum::LT(lhs, rhs) | ExprEnum::GT(lhs, rhs) => {
+            // Comparison operators yield I32 regardless of operand types, so reverse propagation
+            // loses the original type information. Therefore, we need to forward from either side
+            // and propagate to the other side. It has possibility of exponential growth in number
+            // of evaluations, but in reality you won't nest comparison expressions (you may chain it
+            // with logical && or ||, but they won't invoke exponential growth).
+            // TODO: reduce duplicate evaluation
+            let lhs_ts = tc_expr_forward(lhs, ctx)?;
+            let rhs_ts = tc_expr_forward(rhs, ctx)?;
+            let inter_ts = lhs_ts.try_intersect(&rhs_ts).unwrap();
+            tc_expr_propagate(lhs, &inter_ts, ctx)?;
+            tc_expr_propagate(rhs, &inter_ts, ctx)?;
         }
         ExprEnum::Conditional(cond, t_branch, f_branch) => {
             tc_expr_propagate(cond, &TypeSet::i32(), ctx)?;
@@ -534,10 +592,10 @@ fn forward_lvalue<'src, 'b, 'native>(
         ExprEnum::ArrLiteral(_) => Err("Array literal cannot be a lvalue".to_string()),
         ExprEnum::TupleLiteral(_) => Err("Tuple literal cannot be a lvalue".to_string()),
         ExprEnum::Variable(name) => {
-            let ts = ctx
+            let var_type = ctx
                 .get_var(name)
                 .ok_or_else(|| format!("Variable {name} not found"))?;
-            Ok(Some((VarRef::Variable(name), ts.clone())))
+            Ok(Some((VarRef::Variable(name), var_type.ts.clone())))
         }
         ExprEnum::VarAssign(_lhs, _rhs) => {
             // Variable assign expression yields rvalue by convention. For example, `(a = b) = c` won't work, because
@@ -678,12 +736,14 @@ where
                 } else {
                     type_.into()
                 };
-                ctx.variables.insert(**var, init_type.into());
+                ctx.variables
+                    .insert(**var, VariableType::local(init_type.into()));
             } else {
                 // If the declaration has a type declaraction, we respect it.
                 // Namely, don't fix a type of `var a: [i32] = [1, 2, 3]` to `[i32; 3]` because
                 // we may want to push to this array later.
-                ctx.variables.insert(**var, type_.into());
+                ctx.variables
+                    .insert(**var, VariableType::local(type_.into()));
             }
             res = TypeSet::void();
         }
@@ -717,7 +777,9 @@ where
                         &mut TypeCheckContext::new(ctx.source_file),
                     )?;
                 }
-                subctx.variables.insert(arg.name, arg.ty.clone().into());
+                subctx
+                    .variables
+                    .insert(arg.name, VariableType::parameter(arg.ty.clone().into()));
             }
             let last_stmt = tc_stmts_forward(stmts, &mut subctx)?;
             if let Some((
@@ -766,7 +828,8 @@ where
         Statement::For(iter, from, to, e) => {
             tc_coerce_type(&tc_expr_forward(from, ctx)?, &TypeDecl::I64, from.span, ctx)?;
             tc_coerce_type(&tc_expr_forward(to, ctx)?, &TypeDecl::I64, to.span, ctx)?;
-            ctx.variables.insert(iter, TypeSet::i64());
+            ctx.variables
+                .insert(iter, VariableType::local(TypeSet::i64()));
             res = tc_stmts_forward(e, ctx)?;
         }
         Statement::Break => {
@@ -805,6 +868,7 @@ where
                 .variables
                 .get(**var)
                 .ok_or_else(|| TypeCheckError::undefined_var(var, *var, ctx.source_file))?
+                .ts
                 .determine()
                 .ok_or_else(|| TypeCheckError::indeterminant_type(*var, ctx.source_file))?;
             let propagating_type_set = (&propagating_type).into();
@@ -821,8 +885,9 @@ where
         Statement::Loop(stmts) => {
             tc_stmts_propagate(stmts, &TypeSet::default(), ctx)?;
         }
-        Statement::While(_cond, stmts) => {
+        Statement::While(cond, stmts) => {
             tc_stmts_propagate(stmts, &TypeSet::default(), ctx)?;
+            tc_expr_propagate(cond, &TypeSet::i32(), ctx)?;
         }
         Statement::For(iter, from, to, stmts) => {
             tc_stmts_propagate(stmts, &TypeSet::default(), ctx)?;
@@ -834,7 +899,7 @@ where
                 ));
             };
             dbg_println!("propagate For {}: {}", iter, idx_ty);
-            let idx_ty = idx_ty.clone();
+            let idx_ty = idx_ty.ts.clone();
             tc_expr_propagate(to, &idx_ty, ctx)?;
             tc_expr_propagate(from, &idx_ty, ctx)?;
         }
@@ -905,7 +970,7 @@ where
                 let mut inferer = TypeCheckContext::push_stack(ctx);
                 inferer.variables = args
                     .iter()
-                    .map(|param| (param.name, param.ty.clone().into()))
+                    .map(|param| (param.name, VariableType::parameter(param.ty.clone().into())))
                     .collect();
                 let mut last_ty = TypeSet::default();
                 let stmts = Rc::make_mut(stmts);

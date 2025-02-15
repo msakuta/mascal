@@ -5,7 +5,7 @@ for i in 0 .. n {
     push(array, 1);
 }
 
-fn sieve(array: [i32], prime: i64) {
+fn sieve(array: [i32], prime: i64) -> [i32] {
     var i = 2;
     /*print(prime, type(prime));*/
     while prime * i < len(array) {
