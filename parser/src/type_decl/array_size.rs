@@ -54,7 +54,11 @@ impl ArraySize {
             (Self::Range(lhs), Self::Range(rhs)) => {
                 let min = lhs.clone().min()?.max(rhs.clone().min()?);
                 let max = lhs.clone().max()?.min(rhs.clone().min()?);
-                Some(Self::Range(min..max))
+                Some(if max - min <= 1 {
+                    Self::Fixed(min)
+                } else {
+                    Self::Range(min..max + 1)
+                })
             }
             (Self::Range(lhs), Self::Fixed(rhs)) => {
                 if lhs.contains(&rhs) {
