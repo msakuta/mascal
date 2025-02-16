@@ -881,6 +881,7 @@ where
     Ok(())
 }
 
+/// Type check and infer the given AST. Despite the name, the stmts will be changed by the type inference.
 pub fn type_check<'src, 'ast, 'native>(
     stmts: &'ast mut Vec<Statement<'src>>,
     ctx: &mut TypeCheckContext<'src, 'native, '_>,
