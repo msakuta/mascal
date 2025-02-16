@@ -961,12 +961,14 @@ where
                     dbg_println!("Function {} returns void; coercing", name);
                     tc_stmts_propagate(stmts, &ret_type, &mut inferer)?;
                 } else {
-                    dbg_println!(
-                        "Function {}'s return type could not be determined: {}",
-                        name,
-                        intersection
-                    );
-                    *ret_type = TypeSet::void();
+                    return Err(TypeCheckError::new(
+                        format!(
+                            "Function {}'s return type could not be determined: {}",
+                            name, intersection
+                        ),
+                        *name,
+                        ctx.source_file,
+                    ));
                 }
             }
             _ => {}
