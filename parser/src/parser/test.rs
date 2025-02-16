@@ -824,3 +824,25 @@ fn test_range_sz_array() {
         )
     );
 }
+#[test]
+fn test_void_fn() {
+    let span = Span::new("fn returns_void() -> void { print(\"Hello\")}");
+    assert_eq!(
+        source(span).finish().unwrap().1,
+        vec![Statement::FnDecl {
+            name: span.subslice(3, 12),
+            args: vec![],
+            ret_type: TypeSet::void(),
+            stmts: Rc::new(vec![expr_nosemi(Expression::new(
+                FnInvoke(
+                    "print",
+                    vec![FnArg::new(Expression::new(
+                        ExprEnum::StrLiteral("Hello".to_string()),
+                        span.subslice(34, 7)
+                    ))]
+                ),
+                span.subslice(28, 14)
+            ))])
+        }]
+    );
+}

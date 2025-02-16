@@ -808,6 +808,16 @@ pub(crate) fn func_arg(r: Span) -> IResult<Span, ArgDecl> {
     ))
 }
 
+fn type_set(input: Span) -> IResult<Span, TypeSet> {
+    type_decl(input).map_or_else(
+        |_| {
+            let (r, _) = tag("void")(input)?;
+            Ok((r, TypeSet::void()))
+        },
+        |(r, ty)| Ok((r, ty.into())),
+    )
+}
+
 pub(crate) fn func_decl(input: Span) -> IResult<Span, Statement> {
     let (r, _) = ws(tag("fn"))(input)?;
     let (r, name) = identifier(r)?;
@@ -816,7 +826,7 @@ pub(crate) fn func_decl(input: Span) -> IResult<Span, Statement> {
         terminated(separated_list0(ws(tag(",")), func_arg), opt(ws(char(',')))),
         tag(")"),
     ))(r)?;
-    let (r, ret_type) = opt(preceded(ws(tag("->")), type_decl))(r)?;
+    let (r, ret_type) = opt(preceded(ws(tag("->")), type_set))(r)?;
     let (r, stmts) = delimited(ws(char('{')), source, ws(char('}')))(r)?;
     Ok((
         r,
