@@ -175,8 +175,19 @@ impl Value {
                     .collect::<Result<_, _>>()?;
                 Self::Tuple(Rc::new(RefCell::new(values)))
             }
-            _ => todo!(),
+            tag_byte => return Err(ReadError::UnknownTypeTag(tag_byte)),
         })
+    }
+
+    pub fn str_len(&self) -> EvalResult<usize> {
+        if let Self::Str(str) = self {
+            Ok(str.len())
+        } else {
+            Err(EvalError::WrongArgType(
+                "str".to_string(),
+                "str".to_string(),
+            ))
+        }
     }
 
     pub fn array_assign(&self, idx: usize, value: Value) -> EvalResult<()> {

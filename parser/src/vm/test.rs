@@ -1,14 +1,15 @@
 use super::*;
 use crate::{
     compile,
-    parser::{expr, span_source, Statement},
+    compiler::CompileError,
+    parser::{expr, span_source, test::expr_nosemi},
     value::ArrayInt,
     Span, TypeDecl,
 };
 
 fn compile_expr(s: &str) -> Bytecode {
     let bytecode = compile(
-        &[Statement::Expression(expr(Span::new(s)).unwrap().1)],
+        &[expr_nosemi(expr(Span::new(s)).unwrap().1)],
         HashMap::new(),
     )
     .unwrap();
@@ -45,14 +46,16 @@ fn parens_eval_test() {
     );
 }
 
-fn compile_and_run(src: &str) -> Result<Value, EvalError> {
-    interpret(&compile(&span_source(src).unwrap().1, HashMap::new()).unwrap())
+fn compile_and_run(src: &str) -> Result<Value, CompileError> {
+    Ok(interpret(
+        &compile(&span_source(src).unwrap().1, HashMap::new()).unwrap(),
+    )?)
 }
 
 #[test]
 fn var_test() {
     assert_eq!(
-        compile_and_run("var x = 42.; x +  2; ").unwrap(),
+        compile_and_run("var x = 42.; x +  2 ").unwrap(),
         Value::F64(44.)
     );
 }
@@ -69,11 +72,11 @@ fn var_assign_test() {
 fn cond_test() {
     assert_eq!(compile_and_run("if 0 { 1; }").unwrap(), Value::I64(0));
     assert_eq!(
-        compile_and_run("if (1) { 2; } else { 3; }").unwrap(),
+        compile_and_run("if (1) { 2 } else { 3 }").unwrap(),
         Value::I64(2)
     );
     assert_eq!(
-        compile_and_run("if 1 && 2 { 2; } else { 3; }").unwrap(),
+        compile_and_run("if 1 && 2 { 2 } else { 3 }").unwrap(),
         Value::I64(2)
     );
 }
@@ -108,9 +111,9 @@ fn logic_eval_test() {
 
 #[test]
 fn brace_expr_eval_test() {
-    assert_eq!(compile_and_run(" { 1; } ").unwrap(), Value::I64(1));
+    assert_eq!(compile_and_run(" { 1; } ").unwrap(), Value::I64(0));
     assert_eq!(compile_and_run(" { 1; 2 }").unwrap(), Value::I64(2));
-    assert_eq!(compile_and_run(" {1; 2;} ").unwrap(), Value::I64(2));
+    assert_eq!(compile_and_run(" {1; 2;} ").unwrap(), Value::I64(0));
     assert_eq!(
         compile_and_run("  { var x: i64 = 10; x = 20; x } ").unwrap(),
         Value::I64(20)
@@ -120,15 +123,15 @@ fn brace_expr_eval_test() {
 #[test]
 fn brace_shadowing_test() {
     assert_eq!(
-        compile_and_run(" var x = 0; { var x = 1; }; x;").unwrap(),
+        compile_and_run(" var x = 0; { var x = 1; }; x").unwrap(),
         Value::I64(0)
     );
     assert_eq!(
-        compile_and_run(" var x = 0; { var x = 1; x; };").unwrap(),
+        compile_and_run(" var x = 0; { var x = 1; x }").unwrap(),
         Value::I64(1)
     );
     assert_eq!(
-        compile_and_run(" var x = 0; { var x = 1; x = 2; }; x;").unwrap(),
+        compile_and_run(" var x = 0; { var x = 1; x = 2; }; x").unwrap(),
         Value::I64(0)
     );
 }
@@ -164,7 +167,7 @@ fn define_func() {
         x * y;
     }
 
-    print(f(5, 5));
+    f(5, 5)
     "#,
         |vals| {
             assert_eq!(vals[0], Value::I64(25));
@@ -178,15 +181,15 @@ fn define_func() {
 fn factorial() {
     let res = compile_and_run_with(
         r#"
-fn fact(n) {
+fn fact(n: i64) -> i64 {
     if n < 1 {
         1
     } else {
         n * fact(n - 1)
-    };
+    }
 }
 
-print(fact(10));
+fact(10)
 "#,
         |vals| assert_eq!(vals[0], Value::I64(3628800)),
     );

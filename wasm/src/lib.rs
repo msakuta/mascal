@@ -120,11 +120,17 @@ fn wasm_functions<'src, 'native>(mut set_fn: impl FnMut(&'static str, FuncDef<'s
 pub fn type_check(src: &str) -> Result<JsValue, JsValue> {
     let mut ctx = TypeCheckContext::new(None);
     wasm_functions(|name, f| ctx.set_fn(name, f));
-    let parse_result =
+    let mut parse_result =
         source(src).map_err(|e| JsValue::from_str(&format!("Parse error: {:?}", e)))?;
-    mascal::type_check(&parse_result.1, &mut ctx)
+    mascal::type_check(&mut parse_result.1, &mut ctx)
         .map_err(|e| JsValue::from_str(&format!("Error on type check: {}", e)))?;
-    Ok(JsValue::from_str("Ok"))
+    let mut buf = vec![];
+    format_stmts(&parse_result.1, &mut buf)
+        .map_err(|e| JsValue::from_str(&format!("AST formatting error: {e}")))?;
+    let res = String::from_utf8(buf).map_err(|e| JsValue::from_str(&format!("UTF8 error: {e}")))?;
+    Ok(JsValue::from_str(&format!(
+        "OK,\n\nType inference result:\n\n{res}"
+    )))
 }
 
 #[wasm_bindgen]

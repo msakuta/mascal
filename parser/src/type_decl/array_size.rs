@@ -2,7 +2,7 @@ use std::io::{Read, Write};
 
 use crate::ReadError;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ArraySize {
     /// Either dynamic or fixed array
     Any,
@@ -43,6 +43,52 @@ impl ArraySize {
                 Self::Range(lhs.start.min(rhs.start)..lhs.end.max(rhs.end))
             }
             _ => Self::Any,
+        }
+    }
+
+    /// It returns None when there is no valid range in the intersection of 2 ranges
+    pub fn try_and(&self, other: &Self) -> Option<Self> {
+        match (self, other) {
+            (Self::Any, other) => Some(other.clone()),
+            (this, Self::Any) => Some(this.clone()),
+            (Self::Range(lhs), Self::Range(rhs)) => {
+                let min = lhs.clone().min()?.max(rhs.clone().min()?);
+                let max = lhs.clone().max()?.min(rhs.clone().max()?);
+                Some(if max - min <= 1 {
+                    Self::Fixed(min)
+                } else {
+                    Self::Range(min..max + 1)
+                })
+            }
+            (Self::Range(lhs), Self::Fixed(rhs)) => {
+                if lhs.contains(&rhs) {
+                    Some(other.clone())
+                } else {
+                    None
+                }
+            }
+            (Self::Fixed(lhs), Self::Range(rhs)) => {
+                if rhs.contains(&lhs) {
+                    Some(self.clone())
+                } else {
+                    None
+                }
+            }
+            (Self::Fixed(lhs), Self::Fixed(rhs)) => {
+                if lhs == rhs {
+                    Some(self.clone())
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
+    pub fn contains(&self, size: usize) -> bool {
+        match self {
+            Self::Any => true,
+            Self::Fixed(fixed) => *fixed == size,
+            Self::Range(range) => range.contains(&size),
         }
     }
 }

@@ -20,10 +20,6 @@ pub enum TypeDecl {
     I32,
     Str,
     Array(Box<TypeDecl>, ArraySize),
-    /// An abstract type that can match F64 or F32
-    Float,
-    /// An abstract type that can match I64 or I32
-    Integer,
     Tuple(Vec<TypeDecl>),
 }
 
@@ -59,8 +55,6 @@ impl TypeDecl {
                 inner.serialize(writer)?;
                 return Ok(());
             }
-            Self::Float => FLOAT_TAG,
-            Self::Integer => INTEGER_TAG,
             Self::Tuple(inner) => {
                 writer.write_all(&TUPLE_TAG.to_le_bytes())?;
                 for decl in inner {
@@ -97,9 +91,6 @@ impl TypeDecl {
                     e
                 })?,
             ),
-            REF_TAG => todo!(),
-            FLOAT_TAG => Self::Float,
-            INTEGER_TAG => Self::Integer,
             _ => unreachable!(),
         })
     }
@@ -118,14 +109,17 @@ impl std::fmt::Display for TypeDecl {
                 ArraySize::Any => write!(f, "[{}]", inner)?,
                 _ => write!(f, "[{}; {}]", inner, len)?,
             },
-            TypeDecl::Float => write!(f, "<Float>")?,
-            TypeDecl::Integer => write!(f, "<Integer>")?,
             TypeDecl::Tuple(inner) => write!(
                 f,
                 "({})",
-                inner
-                    .iter()
-                    .fold(String::new(), |acc, cur| { acc + &cur.to_string() })
+                inner.iter().fold(String::new(), |acc, cur| {
+                    let str = cur.to_string();
+                    if acc.is_empty() {
+                        str
+                    } else {
+                        acc + ", " + &str
+                    }
+                })
             )?,
         }
         Ok(())

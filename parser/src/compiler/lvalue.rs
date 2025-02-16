@@ -22,7 +22,7 @@ pub(super) fn emit_lvalue<'src, 'env, 'c>(
     compiler: &'c mut Compiler<'env>,
 ) -> CompileResult<'src, LValue> {
     match &ex.expr {
-        ExprEnum::NumLiteral(_)
+        ExprEnum::NumLiteral(_, _)
         | ExprEnum::StrLiteral(_)
         | ExprEnum::ArrLiteral(_)
         | ExprEnum::TupleLiteral(_) => Err(CompileError::new(

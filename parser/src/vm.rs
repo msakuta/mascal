@@ -4,10 +4,8 @@ use std::{collections::HashMap, io::Write};
 
 use crate::{
     bytecode::{Bytecode, FnBytecode, FnProto, FnProtos, OpCode},
-    interpreter::{
-        binary_op, binary_op_int, binary_op_str, coerce_f64, coerce_i64, coerce_type, truthy,
-        EvalError, EvalResult,
-    },
+    coercion::{coerce_f64, coerce_i64, coerce_type},
+    interpreter::{binary_op, binary_op_int, binary_op_str, truthy, EvalError, EvalResult},
     type_decl::TypeDecl,
     Value,
 };
@@ -226,6 +224,14 @@ fn interpret_fn(
     );
     dbg_println!("size callInfo: {}", std::mem::size_of::<CallInfo>());
     dbg_println!("literals: {:?}", bytecode.literals);
+    #[cfg(debug_assertions)]
+    {
+        let mut buf = vec![0u8; 0];
+        bytecode.disasm(&mut buf).unwrap();
+        if let Ok(s) = String::from_utf8(buf) {
+            dbg_println!("instructions: {}", s);
+        }
+    }
     let mut vm = Vm::new(bytecode, functions);
     let value = loop {
         if let Some(res) = vm.next_inst()? {

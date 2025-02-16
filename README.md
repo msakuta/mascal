@@ -102,6 +102,7 @@ In ascending order of difficulty.
 * [x] Type casting in bytecode
 * [x] Proper error handling
 * [x] Tuple types
+* [x] Type inference
 * [ ] Multi-dimensional arrays
 * [ ] Function types (first class function variables)
 * [ ] Lambda expressions

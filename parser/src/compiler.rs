@@ -3,8 +3,9 @@ mod lvalue;
 
 use std::{cell::RefCell, collections::HashMap, io::Write, rc::Rc};
 
+pub(crate) use self::error::CompileError;
 use self::{
-    error::{CompileError, CompileErrorKind as CEK},
+    error::CompileErrorKind as CEK,
     lvalue::{emit_lvalue, LValue},
 };
 
@@ -268,13 +269,15 @@ impl<'src, 'ast> CompilerBuilder<'src, 'ast> {
         retrieve_fn_signatures(self.stmts, &mut env);
 
         let mut compiler = Compiler::new(vec![], vec![], &mut env);
-        if let Some(last_target) = emit_stmts(self.stmts, &mut compiler)? {
-            compiler.bytecode.instructions.push(Instruction::new(
-                OpCode::Ret,
-                0,
-                last_target as u16,
-            ));
-        }
+
+        // In the current VM model, there is always a return value, even if the function ends with a semicolon.
+        // Void return type is only effective in type system. So we return _something_ but its value should not be
+        // evaluated.
+        let last_target = emit_stmts(self.stmts, &mut compiler)?.unwrap_or(0);
+        compiler
+            .bytecode
+            .instructions
+            .push(Instruction::new(OpCode::Ret, 0, last_target as u16));
         compiler.bytecode.stack_size = compiler.target_stack.len();
 
         let source_map = if self.enable_debug {
@@ -324,12 +327,16 @@ fn compile_fn<'src, 'ast>(
 ) -> CompileResult<'src, (FnProto, FunctionInfo)> {
     let mut compiler = Compiler::new(args, fn_args, env);
     compiler.start_src_pos(*src_pos);
-    if let Some(last_target) = emit_stmts(stmts, &mut compiler)? {
-        compiler
-            .bytecode
-            .instructions
-            .push(Instruction::new(OpCode::Ret, 0, last_target as u16));
-    }
+
+    // In the current VM model, there is always a return value, even if the function ends with a semicolon.
+    // Void return type is only effective in type system. So we return _something_ but its value should not be
+    // evaluated. We may revisit this design and introduce RET_VOID instruction.
+    let last_target = emit_stmts(stmts, &mut compiler)?.unwrap_or(0);
+    compiler
+        .bytecode
+        .instructions
+        .push(Instruction::new(OpCode::Ret, 0, last_target as u16));
+
     compiler.bytecode.stack_size = compiler.target_stack.len();
     compiler.bytecode.name = name;
     let source_map = compiler.source_map();
@@ -436,8 +443,9 @@ fn emit_stmts<'src>(
                 compiler.env.functions.insert(name.to_string(), fun);
                 compiler.env.debug.insert(name.to_string(), debug);
             }
-            Statement::Expression(ref ex) => {
-                last_target = Some(emit_expr(ex, compiler)?);
+            Statement::Expression { ref ex, semicolon } => {
+                let res = emit_expr(ex, compiler)?;
+                last_target = if *semicolon { None } else { Some(res) };
             }
             Statement::Loop(stmts) => {
                 let inst_loop_start = compiler.bytecode.instructions.len();
@@ -505,7 +513,7 @@ fn emit_stmts<'src>(
 fn emit_expr<'src>(expr: &Expression<'src>, compiler: &mut Compiler) -> CompileResult<'src, usize> {
     compiler.start_src_pos(expr.span.into());
     let res = match &expr.expr {
-        ExprEnum::NumLiteral(val) => Ok(compiler.find_or_create_literal(val)),
+        ExprEnum::NumLiteral(val, _) => Ok(compiler.find_or_create_literal(val)),
         ExprEnum::StrLiteral(val) => Ok(compiler.find_or_create_literal(&Value::Str(val.clone()))),
         ExprEnum::ArrLiteral(val) => {
             let mut ctx = EvalContext::new();

@@ -4,8 +4,14 @@ use nom::{Finish, IResult};
 
 use super::*;
 use crate::{
-    parser::{source, span_source, Subslice},
-    type_check, TypeCheckContext,
+    parser::{
+        source, span_source, statement,
+        test::{expr_nosemi, expr_semi},
+        Subslice,
+    },
+    type_check,
+    type_set::TypeSet,
+    TypeCheckContext,
 };
 use ExprEnum::*;
 
@@ -84,7 +90,7 @@ fn var_r(name: Span) -> Box<Expression> {
 
 /// Boxed numeric literal
 fn bnl(value: Value, span: Span) -> Box<Expression> {
-    Box::new(Expression::new(NumLiteral(value), span))
+    Box::new(Expression::new(NumLiteral(value, TypeSet::int()), span))
 }
 
 #[test]
@@ -115,24 +121,27 @@ fn fn_invoke_test() {
     let span = Span::new("f();");
     assert_eq!(
         source(span).finish().unwrap().1,
-        vec![Statement::Expression(Expression::new(
-            FnInvoke("f", vec![]),
-            span.subslice(0, 3)
-        ))]
+        vec![Statement::Expression {
+            ex: Expression::new(FnInvoke("f", vec![]), span.subslice(0, 3)),
+            semicolon: true
+        }]
     );
     let span = Span::new("f(1);");
     assert_eq!(
         source(span).finish().unwrap().1,
-        vec![Statement::Expression(Expression::new(
-            FnInvoke(
-                "f",
-                vec![FnArg {
-                    name: None,
-                    expr: *bnl(Value::I64(1), span.subslice(2, 1))
-                }]
+        vec![Statement::Expression {
+            ex: Expression::new(
+                FnInvoke(
+                    "f",
+                    vec![FnArg {
+                        name: None,
+                        expr: *bnl(Value::I64(1), span.subslice(2, 1))
+                    }]
+                ),
+                span.subslice(0, 4)
             ),
-            span.subslice(0, 4)
-        ))]
+            semicolon: true
+        }]
     );
 }
 
@@ -166,10 +175,10 @@ fn cond_test() {
         Expression::new(
             Conditional(
                 bnl(Value::I64(0), span.subslice(3, 1)),
-                vec![Statement::Expression(*bnl(
-                    Value::I64(1),
-                    span.subslice(7, 1)
-                ))],
+                vec![Statement::Expression {
+                    ex: *bnl(Value::I64(1), span.subslice(7, 1)),
+                    semicolon: true
+                }],
                 None,
             ),
             span
@@ -181,14 +190,8 @@ fn cond_test() {
         Expression::new(
             Conditional(
                 bnl(Value::I64(1), span.subslice(3, 4)),
-                vec![Statement::Expression(*bnl(
-                    Value::I64(2),
-                    span.subslice(9, 1)
-                ))],
-                Some(vec![Statement::Expression(*bnl(
-                    Value::I64(3),
-                    span.subslice(21, 1)
-                ))]),
+                vec![expr_semi(*bnl(Value::I64(2), span.subslice(9, 1)))],
+                Some(vec![expr_semi(*bnl(Value::I64(3), span.subslice(21, 1)))]),
             ),
             span
         )
@@ -205,14 +208,8 @@ fn cond_test() {
                     ),
                     span.subslice(3, 6)
                 )),
-                vec![Statement::Expression(*bnl(
-                    Value::I64(2),
-                    span.subslice(12, 1)
-                ))],
-                Some(vec![Statement::Expression(*bnl(
-                    Value::I64(3),
-                    span.subslice(24, 1)
-                ))]),
+                vec![expr_semi(*bnl(Value::I64(2), span.subslice(12, 1)))],
+                Some(vec![expr_semi(*bnl(Value::I64(3), span.subslice(24, 1)))]),
             ),
             span
         )
@@ -429,17 +426,16 @@ fn logic_eval_test() {
 
 /// Numeric literal without box
 fn nl(value: Value, span: Span) -> Expression {
-    Expression::new(NumLiteral(value), span)
+    Expression::new(NumLiteral(value, TypeSet::int()), span)
 }
 
 #[test]
 fn brace_expr_test() {
-    use Statement::Expression as Expr;
     let span = Span::new(" { 1; }");
     assert_eq!(
         full_expression(span).finish().unwrap().1,
         Expression::new(
-            Brace(vec![Expr(nl(Value::I64(1), span.subslice(3, 1)))]),
+            Brace(vec![expr_semi(nl(Value::I64(1), span.subslice(3, 1)))]),
             span.subslice(1, 6)
         )
     );
@@ -448,8 +444,8 @@ fn brace_expr_test() {
         full_expression(span).finish().unwrap().1,
         Expression::new(
             Brace(vec![
-                Expr(nl(Value::I64(1), span.subslice(3, 1))),
-                Expr(nl(Value::I64(2), span.subslice(6, 1))),
+                expr_semi(nl(Value::I64(1), span.subslice(3, 1))),
+                expr_semi(nl(Value::I64(2), span.subslice(6, 1))),
             ]),
             span.subslice(1, 9)
         )
@@ -459,28 +455,28 @@ fn brace_expr_test() {
         full_expression(span).finish().unwrap().1,
         Expression::new(
             Brace(vec![
-                Expr(nl(Value::I64(1), span.subslice(3, 1))),
-                Expr(nl(Value::I64(2), span.subslice(6, 1))),
+                expr_semi(nl(Value::I64(1), span.subslice(3, 1))),
+                expr_nosemi(nl(Value::I64(2), span.subslice(6, 1))),
             ]),
             span.subslice(1, 8)
         )
     );
     let span = Span::new(" { x = 1; x }; ");
     assert_eq!(
-        statement(span).finish().unwrap().1,
-        Expr(Expression::new(
+        source(span).finish().unwrap().1,
+        vec![expr_semi(Expression::new(
             Brace(vec![
-                Expr(Expression::new(
+                expr_semi(Expression::new(
                     VarAssign(
                         var_r(span.subslice(3, 1)),
                         bnl(Value::I64(1), span.subslice(7, 1))
                     ),
                     span.subslice(3, 5)
                 )),
-                Expr(*var_r(span.subslice(10, 1))),
+                expr_nosemi(*var_r(span.subslice(10, 1))),
             ]),
             span.subslice(1, 12)
-        ))
+        ))]
     );
 }
 
@@ -512,18 +508,18 @@ fn brace_expr_eval_test() {
 fn stmt_test() {
     let span = Span::new(" 1;");
     assert_eq!(
-        statement(span).finish().unwrap().1,
-        Statement::Expression(nl(Value::I64(1), span.subslice(1, 1))),
+        source(span).finish().unwrap().1,
+        vec![expr_semi(nl(Value::I64(1), span.subslice(1, 1)))],
     );
     let span = Span::new(" 1 ");
     assert_eq!(
-        last_statement(span).finish().unwrap().1,
-        Statement::Expression(nl(Value::I64(1), span.subslice(1, 1))),
+        statement(span).finish().unwrap().1,
+        expr_nosemi(nl(Value::I64(1), span.subslice(1, 1))),
     );
-    let span = Span::new(" 1; ");
+    let span = Span::new(" 1 ");
     assert_eq!(
-        last_statement(span).finish().unwrap().1,
-        Statement::Expression(nl(Value::I64(1), span.subslice(1, 1))),
+        source(span).finish().unwrap().1,
+        vec![expr_nosemi(nl(Value::I64(1), span.subslice(1, 1)))],
     );
 }
 
@@ -533,16 +529,16 @@ fn stmts_test() {
     assert_eq!(
         source(span).finish().unwrap().1,
         vec![
-            Statement::Expression(nl(Value::I64(1), span.subslice(1, 1))),
-            Statement::Expression(nl(Value::I64(2), span.subslice(4, 1))),
+            expr_semi(nl(Value::I64(1), span.subslice(1, 1))),
+            expr_nosemi(nl(Value::I64(2), span.subslice(4, 1))),
         ]
     );
     let span = Span::new(" 1; 2; ");
     assert_eq!(
         source(span).finish().unwrap().1,
         vec![
-            Statement::Expression(nl(Value::I64(1), span.subslice(1, 1))),
-            Statement::Expression(nl(Value::I64(2), span.subslice(4, 1))),
+            expr_semi(nl(Value::I64(1), span.subslice(1, 1))),
+            expr_semi(nl(Value::I64(2), span.subslice(4, 1))),
         ]
     );
 }
@@ -663,8 +659,8 @@ fn fn_array_decl_test() {
                 "a",
                 TypeDecl::Array(Box::new(TypeDecl::I32), ArraySize::Any)
             )],
-            ret_type: None,
-            stmts: Rc::new(vec![Statement::Expression(Expression::new(
+            ret_type: TypeSet::void(),
+            stmts: Rc::new(vec![expr_semi(Expression::new(
                 VarAssign(
                     var_r(span.subslice(17, 1)),
                     bnl(Value::I64(123), span.subslice(21, 3))
@@ -776,18 +772,21 @@ fn array_index_assign_test() {
 #[test]
 fn array_sized_test() {
     let span = Span::new("var a: [i32; 3] = [1,2,3]; var b: [i32; 3] = [4,5,6]; a = b;");
-    let ast = source(span).finish().unwrap().1;
-    type_check(&ast, &mut TypeCheckContext::new(None)).unwrap();
+    let mut ast = source(span).finish().unwrap().1;
+    type_check(&mut ast, &mut TypeCheckContext::new(None)).unwrap();
     run0(&ast).unwrap();
 }
 
 #[test]
 fn array_sized_error_test() {
     let span = Span::new("var a: [i32; 3] = [1,2,3]; var b: [i32; 4] = [4,5,6,7]; a = b;");
-    let ast = source(span).finish().unwrap().1;
-    match type_check(&ast, &mut TypeCheckContext::new(Some("input"))) {
+    let mut ast = source(span).finish().unwrap().1;
+    match type_check(&mut ast, &mut TypeCheckContext::new(Some("input"))) {
         Ok(_) => panic!(),
-        Err(e) => assert_eq!(e.to_string(), "Operation Assignment between incompatible type [i32; 3] and [i32; 4]: Array size is not compatible: 4 cannot assign to 3\ninput:1:57"),
+        Err(e) => assert_eq!(
+            e.to_string(),
+            "Array size is not compatible: 4 cannot assign to 3\ninput:1:56"
+        ),
     }
     // It will run successfully although the typecheck fails.
     run0(&ast).unwrap();
@@ -796,10 +795,10 @@ fn array_sized_error_test() {
 #[test]
 fn array_sized_cmp_error_test() {
     let span = Span::new("var a: [i32; 3] = [1,2,3]; var b: [i32; 4] = [4,5,6,7]; a < b;");
-    let ast = source(span).finish().unwrap().1;
-    match type_check(&ast, &mut TypeCheckContext::new(Some("input"))) {
-        Ok(_) => panic!(),
-        Err(e) => assert_eq!(e.to_string(), "Operation LT between incompatible type [i32; 3] and [i32; 4]: Array size must be the same for comparison\ninput:1:57"),
+    let mut ast = source(span).finish().unwrap().1;
+    match type_check(&mut ast, &mut TypeCheckContext::new(Some("input"))) {
+        Ok(_) => panic!("type check succeeded when it should fail: {:?}", ast),
+        Err(e) => assert_eq!(e.to_string(), "Operation LT between incompatible type [i32; 3] and [i32; 4]: Comparison between incompatible types: [i32; 3] and [i32; 4]: Array size is not compatible: 4 cannot assign to 3\ninput:1:57"),
     }
     // It will fail at runtime
     assert!(run0(&ast).is_err());
@@ -813,7 +812,7 @@ fn var_decl_test() {
         source(span).finish().unwrap().1,
         vec![
             VarDecl(span.subslice(5, 1), TypeDecl::Any, None),
-            Statement::Expression(Expression::new(
+            expr_semi(Expression::new(
                 VarAssign(
                     var_r(span.subslice(8, 1)),
                     bnl(Value::I64(0), span.subslice(12, 1))
@@ -876,14 +875,14 @@ fn loop_test() {
         source(span).finish().unwrap().1,
         vec![
             Statement::VarDecl(span.subslice(5, 1), TypeDecl::Any, None),
-            Statement::Expression(Expression::new(
+            expr_semi(Expression::new(
                 VarAssign(
                     var_r(span.subslice(8, 1)),
                     bnl(Value::I64(0), span.subslice(12, 1))
                 ),
                 span.subslice(7, 6)
             )),
-            Statement::Loop(vec![Statement::Expression(Expression::new(
+            Statement::Loop(vec![expr_semi(Expression::new(
                 VarAssign(
                     var_r(span.subslice(22, 1)),
                     Box::new(Expression::new(
@@ -901,7 +900,7 @@ fn loop_test() {
     let span = Span::new("if i < 10 { break };");
     assert_eq!(
         source(span).finish().unwrap().1,
-        vec![Statement::Expression(Expression::new(
+        vec![expr_semi(Expression::new(
             Conditional(
                 Box::new(Expression::new(
                     LT(
@@ -921,7 +920,7 @@ fn loop_test() {
         source(span).finish().unwrap().1,
         vec![
             Statement::VarDecl(span.subslice(5, 1), TypeDecl::Any, None),
-            Statement::Expression(Expression::new(
+            expr_semi(Expression::new(
                 VarAssign(
                     var_r(span.subslice(8, 1)),
                     bnl(Value::I64(0), span.subslice(12, 1))
@@ -929,7 +928,7 @@ fn loop_test() {
                 span.subslice(7, 6)
             )),
             Statement::Loop(vec![
-                Statement::Expression(Expression::new(
+                expr_semi(Expression::new(
                     VarAssign(
                         var_r(span.subslice(22, 1)),
                         Box::new(Expression::new(
@@ -942,7 +941,7 @@ fn loop_test() {
                     ),
                     span.subslice(22, 9)
                 )),
-                Statement::Expression(Expression::new(
+                expr_semi(Expression::new(
                     Conditional(
                         Box::new(Expression::new(
                             LT(
@@ -968,7 +967,7 @@ fn while_test() {
         source(span).finish().unwrap().1,
         vec![
             Statement::VarDecl(span.subslice(5, 1), TypeDecl::I64, None),
-            Statement::Expression(Expression::new(
+            expr_semi(Expression::new(
                 VarAssign(
                     var_r(span.subslice(13, 1)),
                     bnl(Value::I64(0), span.subslice(17, 1))
@@ -983,7 +982,7 @@ fn while_test() {
                     ),
                     span.subslice(26, 7)
                 ),
-                vec![Statement::Expression(Expression::new(
+                vec![expr_semi(Expression::new(
                     VarAssign(
                         var_r(span.subslice(35, 1)),
                         Box::new(Expression::new(
@@ -1008,9 +1007,15 @@ fn for_test() {
         source(span).finish().unwrap().1,
         vec![Statement::For(
             span.subslice(5, 1),
-            Expression::new(NumLiteral(Value::I64(0)), span.subslice(10, 1)),
-            Expression::new(NumLiteral(Value::I64(10)), span.subslice(13, 2)),
-            vec![Statement::Expression(Expression::new(
+            Expression::new(
+                NumLiteral(Value::I64(0), TypeSet::int()),
+                span.subslice(10, 1)
+            ),
+            Expression::new(
+                NumLiteral(Value::I64(10), TypeSet::int()),
+                span.subslice(13, 2)
+            ),
+            vec![expr_semi(Expression::new(
                 FnInvoke("print", vec![FnArg::new(*var_r(span.subslice(24, 1)))],),
                 span.subslice(18, 8)
             ))]

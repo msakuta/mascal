@@ -49,19 +49,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
     let parse_source = |code, source_file| -> Result<(), Box<dyn std::error::Error>> {
-        let result = source(code).map_err(|e| format!("{:#?}", e))?;
+        let mut result = source(code).map_err(|e| format!("{:#?}", e))?;
         if !result.0.is_empty() {
             return Err(format!("Input has terminated unexpectedly: {:#?}", result.0).into());
         }
         if args.ast_pretty {
             println!("Match: {:#?}", result.1);
         } else if args.ast {
-            println!("Match: {:?}", result.1);
+            format_stmts(&result.1, &mut std::io::stdout())?;
         }
         if args.type_check {
-            if let Err(e) = type_check(&result.1, &mut TypeCheckContext::new(source_file)) {
+            if let Err(e) = type_check(&mut result.1, &mut TypeCheckContext::new(source_file)) {
                 eprintln!("Type check error: {}", e.to_string().red());
                 return Ok(());
+            }
+            if args.ast {
+                println!("AST after type inference:");
+                format_stmts(&result.1, &mut std::io::stdout())?;
             }
         }
 

@@ -303,8 +303,8 @@ fn test_text() {
                 "fn".blue(),
                 " ".into(),
                 "hello".light_cyan(),
-                "(".light_yellow(),
-                ")".light_yellow(),
+                "(".white(),
+                ")".white(),
                 " ".into(),
                 "1".light_green()
             ]

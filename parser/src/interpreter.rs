@@ -3,6 +3,7 @@ mod lvalue;
 use self::lvalue::{eval_lvalue, LValue};
 
 use crate::{
+    coercion::{coerce_f64, coerce_i64, coerce_type},
     parser::*,
     type_decl::ArraySize,
     value::{ArrayInt, TupleEntry, ValueError},
@@ -55,6 +56,7 @@ pub enum EvalError {
     IndexNonNum,
     NonLValue(String),
     PrematureEnd,
+    WrongArgType(String, String),
     IOError(std::io::Error),
     ValueError(ValueError),
 }
@@ -129,6 +131,9 @@ impl std::fmt::Display for EvalError {
             Self::NonLValue(ex) => write!(f, "Expression {} is not an lvalue.", ex),
             Self::PrematureEnd => {
                 write!(f, "End of input bytecode encountered before seeing a Ret")
+            }
+            Self::WrongArgType(arg, expected) => {
+                write!(f, "Argument {arg} type expected {expected}")
             }
             Self::IOError(e) => e.fmt(f),
             Self::ValueError(e) => e.fmt(f),
@@ -247,161 +252,6 @@ pub(crate) fn truthy(a: &Value) -> bool {
     }
 }
 
-pub(crate) fn coerce_f64(a: &Value) -> EvalResult<f64> {
-    Ok(match a {
-        Value::F64(v) => *v as f64,
-        Value::F32(v) => *v as f64,
-        Value::I64(v) => *v as f64,
-        Value::I32(v) => *v as f64,
-        _ => 0.,
-    })
-}
-
-pub(crate) fn coerce_i64(a: &Value) -> EvalResult<i64> {
-    Ok(match a {
-        Value::F64(v) => *v as i64,
-        Value::F32(v) => *v as i64,
-        Value::I64(v) => *v as i64,
-        Value::I32(v) => *v as i64,
-        _ => 0,
-    })
-}
-
-fn coerce_str(a: &Value) -> EvalResult<String> {
-    Ok(match a {
-        Value::F64(v) => v.to_string(),
-        Value::F32(v) => v.to_string(),
-        Value::I64(v) => v.to_string(),
-        Value::I32(v) => v.to_string(),
-        Value::Str(v) => v.clone(),
-        _ => {
-            return Err(EvalError::CoerceError(
-                TypeDecl::from_value(a).to_string(),
-                "str".to_string(),
-            ))
-        }
-    })
-}
-
-fn _coerce_var(value: &Value, target: &Value) -> Result<Value, EvalError> {
-    Ok(match target {
-        Value::F64(_) => Value::F64(coerce_f64(value)?),
-        Value::F32(_) => Value::F32(coerce_f64(value)? as f32),
-        Value::I64(_) => Value::I64(coerce_i64(value)?),
-        Value::I32(_) => Value::I32(coerce_i64(value)? as i32),
-        Value::Str(_) => Value::Str(coerce_str(value)?),
-        Value::Array(array) => {
-            let ArrayInt {
-                type_decl: inner_type,
-                values: inner,
-            } = &array.borrow() as &ArrayInt;
-            if inner.len() == 0 {
-                if let Value::Array(array) = value {
-                    if array.borrow().values.len() == 0 {
-                        return Ok(value.clone());
-                    }
-                }
-                return Err(EvalError::CoerceError(
-                    "array".to_string(),
-                    "empty array".to_string(),
-                ));
-            } else {
-                if let Value::Array(array) = value {
-                    Value::Array(ArrayInt::new(
-                        inner_type.clone(),
-                        array
-                            .borrow()
-                            .values
-                            .iter()
-                            .map(|val| -> EvalResult<_> { Ok(coerce_type(val, inner_type)?) })
-                            .collect::<Result<_, _>>()?,
-                    ))
-                } else {
-                    return Err(EvalError::CoerceError(
-                        "scalar".to_string(),
-                        "array".to_string(),
-                    ));
-                }
-            }
-        }
-        Value::Tuple(tuple) => {
-            let target_elems = tuple.borrow();
-            if target_elems.len() == 0 {
-                if let Value::Tuple(value_elems) = value {
-                    if value_elems.borrow().len() == 0 {
-                        return Ok(value.clone());
-                    }
-                }
-                return Err(EvalError::CoerceError(
-                    "array".to_string(),
-                    "empty array".to_string(),
-                ));
-            } else {
-                if let Value::Tuple(value_elems) = value {
-                    Value::Tuple(Rc::new(RefCell::new(
-                        value_elems
-                            .borrow()
-                            .iter()
-                            .zip(target_elems.iter())
-                            .map(|(val, tgt)| -> EvalResult<_> {
-                                Ok(TupleEntry {
-                                    decl: tgt.decl.clone(),
-                                    value: coerce_type(&val.value, &tgt.decl)?,
-                                })
-                            })
-                            .collect::<Result<_, _>>()?,
-                    )))
-                } else {
-                    return Err(EvalError::CoerceError(
-                        "scalar".to_string(),
-                        "array".to_string(),
-                    ));
-                }
-            }
-        }
-    })
-}
-
-pub fn coerce_type(value: &Value, target: &TypeDecl) -> Result<Value, EvalError> {
-    Ok(match target {
-        TypeDecl::Any => value.clone(),
-        TypeDecl::F64 => Value::F64(coerce_f64(value)?),
-        TypeDecl::F32 => Value::F32(coerce_f64(value)? as f32),
-        TypeDecl::I64 => Value::I64(coerce_i64(value)?),
-        TypeDecl::I32 => Value::I32(coerce_i64(value)? as i32),
-        TypeDecl::Str => Value::Str(coerce_str(value)?),
-        TypeDecl::Array(_, len) => {
-            if let Value::Array(array) = value {
-                let array = array.borrow();
-                if let ArraySize::Fixed(len) = len {
-                    if *len != array.values.len() {
-                        return Err(EvalError::IncompatibleArrayLength(*len, array.values.len()));
-                    }
-                }
-                // Type coercion should not alter the referenced value, i.e. array elements
-                return Ok(value.clone());
-            } else {
-                return Err(EvalError::CoerceError(
-                    value.to_string(),
-                    "array".to_string(),
-                ));
-            }
-        }
-        TypeDecl::Float => Value::F64(coerce_f64(value)?),
-        TypeDecl::Integer => Value::I64(coerce_i64(value)?),
-        TypeDecl::Tuple(_) => {
-            if let Value::Tuple(_) = value {
-                return Ok(value.clone());
-            } else {
-                return Err(EvalError::CoerceError(
-                    value.to_string(),
-                    "tuple".to_string(),
-                ));
-            }
-        }
-    })
-}
-
 pub(crate) fn eval<'src, 'native>(
     e: &Expression<'src>,
     ctx: &mut EvalContext<'src, 'native, '_>,
@@ -410,7 +260,7 @@ where
     'native: 'src,
 {
     Ok(match &e.expr {
-        ExprEnum::NumLiteral(val) => RunResult::Yield(val.clone()),
+        ExprEnum::NumLiteral(val, _) => RunResult::Yield(val.clone()),
         ExprEnum::StrLiteral(val) => RunResult::Yield(Value::Str(val.clone())),
         ExprEnum::ArrLiteral(val) => RunResult::Yield(Value::Array(ArrayInt::new(
             TypeDecl::Any,
@@ -523,8 +373,8 @@ where
                     let run_result = run(&func.stmts, &mut subctx)?;
                     match unwrap_deref(run_result)? {
                         RunResult::Yield(v) => match &func.ret_type {
-                            Some(ty) => RunResult::Yield(coerce_type(&v, ty)?),
-                            None => RunResult::Yield(v),
+                            RetType::Some(ty) => RunResult::Yield(coerce_type(&v, ty)?),
+                            RetType::Void => RunResult::Yield(v),
                         },
                         RunResult::Break => return Err(EvalError::BreakInToplevel),
                     }
@@ -765,6 +615,14 @@ pub(crate) fn s_type(vals: &[Value]) -> Result<Value, EvalError> {
     }
 }
 
+pub(crate) fn s_strlen(vals: &[Value]) -> Result<Value, EvalError> {
+    if let [val, ..] = vals {
+        Ok(Value::I64(val.str_len()? as i64))
+    } else {
+        Ok(Value::I32(0))
+    }
+}
+
 pub(crate) fn s_len(vals: &[Value]) -> Result<Value, EvalError> {
     if let [val, ..] = vals {
         Ok(Value::I64(val.array_len()? as i64))
@@ -812,7 +670,7 @@ pub(crate) fn s_hex_string(vals: &[Value]) -> Result<Value, EvalError> {
 #[derive(Clone)]
 pub struct FuncCode<'src> {
     args: Vec<ArgDecl<'src>>,
-    pub(crate) ret_type: Option<TypeDecl>,
+    pub(crate) ret_type: RetType,
     /// Owning a clone of AST of statements is not quite efficient, but we could not get
     /// around the borrow checker.
     stmts: Rc<Vec<Statement<'src>>>,
@@ -822,12 +680,49 @@ impl<'src> FuncCode<'src> {
     pub(crate) fn new(
         stmts: Rc<Vec<Statement<'src>>>,
         args: Vec<ArgDecl<'src>>,
-        ret_type: Option<TypeDecl>,
+        ret_type: RetType,
     ) -> Self {
         Self {
             args,
             ret_type,
             stmts,
+        }
+    }
+}
+
+/// A type for function return types. It has one extra state to usual TypeDef,
+/// which is Void. It merely wraps TypeDecl and Void in an enum.
+/// It is almost equivalent to std::option::Option, except it has intention to
+/// indicate Void-able type.
+#[derive(Debug, PartialEq, Clone)]
+pub enum RetType {
+    Void,
+    Some(TypeDecl),
+}
+
+impl RetType {
+    pub fn unwrap_or(&self, default: TypeDecl) -> TypeDecl {
+        match self {
+            Self::Void => default,
+            Self::Some(val) => val.clone(),
+        }
+    }
+
+    pub fn unwrap_or_any(&self) -> TypeDecl {
+        self.unwrap_or(TypeDecl::Any)
+    }
+
+    pub fn ok_or_else<E>(&self, f: impl FnOnce() -> E) -> Result<TypeDecl, E> {
+        match self {
+            Self::Void => Err(f()),
+            Self::Some(val) => Ok(val.clone()),
+        }
+    }
+
+    pub fn as_opt(&self) -> Option<&TypeDecl> {
+        match self {
+            Self::Void => None,
+            Self::Some(val) => Some(val),
         }
     }
 }
@@ -975,6 +870,14 @@ pub(crate) fn std_functions<'src, 'native>() -> HashMap<String, FuncDef<'src, 'n
         ),
     );
     functions.insert(
+        "strlen".to_string(),
+        FuncDef::new_native(
+            &s_strlen,
+            vec![ArgDecl::new("str", TypeDecl::Str)],
+            Some(TypeDecl::I64),
+        ),
+    );
+    functions.insert(
         "len".to_string(),
         FuncDef::new_native(
             &s_len,
@@ -1062,11 +965,24 @@ where
             } => {
                 ctx.functions.insert(
                     name.to_string(),
-                    FuncDef::Code(FuncCode::new(stmts.clone(), args.clone(), ret_type.clone())),
+                    FuncDef::Code(FuncCode::new(
+                        stmts.clone(),
+                        args.clone(),
+                        ret_type
+                            .determine()
+                            .unwrap_or_else(|| RetType::Some(TypeDecl::Any)),
+                    )),
                 );
             }
-            Statement::Expression(e) => {
-                res = eval(&e, ctx)?;
+            Statement::Expression { ex, semicolon } => {
+                let ex_res = eval(&ex, ctx)?;
+                if let RunResult::Yield(ex_res) = ex_res {
+                    if *semicolon {
+                        res = RunResult::Yield(ex_res);
+                    } else {
+                        res = RunResult::Yield(ex_res);
+                    }
+                }
                 if let RunResult::Break = res {
                     return Ok(res);
                 }
