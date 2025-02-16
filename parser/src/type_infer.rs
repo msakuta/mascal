@@ -439,7 +439,7 @@ where
     })
 }
 
-fn tc_expr_propagate<'src, 'b, 'native>(
+fn tc_expr_reverse<'src, 'b, 'native>(
     e: &'b mut Expression<'src>,
     ts: &TypeSet,
     ctx: &mut TypeCheckContext<'src, 'native, '_>,
@@ -465,7 +465,7 @@ where
                     ));
                 }
                 for elem in vec {
-                    tc_expr_propagate(elem, arr_ts, ctx)?;
+                    tc_expr_reverse(elem, arr_ts, ctx)?;
                 }
             }
         }
@@ -483,7 +483,7 @@ where
                     ));
                 }
                 for (target, source) in vec.iter_mut().zip(tuple.iter()) {
-                    tc_expr_propagate(target, source, ctx)?;
+                    tc_expr_reverse(target, source, ctx)?;
                 }
             }
         }
@@ -492,22 +492,22 @@ where
             ctx.intersect_var_type(&VarRef::Variable(name), ts)
                 .map_err(|e| TypeCheckError::new(e, span, source_file))?;
         }
-        ExprEnum::Cast(ex, _ty) => tc_expr_propagate(ex, &TypeSet::all(), ctx)?,
-        ExprEnum::VarAssign(lhs, rhs) => tc_expr_propagate(rhs, &tc_expr_forward(lhs, ctx)?, ctx)?,
+        ExprEnum::Cast(ex, _ty) => tc_expr_reverse(ex, &TypeSet::all(), ctx)?,
+        ExprEnum::VarAssign(lhs, rhs) => tc_expr_reverse(rhs, &tc_expr_forward(lhs, ctx)?, ctx)?,
         ExprEnum::FnInvoke(fname, args) => {
             let fn_decl = ctx
                 .get_fn(*fname)
                 .ok_or_else(|| TypeCheckError::undefined_fn(fname, span, ctx.source_file))?;
             let params = fn_decl.args().clone();
             for (arg, param) in args.iter_mut().zip(params.iter()).rev() {
-                tc_expr_propagate(&mut arg.expr, &(&param.ty).into(), ctx)?;
+                tc_expr_reverse(&mut arg.expr, &(&param.ty).into(), ctx)?;
             }
         }
         ExprEnum::ArrIndex(ex, indices) => {
-            tc_expr_propagate(ex, &TypeSet::array(ts.clone(), ArraySize::Any), ctx)?;
+            tc_expr_reverse(ex, &TypeSet::array(ts.clone(), ArraySize::Any), ctx)?;
             for idx in indices {
                 // For now, array indices are always integers
-                tc_expr_propagate(idx, &TypeSet::int(), ctx)?;
+                tc_expr_reverse(idx, &TypeSet::int(), ctx)?;
             }
         }
         ExprEnum::TupleIndex(ex, idx) => {
@@ -521,11 +521,11 @@ where
                 altered_tuple[*idx] = altered_tuple[*idx]
                     .try_intersect(ts)
                     .map_err(|e| TypeCheckError::new(e, span, ctx.source_file))?;
-                tc_expr_propagate(ex, &TypeSet::tuple(altered_tuple), ctx)?;
+                tc_expr_reverse(ex, &TypeSet::tuple(altered_tuple), ctx)?;
             }
         }
         ExprEnum::Not(ex) | ExprEnum::BitNot(ex) | ExprEnum::Neg(ex) => {
-            tc_expr_propagate(ex, ts, ctx)?;
+            tc_expr_reverse(ex, ts, ctx)?;
         }
         ExprEnum::Add(lhs, rhs)
         | ExprEnum::Sub(lhs, rhs)
@@ -536,8 +536,8 @@ where
         | ExprEnum::BitOr(lhs, rhs)
         | ExprEnum::And(lhs, rhs)
         | ExprEnum::Or(lhs, rhs) => {
-            tc_expr_propagate(lhs, ts, ctx)?;
-            tc_expr_propagate(rhs, ts, ctx)?;
+            tc_expr_reverse(lhs, ts, ctx)?;
+            tc_expr_reverse(rhs, ts, ctx)?;
         }
         ExprEnum::LT(lhs, rhs) | ExprEnum::GT(lhs, rhs) => {
             // Comparison operators yield I32 regardless of operand types, so reverse propagation
@@ -549,11 +549,11 @@ where
             let lhs_ts = tc_expr_forward(lhs, ctx)?;
             let rhs_ts = tc_expr_forward(rhs, ctx)?;
             let inter_ts = lhs_ts.try_intersect(&rhs_ts).unwrap();
-            tc_expr_propagate(lhs, &inter_ts, ctx)?;
-            tc_expr_propagate(rhs, &inter_ts, ctx)?;
+            tc_expr_reverse(lhs, &inter_ts, ctx)?;
+            tc_expr_reverse(rhs, &inter_ts, ctx)?;
         }
         ExprEnum::Conditional(cond, t_branch, f_branch) => {
-            tc_expr_propagate(cond, &TypeSet::i32(), ctx)?;
+            tc_expr_reverse(cond, &TypeSet::i32(), ctx)?;
             tc_stmts_propagate(t_branch, ts, ctx)?;
             if let Some(f_branch) = f_branch {
                 tc_stmts_propagate(f_branch, ts, ctx)?;
@@ -806,7 +806,7 @@ where
     Ok(res)
 }
 
-pub fn tc_stmt_propagate<'src, 'ast, 'native>(
+pub fn tc_stmt_reverse<'src, 'ast, 'native>(
     stmt: &'ast mut Statement<'src>,
     ts: &TypeSet,
     ctx: &mut TypeCheckContext<'src, 'native, '_>,
@@ -827,19 +827,19 @@ where
             *decl_type = propagating_type
                 .ok_or_else(|| TypeCheckError::void_value(*var, ctx.source_file))?;
             if let Some(initializer) = initializer {
-                tc_expr_propagate(initializer, &propagating_type_set, ctx)?;
+                tc_expr_reverse(initializer, &propagating_type_set, ctx)?;
             }
         }
         Statement::FnDecl { .. } => {}
         Statement::Expression { ex: e, .. } => {
-            tc_expr_propagate(e, ts, ctx)?;
+            tc_expr_reverse(e, ts, ctx)?;
         }
         Statement::Loop(stmts) => {
             tc_stmts_propagate(stmts, &TypeSet::default(), ctx)?;
         }
         Statement::While(cond, stmts) => {
             tc_stmts_propagate(stmts, &TypeSet::default(), ctx)?;
-            tc_expr_propagate(cond, &TypeSet::i32(), ctx)?;
+            tc_expr_reverse(cond, &TypeSet::i32(), ctx)?;
         }
         Statement::For(iter, from, to, stmts) => {
             tc_stmts_propagate(stmts, &TypeSet::default(), ctx)?;
@@ -852,8 +852,8 @@ where
             };
             dbg_println!("propagate For {}: {}", iter, idx_ty);
             let idx_ty = idx_ty.ts.clone();
-            tc_expr_propagate(to, &idx_ty, ctx)?;
-            tc_expr_propagate(from, &idx_ty, ctx)?;
+            tc_expr_reverse(to, &idx_ty, ctx)?;
+            tc_expr_reverse(from, &idx_ty, ctx)?;
         }
         Statement::Break => {
             // TODO: check types in break out site. For now we disallow break with values like Rust.
@@ -873,10 +873,10 @@ where
 {
     let mut iter = stmts.iter_mut().rev();
     if let Some(stmt) = iter.next() {
-        tc_stmt_propagate(stmt, ts, ctx)?;
+        tc_stmt_reverse(stmt, ts, ctx)?;
     }
     for stmt in iter {
-        tc_stmt_propagate(stmt, &TypeSet::default(), ctx)?;
+        tc_stmt_reverse(stmt, &TypeSet::default(), ctx)?;
     }
     Ok(())
 }
