@@ -554,15 +554,15 @@ where
         }
         ExprEnum::Conditional(cond, t_branch, f_branch) => {
             tc_expr_reverse(cond, &TypeSet::i32(), ctx)?;
-            tc_stmts_propagate(t_branch, ts, ctx)?;
+            tc_stmts_reverse(t_branch, ts, ctx)?;
             if let Some(f_branch) = f_branch {
-                tc_stmts_propagate(f_branch, ts, ctx)?;
+                tc_stmts_reverse(f_branch, ts, ctx)?;
             }
         }
         ExprEnum::Brace(stmts) => {
             let mut subctx = TypeCheckContext::push_stack(ctx);
             tc_stmts_forward(stmts, &mut subctx)?;
-            tc_stmts_propagate(stmts, ts, &mut subctx)?
+            tc_stmts_reverse(stmts, ts, &mut subctx)?
         }
     }
     Ok(())
@@ -835,14 +835,14 @@ where
             tc_expr_reverse(e, ts, ctx)?;
         }
         Statement::Loop(stmts) => {
-            tc_stmts_propagate(stmts, &TypeSet::default(), ctx)?;
+            tc_stmts_reverse(stmts, &TypeSet::default(), ctx)?;
         }
         Statement::While(cond, stmts) => {
-            tc_stmts_propagate(stmts, &TypeSet::default(), ctx)?;
+            tc_stmts_reverse(stmts, &TypeSet::default(), ctx)?;
             tc_expr_reverse(cond, &TypeSet::i32(), ctx)?;
         }
         Statement::For(iter, from, to, stmts) => {
-            tc_stmts_propagate(stmts, &TypeSet::default(), ctx)?;
+            tc_stmts_reverse(stmts, &TypeSet::default(), ctx)?;
             let Some(idx_ty) = ctx.variables.get(**iter) else {
                 return Err(TypeCheckError::new(
                     format!("Could not find variable {}", iter),
@@ -863,7 +863,7 @@ where
     Ok(())
 }
 
-pub fn tc_stmts_propagate<'src, 'ast, 'native>(
+pub fn tc_stmts_reverse<'src, 'ast, 'native>(
     stmts: &'ast mut Vec<Statement<'src>>,
     ts: &TypeSet,
     ctx: &mut TypeCheckContext<'src, 'native, '_>,
@@ -957,10 +957,10 @@ where
                         name,
                         ret_type
                     );
-                    tc_stmts_propagate(stmts, &ret_type, &mut inferer)?;
+                    tc_stmts_reverse(stmts, &ret_type, &mut inferer)?;
                 } else if *ret_type == TypeSet::void() {
                     dbg_println!("Function {} returns void; coercing", name);
-                    tc_stmts_propagate(stmts, &ret_type, &mut inferer)?;
+                    tc_stmts_reverse(stmts, &ret_type, &mut inferer)?;
                 } else {
                     return Err(TypeCheckError::new(
                         format!(
@@ -976,7 +976,7 @@ where
         }
     }
     tc_stmts_forward(stmts, ctx)?;
-    tc_stmts_propagate(stmts, &TypeSet::all(), ctx)?;
+    tc_stmts_reverse(stmts, &TypeSet::all(), ctx)?;
     Ok(())
 }
 
