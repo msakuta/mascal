@@ -404,7 +404,7 @@ fn emit_stmts<'src>(
                         // The 0th index is used for function name / return value, so the args start with 1.
                         let target = idx + 1;
                         let local = LocalVar {
-                            name: arg.name.to_owned(),
+                            name: arg.name.to_string(),
                             stack_idx: target,
                         };
                         compiler.target_stack.push(Target::Local(target));
@@ -427,7 +427,7 @@ fn emit_stmts<'src>(
                         } else {
                             None
                         };
-                        Ok(BytecodeArg::new(arg.name.to_owned(), init))
+                        Ok(BytecodeArg::new(arg.name.to_string(), init))
                     })
                     .collect::<Result<_, _>>()?;
                 dbg_println!("FnDecl actual args: {:?} fn_args: {:?}", a_args, fn_args);

@@ -345,7 +345,7 @@ fn fn_decl_test() {
         func_decl(span).finish().unwrap().1,
         Statement::FnDecl {
             name: span.subslice(3, 1),
-            args: vec![ArgDecl::new("a", TypeDecl::Any)],
+            args: vec![ArgDecl::new(span.subslice(5, 1), TypeDecl::Any)],
             ret_type: TypeSet::void(),
             stmts: Rc::new(vec![
                 expr_semi(Expression::new(
@@ -371,7 +371,7 @@ fn fn_decl_test() {
         func_decl(span).finish().unwrap().1,
         Statement::FnDecl {
             name: span.subslice(3, 1),
-            args: vec![ArgDecl::new("a", TypeDecl::I32)],
+            args: vec![ArgDecl::new(span.subslice(5, 1), TypeDecl::I32)],
             ret_type: TypeSet::void(),
             stmts: Rc::new(vec![expr_nosemi(Expression::new(
                 Mult(
@@ -387,7 +387,7 @@ fn fn_decl_test() {
         func_decl(span).finish().unwrap().1,
         Statement::FnDecl {
             name: span.subslice(3, 1),
-            args: vec![ArgDecl::new("a", TypeDecl::I32)],
+            args: vec![ArgDecl::new(span.subslice(5, 1), TypeDecl::I32)],
             ret_type: TypeSet::f64(),
             stmts: Rc::new(vec![expr_nosemi(Expression::new(
                 Mult(

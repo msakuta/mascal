@@ -155,7 +155,9 @@ impl TypeSet {
     /// We could not include the Void type to TypeDecl, because it is supposed to indicate
     /// a valid value with data representation. Or can we?
     pub fn determine(&self) -> Option<RetType> {
-        if self == &TypeDecl::I32.into() {
+        if matches!(self, Self::Any) {
+            return None;
+        } else if self == &TypeDecl::I32.into() {
             return Some(RetType::Some(TypeDecl::I32));
         } else if self == &TypeDecl::I64.into() {
             return Some(RetType::Some(TypeDecl::I64));

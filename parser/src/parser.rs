@@ -61,15 +61,15 @@ impl std::fmt::Display for ReadError {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct ArgDecl<'a> {
-    pub name: &'a str,
+    pub name: Span<'a>,
     pub ty: TypeDecl,
     pub init: Option<Expression<'a>>,
 }
 
 impl<'a> ArgDecl<'a> {
-    pub fn new(name: &'a str, ty: TypeDecl) -> Self {
+    pub fn new(name: impl Into<Span<'a>>, ty: TypeDecl) -> Self {
         Self {
-            name,
+            name: name.into(),
             ty,
             init: None,
         }
@@ -801,7 +801,7 @@ pub(crate) fn func_arg(r: Span) -> IResult<Span, ArgDecl> {
     Ok((
         r,
         ArgDecl {
-            name: *id,
+            name: id,
             ty: ty.unwrap_or(TypeDecl::F64),
             init,
         },

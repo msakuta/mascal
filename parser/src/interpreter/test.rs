@@ -656,7 +656,7 @@ fn fn_array_decl_test() {
         Statement::FnDecl {
             name: span.subslice(3, 1),
             args: vec![ArgDecl::new(
-                "a",
+                span.subslice(5, 1),
                 TypeDecl::Array(Box::new(TypeDecl::I32), ArraySize::Any)
             )],
             ret_type: TypeSet::void(),

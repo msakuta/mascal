@@ -1,5 +1,5 @@
 
-fn printdensity(d) {
+fn printdensity(d: i64) {
   if d > 8 {
     puts(" ");
   } else if d > 4 {

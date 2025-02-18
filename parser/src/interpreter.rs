@@ -330,7 +330,7 @@ where
                     if let Some(eval_arg) = fn_args
                         .iter()
                         .enumerate()
-                        .find(|f| f.1.name == *name)
+                        .find(|f| *f.1.name == *name)
                         .and_then(|(i, _)| eval_args.get_mut(i))
                     {
                         *eval_arg = Some(eval(&arg.expr, ctx)?);
@@ -363,7 +363,7 @@ where
                     for (k, v) in func.args.iter().zip(&eval_args) {
                         if let Some(v) = v {
                             subctx.variables.borrow_mut().insert(
-                                k.name,
+                                *k.name,
                                 Rc::new(RefCell::new(coerce_type(&unwrap_run!(v.clone()), &k.ty)?)),
                             );
                         } else {

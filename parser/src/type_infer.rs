@@ -316,7 +316,7 @@ where
                     if let Some(ty_arg) = fn_args
                         .iter()
                         .enumerate()
-                        .find(|f| f.1.name == *name)
+                        .find(|f| *f.1.name == *name)
                         .and_then(|(i, _)| ty_args.get_mut(i))
                     {
                         *ty_arg = Some(tc_expr_forward(&arg.expr, ctx)?);
@@ -332,7 +332,7 @@ where
 
             for (ty_arg, decl) in ty_args.iter().zip(fn_args.iter()) {
                 let ty_arg = ty_arg.as_ref().ok_or_else(|| {
-                    TypeCheckError::unassigned_arg(decl.name, e.span, ctx.source_file)
+                    TypeCheckError::unassigned_arg(*decl.name, e.span, ctx.source_file)
                 })?;
                 tc_coerce_type(&ty_arg, &decl.ty, e.span, ctx)?;
             }
@@ -731,7 +731,7 @@ where
                 }
                 subctx
                     .variables
-                    .insert(arg.name, VariableType::parameter(arg.ty.clone().into()));
+                    .insert(*arg.name, VariableType::parameter(arg.ty.clone().into()));
             }
             let last_stmt = tc_stmts_forward(stmts, &mut subctx)?;
             if let Some((
@@ -921,10 +921,19 @@ where
                 stmts,
             } => {
                 let mut inferer = TypeCheckContext::push_stack(ctx);
-                inferer.variables = args
+                inferer.variables = dbg!(args
                     .iter()
-                    .map(|param| (param.name, VariableType::parameter(param.ty.clone().into())))
-                    .collect();
+                    .map(|param| {
+                        if matches!(param.ty, TypeDecl::Any) {
+                            Err(TypeCheckError::indeterminant_type(*name, ctx.source_file))
+                        } else {
+                            Ok((
+                                *param.name,
+                                VariableType::parameter(param.ty.clone().into()),
+                            ))
+                        }
+                    })
+                    .collect::<Result<HashMap<_, _>, _>>()?);
                 let mut last_ty = TypeSet::default();
                 let stmts = Rc::make_mut(stmts);
                 for stmt in stmts.iter_mut() {
