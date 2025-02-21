@@ -297,7 +297,7 @@ pub(crate) fn type_decl(input: Span) -> IResult<Span, TypeDecl> {
 }
 
 fn cast(i: Span) -> IResult<Span, Expression> {
-    let (r, res) = var_ref(i)?;
+    let (r, res) = primary_expression(i)?;
     let (r, _) = ws(tag("as"))(r)?;
     let (r, decl) = type_decl(r)?;
     let span = i.subslice(i.offset(&res.span), res.span.offset(&r));
@@ -579,7 +579,6 @@ pub(crate) fn primary_expression(i: Span) -> IResult<Span, Expression> {
         numeric_literal_expression,
         str_literal,
         array_literal,
-        cast,
         var_ref,
         parens,
         brace_expr,
@@ -588,7 +587,13 @@ pub(crate) fn primary_expression(i: Span) -> IResult<Span, Expression> {
 }
 
 fn postfix_expression(i: Span) -> IResult<Span, Expression> {
-    alt((func_invoke, array_index, tuple_index, primary_expression))(i)
+    alt((
+        func_invoke,
+        array_index,
+        tuple_index,
+        cast,
+        primary_expression,
+    ))(i)
 }
 
 fn not(i: Span) -> IResult<Span, Expression> {

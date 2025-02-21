@@ -846,3 +846,33 @@ fn test_void_fn() {
         }]
     );
 }
+
+#[test]
+fn test_expr_cast() {
+    let span = Span::new("(a + b) as f64");
+    assert_eq!(
+        source(span).finish().unwrap().1,
+        vec![Statement::Expression {
+            ex: Expression::new(
+                ExprEnum::Cast(
+                    Box::new(Expression::new(
+                        ExprEnum::Add(
+                            Box::new(Expression::new(
+                                ExprEnum::Variable("a"),
+                                span.subslice(1, 1)
+                            )),
+                            Box::new(Expression::new(
+                                ExprEnum::Variable("b"),
+                                span.subslice(5, 1)
+                            ))
+                        ),
+                        span.subslice(0, 8)
+                    )),
+                    TypeDecl::F64
+                ),
+                span
+            ),
+            semicolon: false
+        }]
+    );
+}

@@ -43,7 +43,7 @@ fn mandelconverge(real: f64, imag: f64) -> i64 {
 /* Compute and plot the mandelbrot set with the specified 2 dimensional range
  info. */
 fn mandelhelp(xmin: f64, xmax: f64, xstep: f64,   ymin: f64, ymax: f64, ystep: f64) {
-    var steps: i64 = (ymax - ymin) / ystep;
+    var steps: i64 = ((ymax - ymin) / ystep) as i64;
     print("xstep", xstep, "ysteps", steps, "ystep", ystep);
     for iy in 0 .. steps {
         var y = iy as f64 * (ymax - ymin) * ystep as f64 + ymin;
