@@ -929,7 +929,7 @@ pub(crate) fn std_functions<'src, 'native>() -> HashMap<String, FuncDef<'src, 'n
 
 macro_rules! unwrap_break {
     ($e:expr) => {
-        match unwrap_deref($e)? {
+        match $e {
             RunResult::Yield(v) => v,
             RunResult::Break => break,
         }
@@ -976,15 +976,15 @@ where
             }
             Statement::Expression { ex, semicolon } => {
                 let ex_res = eval(&ex, ctx)?;
-                if let RunResult::Yield(ex_res) = ex_res {
-                    if *semicolon {
-                        res = RunResult::Yield(ex_res);
-                    } else {
-                        res = RunResult::Yield(ex_res);
+                match ex_res {
+                    RunResult::Yield(ex_res) => {
+                        if *semicolon {
+                            res = RunResult::Yield(ex_res);
+                        } else {
+                            res = RunResult::Yield(ex_res);
+                        }
                     }
-                }
-                if let RunResult::Break = res {
-                    return Ok(res);
+                    RunResult::Break => return Ok(ex_res),
                 }
                 // println!("Expression evaluates to: {:?}", res);
             }

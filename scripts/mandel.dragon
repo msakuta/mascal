@@ -23,9 +23,9 @@ puts(nl);
 
 /* Determine whether the specific location diverges. */
 /* Solve for z = z^2 + c in the complex plane. */
-fn mandelconverger(real: f64, imag: f64, iters: i64, creal: f64, cimag: f64) -> i64 {
-    for iters in 0 .. 255 {
-        if real*real + imag*imag > 4 {
+fn mandelconverger(real: f64, imag: f64, creal: f64, cimag: f64) -> i64 {
+    for iters in 0 .. 256 {
+        if real*real + imag*imag > 4. {
             break;
         };
         var next_r = real*real - imag*imag + creal;
@@ -37,7 +37,7 @@ fn mandelconverger(real: f64, imag: f64, iters: i64, creal: f64, cimag: f64) -> 
 
 /* Return the number of iterations required for the iteration to escape */
 fn mandelconverge(real: f64, imag: f64) -> i64 {
-  mandelconverger(real, imag, 0, real, imag)
+  mandelconverger(real, imag, real, imag)
 }
 
 /* Compute and plot the mandelbrot set with the specified 2 dimensional range
