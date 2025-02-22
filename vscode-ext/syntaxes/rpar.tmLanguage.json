@@ -32,7 +32,7 @@
 		"keywords": {
 			"patterns": [{
 				"name": "keyword.control.rpar",
-				"match": "\\b(if|while|for|return|fn|var|as|in|void)\\b"
+				"match": "\\b(if|while|for|return|fn|var|as|in|void|break)\\b"
 			}]
 		},
 		"builtInTypes": {
