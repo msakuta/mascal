@@ -1,0 +1,20 @@
+
+fn ping(n: i64) -> i64 {
+    if n < 1 {
+        1
+    } else {
+        print("ping", n);
+        pong(n - 1)
+    }
+}
+
+fn pong(n: i64) -> i64 {
+    if n < 1 {
+        1
+    } else {
+        print("pong", n);
+        ping(n - 1)
+    }
+}
+
+print(ping(10));
