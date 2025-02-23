@@ -19,6 +19,8 @@ mod type_tags;
 mod value;
 mod vm;
 
+pub use nom;
+
 pub use self::bytecode::{
     Bytecode, DebugInfo, FnBytecode, FunctionInfo, Instruction, LineInfo, OpCode,
 };

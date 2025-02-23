@@ -16,6 +16,9 @@ use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::notification::Notification;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
+
+use mascal::nom::Finish;
+
 #[derive(Debug)]
 struct Backend {
     client: Client,
@@ -504,11 +507,52 @@ impl Backend {
         //     .insert(params.uri.to_string(), rope.clone());
         self.document_map
             .insert(params.uri.to_string(), params.text.to_string());
-        let ParserResult {
-            ast,
-            parse_errors,
-            semantic_tokens,
-        } = parse(params.text);
+        // let ParserResult {
+        //     ast,
+        //     parse_errors,
+        //     semantic_tokens,
+        // } = parse(params.text);
+        let diagnostics;
+        {
+            let parse_result = mascal::source(params.text).finish();
+            diagnostics = match parse_result {
+                Err(e) => {
+                    vec![Diagnostic::new_simple(
+                        Range {
+                            start: Position {
+                                line: e.input.location_line().saturating_sub(1),
+                                character: e.input.get_column() as u32,
+                            },
+                            end: Position {
+                                line: e.input.location_line().saturating_sub(1),
+                                character: e.input.get_column() as u32 + e.input.len() as u32,
+                            },
+                        },
+                        e.to_string(),
+                    )]
+                }
+                Ok((_, mut stmts)) => {
+                    let mut ctx = mascal::TypeCheckContext::new(Some(params.uri.as_str()));
+                    if let Err(e) = mascal::type_check(&mut stmts, &mut ctx) {
+                        vec![Diagnostic::new_simple(
+                            Range {
+                                start: Position {
+                                    line: e.span().location_line().saturating_sub(1),
+                                    character: e.span().get_column() as u32,
+                                },
+                                end: Position {
+                                    line: e.span().location_line().saturating_sub(1),
+                                    character: e.span().get_column() as u32 + e.span().len() as u32,
+                                },
+                            },
+                            e.to_string(),
+                        )]
+                    } else {
+                        vec![]
+                    }
+                }
+            };
+        }
         // let mut diagnostics = parse_errors
         //     .into_iter()
         //     .filter_map(|item| {
@@ -573,9 +617,10 @@ impl Backend {
         //     self.ast_map.insert(params.uri.to_string(), ast);
         // }
 
-        // self.client
-        //     .publish_diagnostics(params.uri.clone(), diagnostics, params.version)
-        //     .await;
+        debug!("publishing {} diagnostics", diagnostics.len());
+        self.client
+            .publish_diagnostics(params.uri.clone(), diagnostics, params.version)
+            .await;
         // self.semantic_token_map
         //     .insert(params.uri.to_string(), semantic_tokens);
     }

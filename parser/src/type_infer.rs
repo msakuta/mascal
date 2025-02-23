@@ -43,6 +43,10 @@ impl<'src> TypeCheckError<'src> {
         }
     }
 
+    pub fn span(&self) -> Span<'src> {
+        self.span
+    }
+
     pub(crate) fn undefined_fn(
         name: &str,
         span: Span<'src>,
