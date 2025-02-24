@@ -323,12 +323,12 @@ impl LanguageServer for Backend {
             mascal::iter_types(&ast, &mut |span, ty| {
                 let start_pos = Position {
                     line: span.location_line().saturating_sub(1),
-                    character: span.get_column() as u32,
+                    character: span.get_column().saturating_sub(1) as u32,
                 };
                 let end_pos = Position {
                     // Offset 1 is difference between nom_locate (assumes line starts with 1) and LSP (with 0)
                     line: span.location_line().saturating_sub(1),
-                    character: span.get_column() as u32 + span.len() as u32,
+                    character: span.get_column().saturating_sub(1) as u32 + span.len() as u32,
                 };
                 hashmap.push((start_pos, end_pos, ty.to_string()));
             });
@@ -512,22 +512,14 @@ impl Backend {
         //     parse_errors,
         //     semantic_tokens,
         // } = parse(params.text);
+
         let diagnostics;
         {
             let parse_result = mascal::source(params.text).finish();
             diagnostics = match parse_result {
                 Err(e) => {
                     vec![Diagnostic::new_simple(
-                        Range {
-                            start: Position {
-                                line: e.input.location_line().saturating_sub(1),
-                                character: e.input.get_column() as u32,
-                            },
-                            end: Position {
-                                line: e.input.location_line().saturating_sub(1),
-                                character: e.input.get_column() as u32 + e.input.len() as u32,
-                            },
-                        },
+                        span_to_range(e.input),
                         e.to_string(),
                     )]
                 }
@@ -535,16 +527,7 @@ impl Backend {
                     let mut ctx = mascal::TypeCheckContext::new(Some(params.uri.as_str()));
                     if let Err(e) = mascal::type_check(&mut stmts, &mut ctx) {
                         vec![Diagnostic::new_simple(
-                            Range {
-                                start: Position {
-                                    line: e.span().location_line().saturating_sub(1),
-                                    character: e.span().get_column() as u32,
-                                },
-                                end: Position {
-                                    line: e.span().location_line().saturating_sub(1),
-                                    character: e.span().get_column() as u32 + e.span().len() as u32,
-                                },
-                            },
+                            span_to_range(e.span()),
                             e.to_string(),
                         )]
                     } else {
@@ -643,6 +626,19 @@ async fn main() {
     .finish();
 
     Server::new(stdin, stdout, socket).serve(service).await;
+}
+
+fn span_to_range(span: mascal::Span) -> Range {
+    Range {
+        start: Position {
+            line: span.location_line().saturating_sub(1),
+            character: span.get_column().saturating_sub(1) as u32,
+        },
+        end: Position {
+            line: span.location_line().saturating_sub(1),
+            character: span.get_column().saturating_sub(1) as u32 + span.len() as u32,
+        },
+    }
 }
 
 fn offset_to_position(offset: usize, rope: &Rope) -> Option<Position> {
