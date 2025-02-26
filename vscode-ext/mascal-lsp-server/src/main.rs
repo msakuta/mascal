@@ -515,6 +515,7 @@ impl Backend {
 
         let diagnostics;
         {
+            mascal::DEBUG_STREAM.set(Box::new(std::io::sink()));
             let parse_result = mascal::source(params.text).finish();
             diagnostics = match parse_result {
                 Err(e) => {
@@ -625,6 +626,7 @@ impl Backend {
         let mut hashmap = vec![];
 
         let doc_str = doc.value();
+        mascal::DEBUG_STREAM.set(Box::new(std::io::sink()));
         let Ok((_, mut ast)) = mascal::source(&doc_str) else {
             debug!("source failed");
             return None;

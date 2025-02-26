@@ -925,7 +925,7 @@ where
                 stmts,
             } => {
                 let mut inferer = TypeCheckContext::push_stack(ctx);
-                inferer.variables = dbg!(args
+                inferer.variables = args
                     .iter()
                     .map(|param| {
                         if matches!(param.ty, TypeDecl::Any) {
@@ -937,7 +937,7 @@ where
                             ))
                         }
                     })
-                    .collect::<Result<HashMap<_, _>, _>>()?);
+                    .collect::<Result<HashMap<_, _>, _>>()?;
                 let mut last_ty = TypeSet::default();
                 let stmts = Rc::make_mut(stmts);
                 for stmt in stmts.iter_mut() {
