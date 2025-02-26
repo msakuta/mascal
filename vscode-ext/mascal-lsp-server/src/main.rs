@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Mutex;
 
 use dashmap::DashMap;
 use log::debug;
@@ -26,12 +27,14 @@ struct Backend {
     semantic_map: DashMap<String, Semantic>,
     document_map: DashMap<String, String>,
     semantic_token_map: DashMap<String, Vec<ImCompleteSemanticToken>>,
+    /// String representation of init result for debugging
+    init_result: Mutex<String>,
 }
 
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
     async fn initialize(&self, _: InitializeParams) -> Result<InitializeResult> {
-        Ok(InitializeResult {
+        let res = InitializeResult {
             server_info: None,
             offset_encoding: None,
             capabilities: ServerCapabilities {
@@ -94,12 +97,20 @@ impl LanguageServer for Backend {
                 // definition_provider: Some(OneOf::Left(true)),
                 // references_provider: Some(OneOf::Left(true)),
                 // rename_provider: Some(OneOf::Left(true)),
+                hover_provider: Some(HoverProviderCapability::Simple(true)),
+
                 ..ServerCapabilities::default()
             },
-        })
+        };
+
+        if let Ok(mut lock) = self.init_result.lock() {
+            *lock = format!("{res:#?}");
+        }
+
+        Ok(res)
     }
     async fn initialized(&self, _: InitializedParams) {
-        debug!("initialized!");
+        debug!("initialized! {:?}", self.init_result.lock());
     }
 
     async fn shutdown(&self) -> Result<()> {
@@ -300,44 +311,12 @@ impl LanguageServer for Backend {
     ) -> Result<Option<Vec<InlayHint>>> {
         debug!("inlay hint");
         let uri = &params.text_document.uri;
-        let mut hashmap = vec![];
-        // if let Some(ast) = self.ast_map.get(uri.as_str()) {
-        //     ast.iter().for_each(|(func, _)| {
-        //         type_inference(&func.body, &mut hashmap);
-        //     });
-        // }
+        let hashmap = self.type_hints(uri).unwrap_or_else(|| vec![]);
 
-        if let Some(doc) = self.document_map.get(uri.as_str()) {
-            let doc_str = doc.value();
-            let Ok((_, mut ast)) = mascal::source(&doc_str) else {
-                debug!("source failed");
-                return Ok(None);
-            };
-            if let Err(e) = mascal::type_check(
-                &mut ast,
-                &mut mascal::TypeCheckContext::new(Some(uri.as_str())),
-            ) {
-                debug!("type check error: {e}");
-                return Ok(None);
-            }
-            mascal::iter_types(&ast, &mut |span, ty| {
-                let start_pos = Position {
-                    line: span.location_line().saturating_sub(1),
-                    character: span.get_column().saturating_sub(1) as u32,
-                };
-                let end_pos = Position {
-                    // Offset 1 is difference between nom_locate (assumes line starts with 1) and LSP (with 0)
-                    line: span.location_line().saturating_sub(1),
-                    character: span.get_column().saturating_sub(1) as u32 + span.len() as u32,
-                };
-                hashmap.push((start_pos, end_pos, ty.to_string()));
-            });
-        }
-
-        let document = match self.document_map.get(uri.as_str()) {
-            Some(rope) => rope,
-            None => return Ok(None),
-        };
+        // let document = match self.document_map.get(uri.as_str()) {
+        //     Some(rope) => rope,
+        //     None => return Ok(None),
+        // };
         let inlay_hint_list = hashmap
             .into_iter()
             .filter_map(|(start_pos, end_pos, str)| {
@@ -377,6 +356,24 @@ impl LanguageServer for Backend {
             .collect::<Vec<_>>();
 
         Ok(Some(inlay_hint_list))
+    }
+
+    async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
+        let uri = &params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
+        debug!("hover {uri} @ {position:?}");
+        let hashmap = self.type_hints(uri).unwrap_or_else(|| vec![]);
+
+        if let Some(item) = hashmap
+            .into_iter()
+            .find(|item| item.0 <= position && position < item.1)
+        {
+            return Ok(Some(Hover {
+                contents: HoverContents::Scalar(MarkedString::String(item.2)),
+                range: None,
+            }));
+        }
+        Ok(None)
     }
 
     // async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
@@ -607,6 +604,41 @@ impl Backend {
         // self.semantic_token_map
         //     .insert(params.uri.to_string(), semantic_tokens);
     }
+
+    fn type_hints(&self, uri: &Url) -> Option<Vec<(Position, Position, String)>> {
+        let Some(doc) = self.document_map.get(uri.as_str()) else {
+            return None;
+        };
+
+        let mut hashmap = vec![];
+
+        let doc_str = doc.value();
+        let Ok((_, mut ast)) = mascal::source(&doc_str) else {
+            debug!("source failed");
+            return None;
+        };
+        if let Err(e) = mascal::type_check(
+            &mut ast,
+            &mut mascal::TypeCheckContext::new(Some(uri.as_str())),
+        ) {
+            debug!("type check error: {e}");
+            return None;
+        }
+        mascal::iter_types(&ast, &mut |span, ty| {
+            let start_pos = Position {
+                line: span.location_line().saturating_sub(1),
+                character: span.get_column().saturating_sub(1) as u32,
+            };
+            let end_pos = Position {
+                // Offset 1 is difference between nom_locate (assumes line starts with 1) and LSP (with 0)
+                line: span.location_line().saturating_sub(1),
+                character: span.get_column().saturating_sub(1) as u32 + span.len() as u32,
+            };
+            hashmap.push((start_pos, end_pos, ty.to_string()));
+        });
+
+        Some(hashmap)
+    }
 }
 
 #[tokio::main]
@@ -622,6 +654,7 @@ async fn main() {
         document_map: DashMap::new(),
         semantic_token_map: DashMap::new(),
         semantic_map: DashMap::new(),
+        init_result: Mutex::new("".to_string()),
     })
     .finish();
 

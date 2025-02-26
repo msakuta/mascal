@@ -80,15 +80,15 @@ export function deactivate(): Thenable<void> | undefined {
   return client.stop();
 }
 
-export function activateInlayHints(ctx: ExtensionContext) {
-  const maybeUpdater = {
-    hintsProvider: null as Disposable | null,
-    updateHintsEventEmitter: new EventEmitter<void>(),
+// export function activateInlayHints(ctx: ExtensionContext) {
+//   const maybeUpdater = {
+//     hintsProvider: null as Disposable | null,
+//     updateHintsEventEmitter: new EventEmitter<void>(),
 
-    async onConfigChange() {
-      this.dispose();
+//     async onConfigChange() {
+//       this.dispose();
 
-      const event = this.updateHintsEventEmitter.event;
+//       const event = this.updateHintsEventEmitter.event;
       // this.hintsProvider = languages.registerInlayHintsProvider(
       //   { scheme: "file", language: "nrs" },
       //   // new (class implements InlayHintsProvider {
@@ -138,22 +138,22 @@ export function activateInlayHints(ctx: ExtensionContext) {
       //   //   }
       //   // })()
       // );
-    },
+//     },
 
-    onDidChangeTextDocument({ contentChanges, document }: TextDocumentChangeEvent) {
-      // debugger
-      // this.updateHintsEventEmitter.fire();
-    },
+//     onDidChangeTextDocument({ contentChanges, document }: TextDocumentChangeEvent) {
+//       // debugger
+//       // this.updateHintsEventEmitter.fire();
+//     },
 
-    dispose() {
-      this.hintsProvider?.dispose();
-      this.hintsProvider = null;
-      this.updateHintsEventEmitter.dispose();
-    },
-  };
+//     dispose() {
+//       this.hintsProvider?.dispose();
+//       this.hintsProvider = null;
+//       this.updateHintsEventEmitter.dispose();
+//     },
+//   };
 
-  workspace.onDidChangeConfiguration(maybeUpdater.onConfigChange, maybeUpdater, ctx.subscriptions);
-  workspace.onDidChangeTextDocument(maybeUpdater.onDidChangeTextDocument, maybeUpdater, ctx.subscriptions);
+//   workspace.onDidChangeConfiguration(maybeUpdater.onConfigChange, maybeUpdater, ctx.subscriptions);
+//   workspace.onDidChangeTextDocument(maybeUpdater.onDidChangeTextDocument, maybeUpdater, ctx.subscriptions);
 
-  maybeUpdater.onConfigChange().catch(console.error);
-}
+//   maybeUpdater.onConfigChange().catch(console.error);
+// }
