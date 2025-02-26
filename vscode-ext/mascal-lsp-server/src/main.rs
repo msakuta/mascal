@@ -319,7 +319,7 @@ impl LanguageServer for Backend {
         // };
         let inlay_hint_list = hashmap
             .into_iter()
-            .filter_map(|(start_pos, end_pos, str)| {
+            .filter_map(|type_hint| {
                 // let start = k.start;
                 // let end = k.end;
                 // let str = match v {
@@ -337,9 +337,9 @@ impl LanguageServer for Backend {
                     padding_left: None,
                     padding_right: None,
                     data: None,
-                    position: end_pos,
+                    position: type_hint.end,
                     label: InlayHintLabel::LabelParts(vec![InlayHintLabelPart {
-                        value: format!(": {str}"),
+                        value: format!(": {}", type_hint.ty),
                         tooltip: None,
                         location: Some(Location {
                             uri: params.text_document.uri.clone(),
@@ -366,10 +366,13 @@ impl LanguageServer for Backend {
 
         if let Some(item) = hashmap
             .into_iter()
-            .find(|item| item.0 <= position && position < item.1)
+            .find(|item| item.start <= position && position < item.end)
         {
             return Ok(Some(Hover {
-                contents: HoverContents::Scalar(MarkedString::String(item.2)),
+                contents: HoverContents::Scalar(MarkedString::LanguageString(LanguageString {
+                    language: "rpar".to_string(),
+                    value: format!("var {}: {}", item.name, item.ty),
+                })),
                 range: None,
             }));
         }
@@ -604,8 +607,17 @@ impl Backend {
         // self.semantic_token_map
         //     .insert(params.uri.to_string(), semantic_tokens);
     }
+}
 
-    fn type_hints(&self, uri: &Url) -> Option<Vec<(Position, Position, String)>> {
+struct TypeHint {
+    start: Position,
+    end: Position,
+    name: String,
+    ty: String,
+}
+
+impl Backend {
+    fn type_hints(&self, uri: &Url) -> Option<Vec<TypeHint>> {
         let Some(doc) = self.document_map.get(uri.as_str()) else {
             return None;
         };
@@ -634,7 +646,12 @@ impl Backend {
                 line: span.location_line().saturating_sub(1),
                 character: span.get_column().saturating_sub(1) as u32 + span.len() as u32,
             };
-            hashmap.push((start_pos, end_pos, ty.to_string()));
+            hashmap.push(TypeHint {
+                start: start_pos,
+                end: end_pos,
+                name: span.to_string(),
+                ty: ty.to_string(),
+            });
         });
 
         Some(hashmap)
