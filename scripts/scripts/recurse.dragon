@@ -1,0 +1,35 @@
+
+fn fact(n: i64) -> i64 {
+    if n < 1 {
+        1
+    } else {
+        n * fact(n - 1)
+    }
+}
+
+print(fact(10));
+
+fn fibo(n: i32) -> i32 {
+    if n < 1 {
+        0
+    } else if n < 2 {
+        1
+    } else {
+        fibo(n - 1) + fibo(n - 2)
+    }
+}
+
+print(fibo(10));
+
+fn sum(n: i32) -> i32 {
+    fn sum_int(n: i32, acc: i32) -> i32 {
+        if n < 1 {
+            acc
+        } else {
+            sum_int(n - 1, acc) + n
+        }
+    }
+    sum_int(n, 0)
+}
+
+print(sum(10));
