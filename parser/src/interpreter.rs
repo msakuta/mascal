@@ -1014,7 +1014,7 @@ where
                     RunResult::Break => break,
                 };
             },
-            Statement::For(iter, from, to, e) => {
+            Statement::For(iter, _, from, to, e) => {
                 let from_res = coerce_i64(&unwrap_break!(eval(from, ctx)?))? as i64;
                 let to_res = coerce_i64(&unwrap_break!(eval(to, ctx)?))? as i64;
                 for i in from_res..to_res {

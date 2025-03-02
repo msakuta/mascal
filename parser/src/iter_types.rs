@@ -44,7 +44,14 @@ pub fn iter_types(ast: &[Statement], f: &mut impl FnMut(TypeParams)) {
                 iter_types_expr(cond, f);
                 iter_types(stmts, f);
             }
-            Statement::For(_var, init, end, stmts) => {
+            Statement::For(name, ty, init, end, stmts) => {
+                if let Some(ty) = ty {
+                    f(TypeParams {
+                        span: *name,
+                        ty,
+                        annotated: false,
+                    });
+                }
                 iter_types_expr(init, f);
                 iter_types_expr(end, f);
                 iter_types(stmts, f);

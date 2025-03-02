@@ -1035,6 +1035,7 @@ fn for_test() {
         source(span).finish().unwrap().1,
         vec![Statement::For(
             span.subslice(5, 1),
+            None,
             Expression::new(
                 NumLiteral(Value::I64(0), TypeSetAnnotated::int()),
                 span.subslice(10, 1)

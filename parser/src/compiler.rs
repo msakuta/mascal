@@ -465,7 +465,7 @@ fn emit_stmts<'src>(
                     compiler.bytecode.instructions.len() as u16;
                 compiler.fixup_breaks();
             }
-            Statement::For(iter, from, to, stmts) => {
+            Statement::For(iter, _, from, to, stmts) => {
                 let stk_from = emit_expr(from, compiler)?;
                 let stk_to = emit_expr(to, compiler)?;
                 let local_iter = compiler
