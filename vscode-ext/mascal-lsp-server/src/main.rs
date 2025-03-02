@@ -1,5 +1,3 @@
-use std::sync::Mutex;
-
 use dashmap::DashMap;
 use log::debug;
 use mascal::{nom::Finish, TypeParams};
@@ -14,8 +12,6 @@ use tower_lsp::{
 struct Backend {
     client: Client,
     document_map: DashMap<String, String>,
-    /// String representation of init result for debugging
-    init_result: Mutex<String>,
 }
 
 #[tower_lsp::async_trait]
@@ -42,13 +38,9 @@ impl LanguageServer for Backend {
                 ..ServerCapabilities::default()
             },
         };
-
-        if let Ok(mut lock) = self.init_result.lock() {
-            *lock = format!("{res:#?}");
-        }
-
         Ok(res)
     }
+
     async fn initialized(&self, _: InitializedParams) {
         debug!("initialized!");
     }
@@ -309,7 +301,6 @@ async fn main() {
     let (service, socket) = LspService::build(|client| Backend {
         client,
         document_map: DashMap::new(),
-        init_result: Mutex::new("".to_string()),
     })
     .finish();
 
