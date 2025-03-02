@@ -1,0 +1,21 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "extensionHost",
+            "request": "launch",
+            "name": "Launch Client",
+            "runtimeExecutable": "${execPath}",
+            "args": [
+              "--extensionDevelopmentPath=${workspaceRoot}/vscode-ext"
+            ],
+            "outFiles": [
+              "${workspaceRoot}/vscode-ext/dist/**/*.js"
+            ],
+            "autoAttachChildProcesses": true,
+            "env": {
+              "SERVER_PATH": "${workspaceRoot}/vscode-ext/mascal-lsp-server/target/debug/mascal-lsp-server"
+            }
+          },
+    ]
+}
