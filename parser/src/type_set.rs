@@ -1,5 +1,14 @@
 use crate::{interpreter::RetType, type_decl::ArraySize, TypeDecl};
 
+/// TypeSet with a flag whether it was annotated in the original source code.
+/// It can keep track of existence of type annotation even after type inference
+/// fills the holes.
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
+pub struct TypeSetAnnotated {
+    pub(crate) ts: TypeSet,
+    pub(crate) annotated: bool,
+}
+
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub enum TypeSet {
     /// "Any" type set is used to avoid infinite recursion of nested array types.
@@ -9,7 +18,7 @@ pub enum TypeSet {
 }
 
 impl TypeSet {
-    pub fn map<T>(&self, f: impl Fn(&TypeSetFlags) -> T) -> Option<T> {
+    pub fn _map<T>(&self, f: impl Fn(&TypeSetFlags) -> T) -> Option<T> {
         match self {
             Self::Any => None,
             Self::Set(set) => Some(f(set)),
@@ -46,60 +55,92 @@ pub struct TypeSetFlags {
     pub tuple: Option<Vec<TypeSet>>,
 }
 
+impl TypeSetAnnotated {
+    pub fn i32() -> Self {
+        Self {
+            ts: TypeSet::i32(),
+            annotated: true,
+        }
+    }
+
+    pub fn i64() -> Self {
+        Self {
+            ts: TypeSet::i64(),
+            annotated: true,
+        }
+    }
+
+    pub fn int() -> Self {
+        Self {
+            ts: TypeSet::int(),
+            annotated: true,
+        }
+    }
+
+    pub fn f32() -> Self {
+        Self {
+            ts: TypeSet::Set(TypeSetFlags {
+                f32: true,
+                ..TypeSetFlags::default()
+            }),
+            annotated: true,
+        }
+    }
+
+    pub fn f64() -> Self {
+        Self {
+            ts: TypeSet::Set(TypeSetFlags {
+                f64: true,
+                ..TypeSetFlags::default()
+            }),
+            annotated: true,
+        }
+    }
+
+    pub fn float() -> Self {
+        Self {
+            ts: TypeSet::Set(TypeSetFlags {
+                f32: true,
+                f64: true,
+                ..TypeSetFlags::default()
+            }),
+            annotated: true,
+        }
+    }
+
+    pub fn unannotated() -> Self {
+        Self {
+            ts: TypeSet::Any,
+            annotated: false,
+        }
+    }
+}
+
 impl TypeSet {
     pub fn i32() -> Self {
-        Self::Set(TypeSetFlags {
+        TypeSet::Set(TypeSetFlags {
             i32: true,
             ..TypeSetFlags::default()
         })
     }
 
     pub fn i64() -> Self {
-        Self::Set(TypeSetFlags {
+        TypeSet::Set(TypeSetFlags {
             i64: true,
             ..TypeSetFlags::default()
         })
     }
 
     pub fn int() -> Self {
-        Self::Set(TypeSetFlags {
+        TypeSet::Set(TypeSetFlags {
             i32: true,
             i64: true,
             ..TypeSetFlags::default()
         })
     }
 
-    pub fn f32() -> Self {
-        Self::Set(TypeSetFlags {
-            f32: true,
-            ..TypeSetFlags::default()
-        })
-    }
-
-    pub fn f64() -> Self {
-        Self::Set(TypeSetFlags {
-            f64: true,
-            ..TypeSetFlags::default()
-        })
-    }
-
-    pub fn float() -> Self {
-        Self::Set(TypeSetFlags {
-            f32: true,
-            f64: true,
-            ..TypeSetFlags::default()
-        })
-    }
-
-    pub fn void() -> Self {
-        Self::Set(TypeSetFlags {
-            void: true,
-            ..TypeSetFlags::default()
-        })
-    }
-
     pub fn str() -> Self {
-        Self::Set(TypeSetFlags {
+        TypeSet::Set(TypeSetFlags {
             string: true,
             ..TypeSetFlags::default()
         })
@@ -115,6 +156,13 @@ impl TypeSet {
     pub fn tuple(type_sets: Vec<TypeSet>) -> Self {
         Self::Set(TypeSetFlags {
             tuple: Some(type_sets),
+            ..TypeSetFlags::default()
+        })
+    }
+
+    pub fn void() -> Self {
+        Self::Set(TypeSetFlags {
+            void: true,
             ..TypeSetFlags::default()
         })
     }
@@ -155,7 +203,7 @@ impl TypeSet {
     /// We could not include the Void type to TypeDecl, because it is supposed to indicate
     /// a valid value with data representation. Or can we?
     pub fn determine(&self) -> Option<RetType> {
-        if matches!(self, Self::Any) {
+        if matches!(&self, TypeSet::Any) {
             return None;
         } else if self == &TypeDecl::I32.into() {
             return Some(RetType::Some(TypeDecl::I32));
@@ -217,7 +265,9 @@ impl std::ops::BitAnd for TypeSet {
         let TypeSet::Set(set) = &mut self else {
             return rhs;
         };
-        let TypeSet::Set(rhs) = &rhs else { return self };
+        let TypeSet::Set(rhs) = &rhs else {
+            return self;
+        };
         let array = set
             .array
             .as_mut()
@@ -307,7 +357,7 @@ impl TypeSet {
             None
         };
 
-        Ok(TypeSet::Set(TypeSetFlags {
+        let ret = Self::Set(TypeSetFlags {
             i32: set.i32 & rhs.i32,
             i64: set.i64 & rhs.i64,
             f32: set.f32 & rhs.f32,
@@ -316,14 +366,20 @@ impl TypeSet {
             string: set.string & rhs.string,
             array,
             tuple,
-        }))
+        });
+
+        if ret.is_none() {
+            return Err(format!("Incompatible types: {} and {}", self, rhs));
+        }
+
+        Ok(ret)
     }
 }
 
 impl From<&TypeDecl> for TypeSet {
     fn from(value: &TypeDecl) -> Self {
         if matches!(value, TypeDecl::Any) {
-            return TypeSet::Any;
+            return Self::Any;
         }
         let mut ret = TypeSetFlags::default();
         match value {
@@ -343,7 +399,7 @@ impl From<&TypeDecl> for TypeSet {
                 return TypeSet::tuple(types.iter().map(|ty| ty.into()).collect())
             }
         }
-        TypeSet::Set(ret)
+        Self::Set(ret)
     }
 }
 
@@ -353,20 +409,29 @@ impl From<TypeDecl> for TypeSet {
     }
 }
 
-impl From<&Option<TypeDecl>> for TypeSet {
-    fn from(value: &Option<TypeDecl>) -> Self {
-        match value {
-            Some(ref value) => Self::from(value),
-            None => Self::all(),
+impl From<&TypeDecl> for TypeSetAnnotated {
+    fn from(value: &TypeDecl) -> Self {
+        Self {
+            ts: TypeSet::from(value),
+            annotated: true,
         }
     }
 }
 
-impl From<&mut Option<TypeDecl>> for TypeSet {
+impl From<&Option<TypeDecl>> for TypeSetAnnotated {
+    fn from(value: &Option<TypeDecl>) -> Self {
+        match value {
+            Some(ref value) => Self::from(value),
+            None => Self::unannotated(),
+        }
+    }
+}
+
+impl From<&mut Option<TypeDecl>> for TypeSetAnnotated {
     fn from(value: &mut Option<TypeDecl>) -> Self {
         match value {
             Some(ref value) => Self::from(value),
-            None => Self::all(),
+            None => Self::unannotated(),
         }
     }
 }
@@ -380,11 +445,23 @@ impl From<&RetType> for TypeSet {
     }
 }
 
+impl std::fmt::Display for TypeSetAnnotated {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.ts.fmt(f)
+    }
+}
+
 impl std::fmt::Display for TypeSet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let Self::Set(set) = self else {
+        let TypeSet::Set(set) = self else {
             return write!(f, "any");
         };
+        set.fmt(f)
+    }
+}
+
+impl std::fmt::Display for TypeSetFlags {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut written = false;
         let mut write_ty = |val, name: &str| {
             if val {
@@ -396,17 +473,17 @@ impl std::fmt::Display for TypeSet {
             }
             Ok(())
         };
-        write_ty(set.i32, "i32")?;
-        write_ty(set.i64, "i64")?;
-        write_ty(set.f32, "f32")?;
-        write_ty(set.f64, "f64")?;
-        write_ty(set.void, "void")?;
-        write_ty(set.string, "str")?;
-        if let Some(array) = set.array.as_ref() {
+        write_ty(self.i32, "i32")?;
+        write_ty(self.i64, "i64")?;
+        write_ty(self.f32, "f32")?;
+        write_ty(self.f64, "f64")?;
+        write_ty(self.void, "void")?;
+        write_ty(self.string, "str")?;
+        if let Some(array) = self.array.as_ref() {
             write_ty(true, &array_size_to_string(array))?;
         }
 
-        if let Some(tuple) = set.tuple.as_ref() {
+        if let Some(tuple) = self.tuple.as_ref() {
             write_ty(
                 true,
                 &tuple.iter().fold("".to_string(), |acc, cur| {

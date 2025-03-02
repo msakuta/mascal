@@ -10,7 +10,7 @@ use crate::{
         Subslice,
     },
     type_check,
-    type_set::TypeSet,
+    type_set::TypeSetAnnotated,
     TypeCheckContext,
 };
 use ExprEnum::*;
@@ -90,7 +90,10 @@ fn var_r(name: Span) -> Box<Expression> {
 
 /// Boxed numeric literal
 fn bnl(value: Value, span: Span) -> Box<Expression> {
-    Box::new(Expression::new(NumLiteral(value, TypeSet::int()), span))
+    Box::new(Expression::new(
+        NumLiteral(value, TypeSetAnnotated::int()),
+        span,
+    ))
 }
 
 #[test]
@@ -426,7 +429,7 @@ fn logic_eval_test() {
 
 /// Numeric literal without box
 fn nl(value: Value, span: Span) -> Expression {
-    Expression::new(NumLiteral(value, TypeSet::int()), span)
+    Expression::new(NumLiteral(value, TypeSetAnnotated::int()), span)
 }
 
 #[test]
@@ -659,7 +662,7 @@ fn fn_array_decl_test() {
                 span.subslice(5, 1),
                 TypeDecl::Array(Box::new(TypeDecl::I32), ArraySize::Any)
             )],
-            ret_type: TypeSet::void(),
+            ret_type: RetType::Void,
             stmts: Rc::new(vec![expr_semi(Expression::new(
                 VarAssign(
                     var_r(span.subslice(17, 1)),
@@ -811,7 +814,12 @@ fn var_decl_test() {
     assert_eq!(
         source(span).finish().unwrap().1,
         vec![
-            VarDecl(span.subslice(5, 1), TypeDecl::Any, None),
+            VarDecl {
+                name: span.subslice(5, 1),
+                ty: TypeDecl::Any,
+                ty_annotated: false,
+                init: None
+            },
             expr_semi(Expression::new(
                 VarAssign(
                     var_r(span.subslice(8, 1)),
@@ -824,47 +832,52 @@ fn var_decl_test() {
     let span = Span::new(" var x = 0;");
     assert_eq!(
         source(span).finish().unwrap().1,
-        vec![VarDecl(
-            span.subslice(5, 1),
-            TypeDecl::Any,
-            Some(nl(Value::I64(0), span.subslice(9, 1)))
-        )]
+        vec![VarDecl {
+            name: span.subslice(5, 1),
+            ty: TypeDecl::Any,
+            ty_annotated: false,
+            init: Some(nl(Value::I64(0), span.subslice(9, 1)))
+        }]
     );
     let span = Span::new(" var x: f64 = 0;");
     assert_eq!(
         source(span).finish().unwrap().1,
-        vec![VarDecl(
-            span.subslice(5, 1),
-            TypeDecl::F64,
-            Some(nl(Value::I64(0), span.subslice(14, 1)))
-        )]
+        vec![VarDecl {
+            name: span.subslice(5, 1),
+            ty: TypeDecl::F64,
+            ty_annotated: true,
+            init: Some(nl(Value::I64(0), span.subslice(14, 1)))
+        }]
     );
     let span = Span::new(" var x: f32 = 0;");
     assert_eq!(
         source(span).finish().unwrap().1,
-        vec![VarDecl(
-            span.subslice(5, 1),
-            TypeDecl::F32,
-            Some(nl(Value::I64(0), span.subslice(14, 1)))
-        )]
+        vec![VarDecl {
+            name: span.subslice(5, 1),
+            ty: TypeDecl::F32,
+            ty_annotated: true,
+            init: Some(nl(Value::I64(0), span.subslice(14, 1))),
+        }]
     );
     let span = Span::new(" var x: i64 = 0;");
     assert_eq!(
         source(span).finish().unwrap().1,
-        vec![VarDecl(
-            span.subslice(5, 1),
-            TypeDecl::I64,
-            Some(nl(Value::I64(0), span.subslice(14, 1)))
-        )]
+        vec![VarDecl {
+            name: span.subslice(5, 1),
+            ty: TypeDecl::I64,
+            ty_annotated: true,
+            init: Some(nl(Value::I64(0), span.subslice(14, 1)))
+        }]
     );
     let span = Span::new(" var x: i32 = 0;");
     assert_eq!(
         source(span).finish().unwrap().1,
-        vec![VarDecl(
-            span.subslice(5, 1),
-            TypeDecl::I32,
-            Some(nl(Value::I64(0), span.subslice(14, 1)))
-        )]
+        vec![VarDecl {
+            name: span.subslice(5, 1),
+            ty: TypeDecl::I32,
+            ty_annotated: true,
+            init: Some(nl(Value::I64(0), span.subslice(14, 1)))
+        }]
     );
 }
 
@@ -874,7 +887,12 @@ fn loop_test() {
     assert_eq!(
         source(span).finish().unwrap().1,
         vec![
-            Statement::VarDecl(span.subslice(5, 1), TypeDecl::Any, None),
+            Statement::VarDecl {
+                name: span.subslice(5, 1),
+                ty: TypeDecl::Any,
+                ty_annotated: false,
+                init: None
+            },
             expr_semi(Expression::new(
                 VarAssign(
                     var_r(span.subslice(8, 1)),
@@ -919,7 +937,12 @@ fn loop_test() {
     assert_eq!(
         source(span).finish().unwrap().1,
         vec![
-            Statement::VarDecl(span.subslice(5, 1), TypeDecl::Any, None),
+            Statement::VarDecl {
+                name: span.subslice(5, 1),
+                ty: TypeDecl::Any,
+                ty_annotated: false,
+                init: None
+            },
             expr_semi(Expression::new(
                 VarAssign(
                     var_r(span.subslice(8, 1)),
@@ -966,7 +989,12 @@ fn while_test() {
     assert_eq!(
         source(span).finish().unwrap().1,
         vec![
-            Statement::VarDecl(span.subslice(5, 1), TypeDecl::I64, None),
+            Statement::VarDecl {
+                name: span.subslice(5, 1),
+                ty: TypeDecl::I64,
+                ty_annotated: true,
+                init: None
+            },
             expr_semi(Expression::new(
                 VarAssign(
                     var_r(span.subslice(13, 1)),
@@ -1005,20 +1033,21 @@ fn for_test() {
     let span = Span::new(" for i in 0..10 { print(i); }");
     assert_eq!(
         source(span).finish().unwrap().1,
-        vec![Statement::For(
-            span.subslice(5, 1),
-            Expression::new(
-                NumLiteral(Value::I64(0), TypeSet::int()),
+        vec![Statement::For {
+            var: span.subslice(5, 1),
+            ty: None,
+            start: Expression::new(
+                NumLiteral(Value::I64(0), TypeSetAnnotated::int()),
                 span.subslice(10, 1)
             ),
-            Expression::new(
-                NumLiteral(Value::I64(10), TypeSet::int()),
+            end: Expression::new(
+                NumLiteral(Value::I64(10), TypeSetAnnotated::int()),
                 span.subslice(13, 2)
             ),
-            vec![expr_semi(Expression::new(
+            stmts: vec![expr_semi(Expression::new(
                 FnInvoke("print", vec![FnArg::new(*var_r(span.subslice(24, 1)))],),
                 span.subslice(18, 8)
             ))]
-        )]
+        }]
     );
 }

@@ -43,6 +43,10 @@ impl<'src> TypeCheckError<'src> {
         }
     }
 
+    pub fn span(&self) -> Span<'src> {
+        self.span
+    }
+
     pub(crate) fn undefined_fn(
         name: &str,
         span: Span<'src>,
@@ -243,7 +247,7 @@ where
     'native: 'src,
 {
     Ok(match &e.expr {
-        ExprEnum::NumLiteral(_, ts) => ts.clone(),
+        ExprEnum::NumLiteral(_, ts) => ts.ts.clone(),
         ExprEnum::StrLiteral(_val) => TypeSet::str(),
         ExprEnum::ArrLiteral(val) => {
             if val.is_empty() {
@@ -342,7 +346,10 @@ where
                 .ok_or_else(|| TypeCheckError::undefined_fn(fname, e.span, ctx.source_file))?;
             match func {
                 FuncDef::Code(code) => (&code.ret_type).into(),
-                FuncDef::Native(native) => (&native.ret_type).into(),
+                FuncDef::Native(native) => native
+                    .ret_type
+                    .as_ref()
+                    .map_or(TypeSet::void(), |v| v.into()),
             }
         }
         ExprEnum::ArrIndex(ex, args) => {
@@ -449,7 +456,7 @@ where
 {
     let span = e.span;
     match &mut e.expr {
-        ExprEnum::NumLiteral(_, target_ts) => *target_ts = ts.clone(),
+        ExprEnum::NumLiteral(_, target_ts) => target_ts.ts = ts.clone(),
         ExprEnum::StrLiteral(_) => (), // String literals always of type string, so nothing to propagate
         ExprEnum::ArrLiteral(vec) => {
             if let Some((arr_ts, size)) = ts.and_then(|ts| ts.array.as_ref()) {
@@ -663,9 +670,6 @@ fn tc_coerce_type<'src>(
     let res = value
         .try_intersect(&target)
         .map_err(|err| TypeCheckError::new(err, span, ctx.source_file))?;
-    if res.is_none() {
-        return Err(TypeCheckError::indeterminant_type(span, ctx.source_file));
-    }
     Ok(res)
 }
 
@@ -678,24 +682,32 @@ where
 {
     let mut res = TypeSet::all();
     match stmt {
-        Statement::VarDecl(var, type_, initializer) => {
-            if matches!(type_, TypeDecl::Any) {
-                let init_type = if let Some(init_expr) = initializer {
+        Statement::VarDecl {
+            name: var,
+            ty,
+            init,
+            ..
+        } => {
+            if matches!(ty, TypeDecl::Any) {
+                let init_type = if let Some(init_expr) = init {
                     let mut buf = vec![0u8; 0];
                     format_expr(init_expr, 0, &mut buf).unwrap();
                     let init_type = tc_expr_forward(init_expr, ctx)?;
-                    tc_coerce_type(&init_type, type_, init_expr.span, ctx)?
+                    tc_coerce_type(&init_type, ty, init_expr.span, ctx)?
                 } else {
-                    type_.into()
+                    ty.into()
                 };
                 ctx.variables
                     .insert(**var, VariableType::local(init_type.into()));
             } else {
+                if let Some(init_expr) = init {
+                    let init_type = tc_expr_forward(init_expr, ctx)?;
+                    tc_coerce_type(&init_type, ty, init_expr.span, ctx)?;
+                }
                 // If the declaration has a type declaraction, we respect it.
                 // Namely, don't fix a type of `var a: [i32] = [1, 2, 3]` to `[i32; 3]` because
                 // we may want to push to this array later.
-                ctx.variables
-                    .insert(**var, VariableType::local(type_.into()));
+                ctx.variables.insert(**var, VariableType::local(ty.into()));
             }
             res = TypeSet::void();
         }
@@ -708,13 +720,7 @@ where
             // Function declaration needs to be added first to allow recursive calls
             ctx.functions.insert(
                 name.to_string(),
-                FuncDef::Code(FuncCode::new(
-                    stmts.clone(),
-                    args.clone(),
-                    ret_type.determine().ok_or_else(|| {
-                        TypeCheckError::indeterminant_type(*name, ctx.source_file)
-                    })?,
-                )),
+                FuncDef::Code(FuncCode::new(stmts.clone(), args.clone(), ret_type.clone())),
             );
             let mut subctx = TypeCheckContext::push_stack(ctx);
             for arg in args.iter() {
@@ -734,13 +740,10 @@ where
                     .insert(*arg.name, VariableType::parameter(arg.ty.clone().into()));
             }
             let last_stmt = tc_stmts_forward(stmts, &mut subctx)?;
-            if let Some((
-                ret_type,
-                Statement::Expression {
-                    ex: ret_expr,
-                    semicolon: false,
-                },
-            )) = ret_type.determine().zip(stmts.last())
+            if let Some(Statement::Expression {
+                ex: ret_expr,
+                semicolon: false,
+            }) = stmts.last()
             {
                 if let RetType::Some(ret_type) = ret_type {
                     tc_coerce_type(&last_stmt, &ret_type, ret_expr.span, ctx)?;
@@ -777,12 +780,18 @@ where
             )?;
             res = tc_stmts_forward(e, ctx)?;
         }
-        Statement::For(iter, from, to, e) => {
-            tc_coerce_type(&tc_expr_forward(from, ctx)?, &TypeDecl::I64, from.span, ctx)?;
-            tc_coerce_type(&tc_expr_forward(to, ctx)?, &TypeDecl::I64, to.span, ctx)?;
-            ctx.variables
-                .insert(iter, VariableType::local(TypeSet::i64()));
-            res = tc_stmts_forward(e, ctx)?;
+        Statement::For {
+            var,
+            start,
+            end,
+            stmts,
+            ..
+        } => {
+            let det_ty = tc_expr_forward(start, ctx)?
+                .try_intersect(&tc_expr_forward(end, ctx)?)
+                .map_err(|e| TypeCheckError::new(e, *var, ctx.source_file))?;
+            ctx.variables.insert(var, VariableType::local(det_ty));
+            res = tc_stmts_forward(stmts, ctx)?;
         }
         Statement::Break => {
             // TODO: check types in break out site. For now we disallow break with values like Rust.
@@ -815,7 +824,12 @@ where
     'native: 'src,
 {
     match stmt {
-        Statement::VarDecl(var, decl_type, initializer) => {
+        Statement::VarDecl {
+            name: var,
+            ty: decl_type,
+            init,
+            ..
+        } => {
             let propagating_type = ctx
                 .variables
                 .get(**var)
@@ -826,7 +840,7 @@ where
             let propagating_type_set = (&propagating_type).into();
             *decl_type = propagating_type
                 .ok_or_else(|| TypeCheckError::void_value(*var, ctx.source_file))?;
-            if let Some(initializer) = initializer {
+            if let Some(initializer) = init {
                 tc_expr_reverse(initializer, &propagating_type_set, ctx)?;
             }
         }
@@ -841,19 +855,35 @@ where
             tc_stmts_reverse(stmts, &TypeSet::default(), ctx)?;
             tc_expr_reverse(cond, &TypeSet::i32(), ctx)?;
         }
-        Statement::For(iter, from, to, stmts) => {
+        Statement::For {
+            var,
+            ty,
+            start,
+            end,
+            stmts,
+        } => {
             tc_stmts_reverse(stmts, &TypeSet::default(), ctx)?;
-            let Some(idx_ty) = ctx.variables.get(**iter) else {
+            let Some(idx_ty) = ctx.variables.get(**var) else {
                 return Err(TypeCheckError::new(
-                    format!("Could not find variable {}", iter),
-                    *iter,
+                    format!("Could not find variable {}", var),
+                    *var,
                     ctx.source_file,
                 ));
             };
-            dbg_println!("propagate For {}: {}", iter, idx_ty);
+            dbg_println!("propagate For {}: {}", var, idx_ty);
             let idx_ty = idx_ty.ts.clone();
-            tc_expr_reverse(to, &idx_ty, ctx)?;
-            tc_expr_reverse(from, &idx_ty, ctx)?;
+            let idx_det_ty = match idx_ty.determine() {
+                Some(v) => v,
+                None => idx_ty
+                    .try_intersect(&TypeSet::i64())
+                    .map_err(|e| TypeCheckError::new(e, *var, ctx.source_file))?
+                    .determine()
+                    .ok_or_else(|| TypeCheckError::indeterminant_type(*var, ctx.source_file))?,
+            };
+            *ty =
+                Some(idx_det_ty.ok_or_else(|| TypeCheckError::void_value(*var, ctx.source_file))?);
+            tc_expr_reverse(end, &idx_ty, ctx)?;
+            tc_expr_reverse(start, &idx_ty, ctx)?;
         }
         Statement::Break => {
             // TODO: check types in break out site. For now we disallow break with values like Rust.
@@ -899,13 +929,7 @@ where
             } => {
                 ctx.functions.insert(
                     name.to_string(),
-                    FuncDef::Code(FuncCode::new(
-                        stmts.clone(),
-                        args.clone(),
-                        ret_type.determine().ok_or_else(|| {
-                            TypeCheckError::indeterminant_type(*name, ctx.source_file)
-                        })?,
-                    )),
+                    FuncDef::Code(FuncCode::new(stmts.clone(), args.clone(), ret_type.clone())),
                 );
             }
             _ => {}
@@ -921,7 +945,7 @@ where
                 stmts,
             } => {
                 let mut inferer = TypeCheckContext::push_stack(ctx);
-                inferer.variables = dbg!(args
+                inferer.variables = args
                     .iter()
                     .map(|param| {
                         if matches!(param.ty, TypeDecl::Any) {
@@ -933,7 +957,7 @@ where
                             ))
                         }
                     })
-                    .collect::<Result<HashMap<_, _>, _>>()?);
+                    .collect::<Result<HashMap<_, _>, _>>()?;
                 let mut last_ty = TypeSet::default();
                 let stmts = Rc::make_mut(stmts);
                 for stmt in stmts.iter_mut() {
@@ -955,21 +979,25 @@ where
                         dbg_println!("stmt ty {last_ty}");
                     }
                 }
+                let ret_type_set = (&*ret_type).into();
                 let intersection = last_ty
-                    .try_intersect(&ret_type)
+                    .try_intersect(&ret_type_set)
                     .map_err(|e| TypeCheckError::new(e, *name, ctx.source_file))?;
-                if let Some(determined_ty) = intersection.determine() {
-                    let determined_ts = TypeSet::from(&determined_ty);
-                    *ret_type = determined_ts;
+                if let Some(_determined_ty) = intersection.determine() {
+                    // For now, we require the return type to be fully annotated.
+                    // We may have partial return type inference like `impl Trait` in Rust in the future,
+                    // but not now.
+                    //
+                    // ret_type = determined_ts;
                     dbg_println!(
                         "Function {}'s return type is inferred to be {}",
                         name,
                         ret_type
                     );
-                    tc_stmts_reverse(stmts, &ret_type, &mut inferer)?;
-                } else if *ret_type == TypeSet::void() {
+                    tc_stmts_reverse(stmts, &ret_type_set, &mut inferer)?;
+                } else if matches!(ret_type, RetType::Void) {
                     dbg_println!("Function {} returns void; coercing", name);
-                    tc_stmts_reverse(stmts, &ret_type, &mut inferer)?;
+                    tc_stmts_reverse(stmts, &ret_type_set, &mut inferer)?;
                 } else {
                     return Err(TypeCheckError::new(
                         format!(

@@ -1,6 +1,6 @@
 use crate::{
     parser::{ExprEnum, Expression, Statement},
-    type_set::TypeSet,
+    type_set::{TypeSet, TypeSetAnnotated},
     ArgDecl,
 };
 
@@ -10,7 +10,7 @@ pub fn format_expr(
     f: &mut impl std::io::Write,
 ) -> std::io::Result<()> {
     match &ex.expr {
-        ExprEnum::NumLiteral(num, ts) => write!(f, "{num}{}", format_ts(ts)),
+        ExprEnum::NumLiteral(num, ts) => write!(f, "{num}{}", format_tsa(ts)),
         ExprEnum::StrLiteral(s) => write!(f, "\"{s}\""), // TODO: escape
         ExprEnum::Variable(name) => write!(f, "{name}"),
         ExprEnum::VarAssign(lhs, rhs) => {
@@ -122,7 +122,7 @@ pub fn format_expr(
     }
 }
 
-fn format_ts(ts: &TypeSet) -> String {
+pub(crate) fn format_ts(ts: &TypeSet) -> String {
     // A dirty hack to put parentheses if the type set has multiple possibilities.
     // TypeSet implements Display trait without parentheses, but it's hard to see in numeric literal suffix.
     let str = ts.to_string();
@@ -131,6 +131,10 @@ fn format_ts(ts: &TypeSet) -> String {
     } else {
         str
     }
+}
+
+pub(crate) fn format_tsa(ts: &TypeSetAnnotated) -> String {
+    format_ts(&ts.ts)
 }
 
 fn format_bin_op(
@@ -166,7 +170,7 @@ pub fn format_stmt(
     let indent = "  ".repeat(level);
     match stmt {
         Statement::Comment(comment) => write!(f, "{comment}"),
-        Statement::VarDecl(name, ty, init) => {
+        Statement::VarDecl { name, ty, init, .. } => {
             write!(f, "{indent}var {name}: {ty} = ")?;
             if let Some(init) = init {
                 format_expr(init, level, f)?;
@@ -216,8 +220,17 @@ pub fn format_stmt(
             writeln!(f, "{indent}}}")?;
             Ok(())
         }
-        Statement::For(name, start, end, stmts) => {
-            write!(f, "{indent}for {} in ", name)?;
+        Statement::For {
+            var,
+            ty,
+            start,
+            end,
+            stmts,
+        } => {
+            let ty_str = ty
+                .as_ref()
+                .map_or_else(|| "".to_string(), |ty| ty.to_string());
+            write!(f, "{indent}for {}{} in ", var, ty_str)?;
             format_expr(&start, level, f)?;
             write!(f, " to ")?;
             format_expr(&end, level, f)?;
