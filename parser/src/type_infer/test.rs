@@ -75,7 +75,7 @@ fn test_array_range_shorter_err() {
     assert_eq!(
         res,
         Err(TypeCheckError::new(
-            "Size is not compatible: 4 is not contained in ..3".to_string(),
+            "Array size is not compatible: ..3 cannot assign to 4".to_string(),
             span.subslice(20, 12),
             None
         ))
@@ -91,7 +91,7 @@ fn test_array_range_longer_err() {
     assert_eq!(
         res,
         Err(TypeCheckError::new(
-            "Size is not compatible: 2 is not contained in 3..".to_string(),
+            "Array size is not compatible: 3.. cannot assign to 2".to_string(),
             span.subslice(20, 6),
             None
         ))

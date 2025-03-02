@@ -6,7 +6,6 @@ use crate::{
     coercion::{coerce_f64, coerce_i64, coerce_type},
     parser::*,
     type_decl::ArraySize,
-    type_set::TypeSet,
     value::{ArrayInt, TupleEntry, ValueError},
     TypeDecl, Value,
 };

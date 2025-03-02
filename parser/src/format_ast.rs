@@ -1,6 +1,6 @@
 use crate::{
     parser::{ExprEnum, Expression, Statement},
-    type_set::TypeSetAnnotated,
+    type_set::{TypeSet, TypeSetAnnotated},
     ArgDecl,
 };
 
@@ -10,7 +10,7 @@ pub fn format_expr(
     f: &mut impl std::io::Write,
 ) -> std::io::Result<()> {
     match &ex.expr {
-        ExprEnum::NumLiteral(num, ts) => write!(f, "{num}{}", format_ts(ts)),
+        ExprEnum::NumLiteral(num, ts) => write!(f, "{num}{}", format_tsa(ts)),
         ExprEnum::StrLiteral(s) => write!(f, "\"{s}\""), // TODO: escape
         ExprEnum::Variable(name) => write!(f, "{name}"),
         ExprEnum::VarAssign(lhs, rhs) => {
@@ -122,7 +122,7 @@ pub fn format_expr(
     }
 }
 
-fn format_ts(ts: &TypeSetAnnotated) -> String {
+pub(crate) fn format_ts(ts: &TypeSet) -> String {
     // A dirty hack to put parentheses if the type set has multiple possibilities.
     // TypeSet implements Display trait without parentheses, but it's hard to see in numeric literal suffix.
     let str = ts.to_string();
@@ -131,6 +131,10 @@ fn format_ts(ts: &TypeSetAnnotated) -> String {
     } else {
         str
     }
+}
+
+pub(crate) fn format_tsa(ts: &TypeSetAnnotated) -> String {
+    format_ts(&ts.ts)
 }
 
 fn format_bin_op(

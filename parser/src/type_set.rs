@@ -382,7 +382,7 @@ impl TypeSet {
             None
         };
 
-        Ok(Self::Set(TypeSetFlags {
+        let ret = Self::Set(TypeSetFlags {
             i32: set.i32 & rhs.i32,
             i64: set.i64 & rhs.i64,
             f32: set.f32 & rhs.f32,
@@ -391,7 +391,13 @@ impl TypeSet {
             string: set.string & rhs.string,
             array,
             tuple,
-        }))
+        });
+
+        if ret.is_none() {
+            return Err(format!("Incompatible types: {} and {}", self, rhs));
+        }
+
+        Ok(ret)
     }
 }
 
@@ -475,6 +481,12 @@ impl std::fmt::Display for TypeSet {
         let TypeSet::Set(set) = self else {
             return write!(f, "any");
         };
+        set.fmt(f)
+    }
+}
+
+impl std::fmt::Display for TypeSetFlags {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut written = false;
         let mut write_ty = |val, name: &str| {
             if val {
@@ -486,17 +498,17 @@ impl std::fmt::Display for TypeSet {
             }
             Ok(())
         };
-        write_ty(set.i32, "i32")?;
-        write_ty(set.i64, "i64")?;
-        write_ty(set.f32, "f32")?;
-        write_ty(set.f64, "f64")?;
-        write_ty(set.void, "void")?;
-        write_ty(set.string, "str")?;
-        if let Some(array) = set.array.as_ref() {
+        write_ty(self.i32, "i32")?;
+        write_ty(self.i64, "i64")?;
+        write_ty(self.f32, "f32")?;
+        write_ty(self.f64, "f64")?;
+        write_ty(self.void, "void")?;
+        write_ty(self.string, "str")?;
+        if let Some(array) = self.array.as_ref() {
             write_ty(true, &array_size_to_string(array))?;
         }
 
-        if let Some(tuple) = set.tuple.as_ref() {
+        if let Some(tuple) = self.tuple.as_ref() {
             write_ty(
                 true,
                 &tuple.iter().fold("".to_string(), |acc, cur| {

@@ -47,7 +47,7 @@ fn mandelhelp(xmin: f64, xmax: f64, xstep: f64,   ymin: f64, ymax: f64, ystep: f
     print("xstep", xstep, "ysteps", steps, "ystep", ystep);
     for iy in 0 .. steps {
         var y = iy as f64 * (ymax - ymin) * ystep as f64 + ymin;
-        var xsteps: i64 = (xmax - xmin) / xstep;
+        var xsteps: i64 = ((xmax - xmin) / xstep) as i64;
         for ix in 0 .. xsteps {
             var x = ix as f64 * (xmax - xmin) * xstep as f64 + xmin;
             printdensity(mandelconverge(x,y));

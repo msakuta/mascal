@@ -10,7 +10,7 @@ use crate::{
     interpreter::{std_functions, FuncCode, RetType},
     parser::{ExprEnum, Expression, Statement},
     type_decl::{ArraySize, TypeDecl},
-    type_set::{TypeSet, TypeSetAnnotated},
+    type_set::TypeSet,
     FuncDef, Span,
 };
 
@@ -700,6 +700,10 @@ where
                 ctx.variables
                     .insert(**var, VariableType::local(init_type.into()));
             } else {
+                if let Some(init_expr) = init {
+                    let init_type = tc_expr_forward(init_expr, ctx)?;
+                    tc_coerce_type(&init_type, ty, init_expr.span, ctx)?;
+                }
                 // If the declaration has a type declaraction, we respect it.
                 // Namely, don't fix a type of `var a: [i32] = [1, 2, 3]` to `[i32; 3]` because
                 // we may want to push to this array later.
@@ -776,10 +780,10 @@ where
             )?;
             res = tc_stmts_forward(e, ctx)?;
         }
-        Statement::For(iter, ty, from, to, e) => {
+        Statement::For(iter, _ty, from, to, e) => {
             let det_ty = tc_expr_forward(from, ctx)?
                 .try_intersect(&tc_expr_forward(to, ctx)?)
-                .map_err(|e| TypeCheckError::indeterminant_type(*iter, ctx.source_file))?;
+                .map_err(|e| TypeCheckError::new(e, *iter, ctx.source_file))?;
             ctx.variables.insert(iter, VariableType::local(det_ty));
             res = tc_stmts_forward(e, ctx)?;
         }
@@ -968,7 +972,6 @@ where
                     .try_intersect(&ret_type_set)
                     .map_err(|e| TypeCheckError::new(e, *name, ctx.source_file))?;
                 if let Some(determined_ty) = intersection.determine() {
-                    let determined_ts = TypeSet::from(&determined_ty);
                     // For now, we require the return type to be fully annotated.
                     // We may have partial return type inference like `impl Trait` in Rust in the future.
                     // ret_type = determined_ts;
