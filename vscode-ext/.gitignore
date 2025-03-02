@@ -2,3 +2,4 @@ vsc-extension-quickstart.md
 *.vsix
 node_modules/
 dist/
+client/out/
