@@ -368,13 +368,15 @@ fn emit_stmts<'src>(
     let mut last_target = None;
     for stmt in stmts {
         match stmt {
-            Statement::VarDecl(var, _type, initializer) => {
+            Statement::VarDecl {
+                name: var, init, ..
+            } => {
                 let locals = compiler
                     .locals
                     .last()
                     .ok_or_else(|| CompileError::new(*var, CEK::LocalsStackUnderflow))?
                     .len();
-                let init_val = if let Some(init_expr) = initializer {
+                let init_val = if let Some(init_expr) = init {
                     let stk_var = emit_expr(init_expr, compiler)?;
                     compiler.target_stack[stk_var] = Target::Local(locals);
                     stk_var

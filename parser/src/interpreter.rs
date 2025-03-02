@@ -946,13 +946,18 @@ where
     let mut res = RunResult::Yield(Value::I32(0));
     for stmt in stmts {
         match stmt {
-            Statement::VarDecl(var, type_, initializer) => {
-                let init_val = if let Some(init_expr) = initializer {
+            Statement::VarDecl {
+                name: var,
+                ty,
+                init,
+                ..
+            } => {
+                let init_val = if let Some(init_expr) = init {
                     unwrap_break!(eval(init_expr, ctx)?)
                 } else {
                     Value::I32(0)
                 };
-                let init_val = coerce_type(&init_val, type_)?;
+                let init_val = coerce_type(&init_val, ty)?;
                 ctx.variables
                     .borrow_mut()
                     .insert(**var, Rc::new(RefCell::new(init_val)));
@@ -969,6 +974,7 @@ where
                         stmts.clone(),
                         args.clone(),
                         ret_type
+                            .ts
                             .determine()
                             .unwrap_or_else(|| RetType::Some(TypeDecl::Any)),
                     )),

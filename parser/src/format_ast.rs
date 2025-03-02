@@ -1,6 +1,6 @@
 use crate::{
     parser::{ExprEnum, Expression, Statement},
-    type_set::TypeSet,
+    type_set::TypeSetAnnotated,
     ArgDecl,
 };
 
@@ -122,7 +122,7 @@ pub fn format_expr(
     }
 }
 
-fn format_ts(ts: &TypeSet) -> String {
+fn format_ts(ts: &TypeSetAnnotated) -> String {
     // A dirty hack to put parentheses if the type set has multiple possibilities.
     // TypeSet implements Display trait without parentheses, but it's hard to see in numeric literal suffix.
     let str = ts.to_string();
@@ -166,7 +166,7 @@ pub fn format_stmt(
     let indent = "  ".repeat(level);
     match stmt {
         Statement::Comment(comment) => write!(f, "{comment}"),
-        Statement::VarDecl(name, ty, init) => {
+        Statement::VarDecl { name, ty, init, .. } => {
             write!(f, "{indent}var {name}: {ty} = ")?;
             if let Some(init) = init {
                 format_expr(init, level, f)?;

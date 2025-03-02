@@ -3,6 +3,7 @@ use std::sync::Mutex;
 
 use dashmap::DashMap;
 use log::debug;
+use mascal::TypeParams;
 use mascal_lsp_server::completion::completion;
 use mascal_lsp_server::nrs_lang::{
     parse, type_inference, Ast, ImCompleteSemanticToken, ParserResult,
@@ -110,7 +111,7 @@ impl LanguageServer for Backend {
         Ok(res)
     }
     async fn initialized(&self, _: InitializedParams) {
-        debug!("initialized! {:?}", self.init_result.lock());
+        debug!("initialized!");
     }
 
     async fn shutdown(&self) -> Result<()> {
@@ -311,7 +312,7 @@ impl LanguageServer for Backend {
     ) -> Result<Option<Vec<InlayHint>>> {
         debug!("inlay hint");
         let uri = &params.text_document.uri;
-        let hashmap = self.type_hints(uri).unwrap_or_else(|| vec![]);
+        let hashmap = self.type_hints(uri, false).unwrap_or_else(|| vec![]);
 
         // let document = match self.document_map.get(uri.as_str()) {
         //     Some(rope) => rope,
@@ -362,7 +363,7 @@ impl LanguageServer for Backend {
         let uri = &params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
         debug!("hover {uri} @ {position:?}");
-        let hashmap = self.type_hints(uri).unwrap_or_else(|| vec![]);
+        let hashmap = self.type_hints(uri, false).unwrap_or_else(|| vec![]);
 
         if let Some(item) = hashmap
             .into_iter()
@@ -618,7 +619,7 @@ struct TypeHint {
 }
 
 impl Backend {
-    fn type_hints(&self, uri: &Url) -> Option<Vec<TypeHint>> {
+    fn type_hints(&self, uri: &Url, include_annotated: bool) -> Option<Vec<TypeHint>> {
         let Some(doc) = self.document_map.get(uri.as_str()) else {
             return None;
         };
@@ -638,7 +639,12 @@ impl Backend {
             debug!("type check error: {e}");
             return None;
         }
-        mascal::iter_types(&ast, &mut |span, ty| {
+        mascal::iter_types(&ast, &mut |ty_params| {
+            let TypeParams {
+                span,
+                ty,
+                annotated,
+            } = ty_params;
             let start_pos = Position {
                 line: span.location_line().saturating_sub(1),
                 character: span.get_column().saturating_sub(1) as u32,
@@ -648,12 +654,14 @@ impl Backend {
                 line: span.location_line().saturating_sub(1),
                 character: span.get_column().saturating_sub(1) as u32 + span.len() as u32,
             };
-            hashmap.push(TypeHint {
-                start: start_pos,
-                end: end_pos,
-                name: span.to_string(),
-                ty: ty.to_string(),
-            });
+            if !annotated || include_annotated {
+                hashmap.push(TypeHint {
+                    start: start_pos,
+                    end: end_pos,
+                    name: span.to_string(),
+                    ty: ty.to_string(),
+                });
+            }
         });
 
         Some(hashmap)

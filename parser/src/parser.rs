@@ -1,7 +1,7 @@
 use crate::{
     coercion::{coerce_f32, coerce_f64, coerce_i32, coerce_i64},
     type_decl::{ArraySize, TypeDecl},
-    type_set::TypeSet,
+    type_set::TypeSetAnnotated,
     Value,
 };
 
@@ -79,11 +79,16 @@ impl<'a> ArgDecl<'a> {
 #[derive(Debug, PartialEq, Clone)]
 pub enum Statement<'a> {
     Comment(&'a str),
-    VarDecl(Span<'a>, TypeDecl, Option<Expression<'a>>),
+    VarDecl {
+        name: Span<'a>,
+        ty: TypeDecl,
+        ty_annotated: bool,
+        init: Option<Expression<'a>>,
+    },
     FnDecl {
         name: Span<'a>,
         args: Vec<ArgDecl<'a>>,
-        ret_type: TypeSet,
+        ret_type: TypeSetAnnotated,
         stmts: Rc<Vec<Statement<'a>>>,
     },
     Expression {
@@ -110,7 +115,7 @@ impl<'a> Statement<'a> {
 
 #[derive(Debug, PartialEq, Clone)]
 pub(crate) enum ExprEnum<'a> {
-    NumLiteral(Value, TypeSet),
+    NumLiteral(Value, TypeSetAnnotated),
     StrLiteral(String),
     ArrLiteral(Vec<Expression<'a>>),
     TupleLiteral(Vec<Expression<'a>>),
@@ -315,10 +320,18 @@ pub(crate) fn type_spec(input: Span) -> IResult<Span, TypeDecl> {
 fn var_decl(input: Span) -> IResult<Span, Statement> {
     let (r, _) = multispace1(tag("var")(multispace0(input)?.0)?.0)?;
     let (r, ident) = ident_space(r)?;
-    let (r, ts) = type_spec(r)?;
+    let (r, ty) = type_spec(r)?;
     let (r, initializer) = opt(preceded(ws(char('=')), full_expression))(r)?;
     let (r, _) = char(';')(ws_comment(r)?.0)?;
-    Ok((r, Statement::VarDecl(ident, ts, initializer)))
+    Ok((
+        r,
+        Statement::VarDecl {
+            name: ident,
+            ty_annotated: !matches!(ty, TypeDecl::Any),
+            ty,
+            init: initializer,
+        },
+    ))
 }
 
 fn decimal(input: Span) -> IResult<Span, Span> {
@@ -370,19 +383,19 @@ fn double_expr(input: Span) -> IResult<Span, Expression> {
         match *ty {
             "f64" => (
                 Value::F64(coerce_f64(&value).map_err(map_err)?),
-                TypeSet::f64(),
+                TypeSetAnnotated::f64(),
             ),
             "f32" => (
                 Value::F32(coerce_f32(&value).map_err(map_err)?),
-                TypeSet::f32(),
+                TypeSetAnnotated::f32(),
             ),
             "i64" => (
                 Value::I64(coerce_i64(&value).map_err(map_err)?),
-                TypeSet::i64(),
+                TypeSetAnnotated::i64(),
             ),
             "i32" => (
                 Value::I32(coerce_i32(&value).map_err(map_err)?),
-                TypeSet::i32(),
+                TypeSetAnnotated::i32(),
             ),
             unknown => {
                 unreachable!("Type should have recognized by the parser: \"{}\"", unknown)
@@ -390,8 +403,8 @@ fn double_expr(input: Span) -> IResult<Span, Expression> {
         }
     } else {
         let ty = match value {
-            Value::I64(_) => TypeSet::int(),
-            _ => TypeSet::float(),
+            Value::I64(_) => TypeSetAnnotated::int(),
+            _ => TypeSetAnnotated::float(),
         };
         (value, ty)
     };
@@ -813,13 +826,21 @@ pub(crate) fn func_arg(r: Span) -> IResult<Span, ArgDecl> {
     ))
 }
 
-fn type_set(input: Span) -> IResult<Span, TypeSet> {
+fn ret_type(input: Span) -> IResult<Span, TypeSetAnnotated> {
     type_decl(input).map_or_else(
         |_| {
             let (r, _) = tag("void")(input)?;
-            Ok((r, TypeSet::void()))
+            Ok((r, TypeSetAnnotated::void()))
         },
-        |(r, ty)| Ok((r, ty.into())),
+        |(r, ty)| {
+            Ok((
+                r,
+                TypeSetAnnotated {
+                    ts: ty.into(),
+                    annotated: true,
+                },
+            ))
+        },
     )
 }
 
@@ -831,7 +852,7 @@ pub(crate) fn func_decl(input: Span) -> IResult<Span, Statement> {
         terminated(separated_list0(ws(tag(",")), func_arg), opt(ws(char(',')))),
         tag(")"),
     ))(r)?;
-    let (r, ret_type) = opt(preceded(ws(tag("->")), type_set))(r)?;
+    let (r, ret_type) = opt(preceded(ws(tag("->")), ret_type))(r)?;
     let (r, stmts) = delimited(ws(char('{')), source, ws(char('}')))(r)?;
     Ok((
         r,
@@ -840,7 +861,7 @@ pub(crate) fn func_decl(input: Span) -> IResult<Span, Statement> {
             args,
             ret_type: ret_type
                 .map(|t| t.into())
-                .unwrap_or_else(|| TypeSet::void()),
+                .unwrap_or_else(|| TypeSetAnnotated::void()),
             stmts: Rc::new(stmts),
         },
     ))

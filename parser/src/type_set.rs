@@ -1,6 +1,21 @@
 use crate::{interpreter::RetType, type_decl::ArraySize, TypeDecl};
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
+pub struct TypeSetAnnotated {
+    pub(crate) ts: TypeSet,
+    pub(crate) annotated: bool,
+}
+
+impl TypeSetAnnotated {
+    pub fn new_unannotated(ts: TypeSet) -> Self {
+        Self {
+            ts,
+            annotated: false,
+        }
+    }
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub enum TypeSet {
     /// "Any" type set is used to avoid infinite recursion of nested array types.
     #[default]
@@ -46,60 +61,120 @@ pub struct TypeSetFlags {
     pub tuple: Option<Vec<TypeSet>>,
 }
 
+impl TypeSetAnnotated {
+    pub fn i32() -> Self {
+        Self {
+            ts: TypeSet::i32(),
+            annotated: true,
+        }
+    }
+
+    pub fn i64() -> Self {
+        Self {
+            ts: TypeSet::i64(),
+            annotated: true,
+        }
+    }
+
+    pub fn int() -> Self {
+        Self {
+            ts: TypeSet::int(),
+            annotated: true,
+        }
+    }
+
+    pub fn f32() -> Self {
+        Self {
+            ts: TypeSet::Set(TypeSetFlags {
+                f32: true,
+                ..TypeSetFlags::default()
+            }),
+            annotated: true,
+        }
+    }
+
+    pub fn f64() -> Self {
+        Self {
+            ts: TypeSet::Set(TypeSetFlags {
+                f64: true,
+                ..TypeSetFlags::default()
+            }),
+            annotated: true,
+        }
+    }
+
+    pub fn float() -> Self {
+        Self {
+            ts: TypeSet::Set(TypeSetFlags {
+                f32: true,
+                f64: true,
+                ..TypeSetFlags::default()
+            }),
+            annotated: true,
+        }
+    }
+
+    pub fn void() -> Self {
+        Self {
+            ts: TypeSet::void(),
+            annotated: true,
+        }
+    }
+
+    pub fn str() -> Self {
+        Self {
+            ts: TypeSet::str(),
+            annotated: true,
+        }
+    }
+
+    pub fn array(ty: TypeSet, size: ArraySize) -> Self {
+        Self {
+            ts: TypeSet::array(ty, size),
+            annotated: true,
+        }
+    }
+
+    pub fn tuple(type_sets: Vec<TypeSet>) -> Self {
+        Self {
+            ts: TypeSet::tuple(type_sets),
+            annotated: true,
+        }
+    }
+
+    pub fn unannotated() -> Self {
+        Self {
+            ts: TypeSet::Any,
+            annotated: false,
+        }
+    }
+}
+
 impl TypeSet {
     pub fn i32() -> Self {
-        Self::Set(TypeSetFlags {
+        TypeSet::Set(TypeSetFlags {
             i32: true,
             ..TypeSetFlags::default()
         })
     }
 
     pub fn i64() -> Self {
-        Self::Set(TypeSetFlags {
+        TypeSet::Set(TypeSetFlags {
             i64: true,
             ..TypeSetFlags::default()
         })
     }
 
     pub fn int() -> Self {
-        Self::Set(TypeSetFlags {
+        TypeSet::Set(TypeSetFlags {
             i32: true,
             i64: true,
             ..TypeSetFlags::default()
         })
     }
 
-    pub fn f32() -> Self {
-        Self::Set(TypeSetFlags {
-            f32: true,
-            ..TypeSetFlags::default()
-        })
-    }
-
-    pub fn f64() -> Self {
-        Self::Set(TypeSetFlags {
-            f64: true,
-            ..TypeSetFlags::default()
-        })
-    }
-
-    pub fn float() -> Self {
-        Self::Set(TypeSetFlags {
-            f32: true,
-            f64: true,
-            ..TypeSetFlags::default()
-        })
-    }
-
-    pub fn void() -> Self {
-        Self::Set(TypeSetFlags {
-            void: true,
-            ..TypeSetFlags::default()
-        })
-    }
-
     pub fn str() -> Self {
-        Self::Set(TypeSetFlags {
+        TypeSet::Set(TypeSetFlags {
             string: true,
             ..TypeSetFlags::default()
         })
@@ -115,6 +190,13 @@ impl TypeSet {
     pub fn tuple(type_sets: Vec<TypeSet>) -> Self {
         Self::Set(TypeSetFlags {
             tuple: Some(type_sets),
+            ..TypeSetFlags::default()
+        })
+    }
+
+    pub fn void() -> Self {
+        Self::Set(TypeSetFlags {
+            void: true,
             ..TypeSetFlags::default()
         })
     }
@@ -155,7 +237,7 @@ impl TypeSet {
     /// We could not include the Void type to TypeDecl, because it is supposed to indicate
     /// a valid value with data representation. Or can we?
     pub fn determine(&self) -> Option<RetType> {
-        if matches!(self, Self::Any) {
+        if matches!(&self, TypeSet::Any) {
             return None;
         } else if self == &TypeDecl::I32.into() {
             return Some(RetType::Some(TypeDecl::I32));
@@ -217,7 +299,9 @@ impl std::ops::BitAnd for TypeSet {
         let TypeSet::Set(set) = &mut self else {
             return rhs;
         };
-        let TypeSet::Set(rhs) = &rhs else { return self };
+        let TypeSet::Set(rhs) = &rhs else {
+            return self;
+        };
         let array = set
             .array
             .as_mut()
@@ -307,7 +391,7 @@ impl TypeSet {
             None
         };
 
-        Ok(TypeSet::Set(TypeSetFlags {
+        Ok(Self::Set(TypeSetFlags {
             i32: set.i32 & rhs.i32,
             i64: set.i64 & rhs.i64,
             f32: set.f32 & rhs.f32,
@@ -323,7 +407,7 @@ impl TypeSet {
 impl From<&TypeDecl> for TypeSet {
     fn from(value: &TypeDecl) -> Self {
         if matches!(value, TypeDecl::Any) {
-            return TypeSet::Any;
+            return Self::Any;
         }
         let mut ret = TypeSetFlags::default();
         match value {
@@ -343,7 +427,7 @@ impl From<&TypeDecl> for TypeSet {
                 return TypeSet::tuple(types.iter().map(|ty| ty.into()).collect())
             }
         }
-        TypeSet::Set(ret)
+        Self::Set(ret)
     }
 }
 
@@ -353,20 +437,29 @@ impl From<TypeDecl> for TypeSet {
     }
 }
 
-impl From<&Option<TypeDecl>> for TypeSet {
-    fn from(value: &Option<TypeDecl>) -> Self {
-        match value {
-            Some(ref value) => Self::from(value),
-            None => Self::all(),
+impl From<&TypeDecl> for TypeSetAnnotated {
+    fn from(value: &TypeDecl) -> Self {
+        Self {
+            ts: TypeSet::from(value),
+            annotated: true,
         }
     }
 }
 
-impl From<&mut Option<TypeDecl>> for TypeSet {
+impl From<&Option<TypeDecl>> for TypeSetAnnotated {
+    fn from(value: &Option<TypeDecl>) -> Self {
+        match value {
+            Some(ref value) => Self::from(value),
+            None => Self::unannotated(),
+        }
+    }
+}
+
+impl From<&mut Option<TypeDecl>> for TypeSetAnnotated {
     fn from(value: &mut Option<TypeDecl>) -> Self {
         match value {
             Some(ref value) => Self::from(value),
-            None => Self::all(),
+            None => Self::unannotated(),
         }
     }
 }
@@ -380,9 +473,15 @@ impl From<&RetType> for TypeSet {
     }
 }
 
+impl std::fmt::Display for TypeSetAnnotated {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.ts.fmt(f)
+    }
+}
+
 impl std::fmt::Display for TypeSet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let Self::Set(set) = self else {
+        let TypeSet::Set(set) = self else {
             return write!(f, "any");
         };
         let mut written = false;

@@ -4,9 +4,16 @@ use crate::{
     Span, TypeDecl,
 };
 
+pub struct TypeParams<'a> {
+    pub span: Span<'a>,
+    pub ty: &'a TypeDecl,
+    /// If the value has type declaration
+    pub annotated: bool,
+}
+
 /// Iterate AST and call the callback for each occurrence of type declaration.
 /// Useful for inlay hinting inferred types.
-pub fn iter_types(ast: &[Statement], f: &mut impl FnMut(Span, &TypeDecl)) {
+pub fn iter_types(ast: &[Statement], f: &mut impl FnMut(TypeParams)) {
     for stmt in ast {
         match stmt {
             Statement::FnDecl { stmts, .. } => {
@@ -16,8 +23,17 @@ pub fn iter_types(ast: &[Statement], f: &mut impl FnMut(Span, &TypeDecl)) {
                 // }
                 iter_types(stmts.as_ref(), f);
             }
-            Statement::VarDecl(name, ty, _init) => {
-                f(*name, ty);
+            Statement::VarDecl {
+                name,
+                ty,
+                ty_annotated,
+                ..
+            } => {
+                f(TypeParams {
+                    span: *name,
+                    ty,
+                    annotated: *ty_annotated,
+                });
             }
             Statement::Expression { ex, .. } => {
                 iter_types_expr(ex, f);
@@ -38,11 +54,15 @@ pub fn iter_types(ast: &[Statement], f: &mut impl FnMut(Span, &TypeDecl)) {
     }
 }
 
-fn iter_types_expr(ex: &Expression, f: &mut impl FnMut(Span, &TypeDecl)) {
+fn iter_types_expr(ex: &Expression, f: &mut impl FnMut(TypeParams)) {
     match &ex.expr {
-        ExprEnum::NumLiteral(_, type_set) => {
-            if let Some(RetType::Some(ty)) = type_set.determine() {
-                f(ex.span, &ty);
+        ExprEnum::NumLiteral(_, tsa) => {
+            if let Some(RetType::Some(ty)) = tsa.ts.determine() {
+                f(TypeParams {
+                    span: ex.span,
+                    ty: &ty,
+                    annotated: false,
+                });
             }
         }
         ExprEnum::StrLiteral(_)
