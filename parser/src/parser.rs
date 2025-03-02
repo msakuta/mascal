@@ -1,5 +1,6 @@
 use crate::{
     coercion::{coerce_f32, coerce_f64, coerce_i32, coerce_i64},
+    interpreter::RetType,
     type_decl::{ArraySize, TypeDecl},
     type_set::TypeSetAnnotated,
     Value,
@@ -88,7 +89,7 @@ pub enum Statement<'a> {
     FnDecl {
         name: Span<'a>,
         args: Vec<ArgDecl<'a>>,
-        ret_type: TypeSetAnnotated,
+        ret_type: RetType,
         stmts: Rc<Vec<Statement<'a>>>,
     },
     Expression {
@@ -826,21 +827,13 @@ pub(crate) fn func_arg(r: Span) -> IResult<Span, ArgDecl> {
     ))
 }
 
-fn ret_type(input: Span) -> IResult<Span, TypeSetAnnotated> {
+fn ret_type(input: Span) -> IResult<Span, RetType> {
     type_decl(input).map_or_else(
         |_| {
             let (r, _) = tag("void")(input)?;
-            Ok((r, TypeSetAnnotated::void()))
+            Ok((r, RetType::Void))
         },
-        |(r, ty)| {
-            Ok((
-                r,
-                TypeSetAnnotated {
-                    ts: ty.into(),
-                    annotated: true,
-                },
-            ))
-        },
+        |(r, ty)| Ok((r, RetType::Some(ty))),
     )
 }
 
@@ -859,9 +852,7 @@ pub(crate) fn func_decl(input: Span) -> IResult<Span, Statement> {
         Statement::FnDecl {
             name,
             args,
-            ret_type: ret_type
-                .map(|t| t.into())
-                .unwrap_or_else(|| TypeSetAnnotated::void()),
+            ret_type: ret_type.unwrap_or_else(|| RetType::Void),
             stmts: Rc::new(stmts),
         },
     ))

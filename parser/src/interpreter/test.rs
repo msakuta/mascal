@@ -662,7 +662,7 @@ fn fn_array_decl_test() {
                 span.subslice(5, 1),
                 TypeDecl::Array(Box::new(TypeDecl::I32), ArraySize::Any)
             )],
-            ret_type: TypeSetAnnotated::void(),
+            ret_type: RetType::Void,
             stmts: Rc::new(vec![expr_semi(Expression::new(
                 VarAssign(
                     var_r(span.subslice(17, 1)),

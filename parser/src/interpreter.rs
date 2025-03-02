@@ -6,6 +6,7 @@ use crate::{
     coercion::{coerce_f64, coerce_i64, coerce_type},
     parser::*,
     type_decl::ArraySize,
+    type_set::TypeSet,
     value::{ArrayInt, TupleEntry, ValueError},
     TypeDecl, Value,
 };
@@ -727,6 +728,15 @@ impl RetType {
     }
 }
 
+impl std::fmt::Display for RetType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Some(v) => v.fmt(f),
+            _ => write!(f, "void"),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct NativeCode<'native> {
     args: Vec<ArgDecl<'native>>,
@@ -970,14 +980,7 @@ where
             } => {
                 ctx.functions.insert(
                     name.to_string(),
-                    FuncDef::Code(FuncCode::new(
-                        stmts.clone(),
-                        args.clone(),
-                        ret_type
-                            .ts
-                            .determine()
-                            .unwrap_or_else(|| RetType::Some(TypeDecl::Any)),
-                    )),
+                    FuncDef::Code(FuncCode::new(stmts.clone(), args.clone(), ret_type.clone())),
                 );
             }
             Statement::Expression { ex, semicolon } => {

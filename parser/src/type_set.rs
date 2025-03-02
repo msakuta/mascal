@@ -6,15 +6,6 @@ pub struct TypeSetAnnotated {
     pub(crate) annotated: bool,
 }
 
-impl TypeSetAnnotated {
-    pub fn new_unannotated(ts: TypeSet) -> Self {
-        Self {
-            ts,
-            annotated: false,
-        }
-    }
-}
-
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub enum TypeSet {
     /// "Any" type set is used to avoid infinite recursion of nested array types.

@@ -346,7 +346,7 @@ fn fn_decl_test() {
         Statement::FnDecl {
             name: span.subslice(3, 1),
             args: vec![ArgDecl::new(span.subslice(5, 1), TypeDecl::Any)],
-            ret_type: TypeSetAnnotated::void(),
+            ret_type: RetType::Void,
             stmts: Rc::new(vec![
                 expr_semi(Expression::new(
                     VarAssign(
@@ -372,7 +372,7 @@ fn fn_decl_test() {
         Statement::FnDecl {
             name: span.subslice(3, 1),
             args: vec![ArgDecl::new(span.subslice(5, 1), TypeDecl::I32)],
-            ret_type: TypeSetAnnotated::void(),
+            ret_type: RetType::Void,
             stmts: Rc::new(vec![expr_nosemi(Expression::new(
                 Mult(
                     var_r(span.subslice(15, 1)),
@@ -388,7 +388,7 @@ fn fn_decl_test() {
         Statement::FnDecl {
             name: span.subslice(3, 1),
             args: vec![ArgDecl::new(span.subslice(5, 1), TypeDecl::I32)],
-            ret_type: TypeSetAnnotated::f64(),
+            ret_type: RetType::Some(TypeDecl::F64),
             stmts: Rc::new(vec![expr_nosemi(Expression::new(
                 Mult(
                     var_r(span.subslice(22, 1)),
@@ -838,7 +838,7 @@ fn test_void_fn() {
         vec![Statement::FnDecl {
             name: span.subslice(3, 12),
             args: vec![],
-            ret_type: TypeSetAnnotated::void(),
+            ret_type: RetType::Void,
             stmts: Rc::new(vec![expr_nosemi(Expression::new(
                 FnInvoke(
                     "print",

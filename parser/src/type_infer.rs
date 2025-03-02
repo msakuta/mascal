@@ -716,13 +716,7 @@ where
             // Function declaration needs to be added first to allow recursive calls
             ctx.functions.insert(
                 name.to_string(),
-                FuncDef::Code(FuncCode::new(
-                    stmts.clone(),
-                    args.clone(),
-                    ret_type.ts.determine().ok_or_else(|| {
-                        TypeCheckError::indeterminant_type(*name, ctx.source_file)
-                    })?,
-                )),
+                FuncDef::Code(FuncCode::new(stmts.clone(), args.clone(), ret_type.clone())),
             );
             let mut subctx = TypeCheckContext::push_stack(ctx);
             for arg in args.iter() {
@@ -742,13 +736,10 @@ where
                     .insert(*arg.name, VariableType::parameter(arg.ty.clone().into()));
             }
             let last_stmt = tc_stmts_forward(stmts, &mut subctx)?;
-            if let Some((
-                ret_type,
-                Statement::Expression {
-                    ex: ret_expr,
-                    semicolon: false,
-                },
-            )) = ret_type.ts.determine().zip(stmts.last())
+            if let Some(Statement::Expression {
+                ex: ret_expr,
+                semicolon: false,
+            }) = stmts.last()
             {
                 if let RetType::Some(ret_type) = ret_type {
                     tc_coerce_type(&last_stmt, &ret_type, ret_expr.span, ctx)?;
@@ -912,13 +903,7 @@ where
             } => {
                 ctx.functions.insert(
                     name.to_string(),
-                    FuncDef::Code(FuncCode::new(
-                        stmts.clone(),
-                        args.clone(),
-                        ret_type.ts.determine().ok_or_else(|| {
-                            TypeCheckError::indeterminant_type(*name, ctx.source_file)
-                        })?,
-                    )),
+                    FuncDef::Code(FuncCode::new(stmts.clone(), args.clone(), ret_type.clone())),
                 );
             }
             _ => {}
@@ -968,21 +953,24 @@ where
                         dbg_println!("stmt ty {last_ty}");
                     }
                 }
+                let ret_type_set = (&*ret_type).into();
                 let intersection = last_ty
-                    .try_intersect(&ret_type.ts)
+                    .try_intersect(&ret_type_set)
                     .map_err(|e| TypeCheckError::new(e, *name, ctx.source_file))?;
                 if let Some(determined_ty) = intersection.determine() {
                     let determined_ts = TypeSet::from(&determined_ty);
-                    ret_type.ts = determined_ts;
+                    // For now, we require the return type to be fully annotated.
+                    // We may have partial return type inference like `impl Trait` in Rust in the future.
+                    // ret_type = determined_ts;
                     dbg_println!(
                         "Function {}'s return type is inferred to be {}",
                         name,
                         ret_type
                     );
-                    tc_stmts_reverse(stmts, &ret_type.ts, &mut inferer)?;
-                } else if *ret_type == TypeSetAnnotated::void() {
+                    tc_stmts_reverse(stmts, &ret_type_set, &mut inferer)?;
+                } else if matches!(ret_type, RetType::Void) {
                     dbg_println!("Function {} returns void; coercing", name);
-                    tc_stmts_reverse(stmts, &ret_type.ts, &mut inferer)?;
+                    tc_stmts_reverse(stmts, &ret_type_set, &mut inferer)?;
                 } else {
                     return Err(TypeCheckError::new(
                         format!(
