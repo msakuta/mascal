@@ -220,11 +220,17 @@ pub fn format_stmt(
             writeln!(f, "{indent}}}")?;
             Ok(())
         }
-        Statement::For(name, ty, start, end, stmts) => {
+        Statement::For {
+            var,
+            ty,
+            start,
+            end,
+            stmts,
+        } => {
             let ty_str = ty
                 .as_ref()
                 .map_or_else(|| "".to_string(), |ty| ty.to_string());
-            write!(f, "{indent}for {}{} in ", name, ty_str)?;
+            write!(f, "{indent}for {}{} in ", var, ty_str)?;
             format_expr(&start, level, f)?;
             write!(f, " to ")?;
             format_expr(&end, level, f)?;

@@ -465,13 +465,19 @@ fn emit_stmts<'src>(
                     compiler.bytecode.instructions.len() as u16;
                 compiler.fixup_breaks();
             }
-            Statement::For(iter, _, from, to, stmts) => {
-                let stk_from = emit_expr(from, compiler)?;
-                let stk_to = emit_expr(to, compiler)?;
+            Statement::For {
+                var,
+                start,
+                end,
+                stmts,
+                ..
+            } => {
+                let stk_from = emit_expr(start, compiler)?;
+                let stk_to = emit_expr(end, compiler)?;
                 let local_iter = compiler
                     .locals
                     .last()
-                    .ok_or_else(|| CompileError::new(*iter, CEK::LocalsStackUnderflow))?
+                    .ok_or_else(|| CompileError::new(*var, CEK::LocalsStackUnderflow))?
                     .len();
                 let stk_check = compiler.target_stack.len();
 
@@ -484,9 +490,9 @@ fn emit_stmts<'src>(
                 compiler
                     .locals
                     .last_mut()
-                    .ok_or_else(|| CompileError::new(*iter, CEK::LocalsStackUnderflow))?
+                    .ok_or_else(|| CompileError::new(*var, CEK::LocalsStackUnderflow))?
                     .push(LocalVar {
-                        name: iter.to_string(),
+                        name: var.to_string(),
                         stack_idx: stk_from,
                     });
                 compiler.target_stack[stk_from] = Target::Local(local_iter);

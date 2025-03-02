@@ -1033,21 +1033,21 @@ fn for_test() {
     let span = Span::new(" for i in 0..10 { print(i); }");
     assert_eq!(
         source(span).finish().unwrap().1,
-        vec![Statement::For(
-            span.subslice(5, 1),
-            None,
-            Expression::new(
+        vec![Statement::For {
+            var: span.subslice(5, 1),
+            ty: None,
+            start: Expression::new(
                 NumLiteral(Value::I64(0), TypeSetAnnotated::int()),
                 span.subslice(10, 1)
             ),
-            Expression::new(
+            end: Expression::new(
                 NumLiteral(Value::I64(10), TypeSetAnnotated::int()),
                 span.subslice(13, 2)
             ),
-            vec![expr_semi(Expression::new(
+            stmts: vec![expr_semi(Expression::new(
                 FnInvoke("print", vec![FnArg::new(*var_r(span.subslice(24, 1)))],),
                 span.subslice(18, 8)
             ))]
-        )]
+        }]
     );
 }

@@ -780,12 +780,18 @@ where
             )?;
             res = tc_stmts_forward(e, ctx)?;
         }
-        Statement::For(iter, _ty, from, to, e) => {
-            let det_ty = tc_expr_forward(from, ctx)?
-                .try_intersect(&tc_expr_forward(to, ctx)?)
-                .map_err(|e| TypeCheckError::new(e, *iter, ctx.source_file))?;
-            ctx.variables.insert(iter, VariableType::local(det_ty));
-            res = tc_stmts_forward(e, ctx)?;
+        Statement::For {
+            var,
+            start,
+            end,
+            stmts,
+            ..
+        } => {
+            let det_ty = tc_expr_forward(start, ctx)?
+                .try_intersect(&tc_expr_forward(end, ctx)?)
+                .map_err(|e| TypeCheckError::new(e, *var, ctx.source_file))?;
+            ctx.variables.insert(var, VariableType::local(det_ty));
+            res = tc_stmts_forward(stmts, ctx)?;
         }
         Statement::Break => {
             // TODO: check types in break out site. For now we disallow break with values like Rust.
@@ -849,29 +855,35 @@ where
             tc_stmts_reverse(stmts, &TypeSet::default(), ctx)?;
             tc_expr_reverse(cond, &TypeSet::i32(), ctx)?;
         }
-        Statement::For(iter, ty, from, to, stmts) => {
+        Statement::For {
+            var,
+            ty,
+            start,
+            end,
+            stmts,
+        } => {
             tc_stmts_reverse(stmts, &TypeSet::default(), ctx)?;
-            let Some(idx_ty) = ctx.variables.get(**iter) else {
+            let Some(idx_ty) = ctx.variables.get(**var) else {
                 return Err(TypeCheckError::new(
-                    format!("Could not find variable {}", iter),
-                    *iter,
+                    format!("Could not find variable {}", var),
+                    *var,
                     ctx.source_file,
                 ));
             };
-            dbg_println!("propagate For {}: {}", iter, idx_ty);
+            dbg_println!("propagate For {}: {}", var, idx_ty);
             let idx_ty = idx_ty.ts.clone();
             let idx_det_ty = match idx_ty.determine() {
                 Some(v) => v,
                 None => idx_ty
                     .try_intersect(&TypeSet::i64())
-                    .map_err(|e| TypeCheckError::new(e, *iter, ctx.source_file))?
+                    .map_err(|e| TypeCheckError::new(e, *var, ctx.source_file))?
                     .determine()
-                    .ok_or_else(|| TypeCheckError::indeterminant_type(*iter, ctx.source_file))?,
+                    .ok_or_else(|| TypeCheckError::indeterminant_type(*var, ctx.source_file))?,
             };
             *ty =
-                Some(idx_det_ty.ok_or_else(|| TypeCheckError::void_value(*iter, ctx.source_file))?);
-            tc_expr_reverse(to, &idx_ty, ctx)?;
-            tc_expr_reverse(from, &idx_ty, ctx)?;
+                Some(idx_det_ty.ok_or_else(|| TypeCheckError::void_value(*var, ctx.source_file))?);
+            tc_expr_reverse(end, &idx_ty, ctx)?;
+            tc_expr_reverse(start, &idx_ty, ctx)?;
         }
         Statement::Break => {
             // TODO: check types in break out site. For now we disallow break with values like Rust.

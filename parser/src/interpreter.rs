@@ -1013,14 +1013,20 @@ where
                     RunResult::Break => break,
                 };
             },
-            Statement::For(iter, _, from, to, e) => {
-                let from_res = coerce_i64(&unwrap_break!(eval(from, ctx)?))? as i64;
-                let to_res = coerce_i64(&unwrap_break!(eval(to, ctx)?))? as i64;
+            Statement::For {
+                var,
+                start,
+                end,
+                stmts,
+                ..
+            } => {
+                let from_res = coerce_i64(&unwrap_break!(eval(start, ctx)?))? as i64;
+                let to_res = coerce_i64(&unwrap_break!(eval(end, ctx)?))? as i64;
                 for i in from_res..to_res {
                     ctx.variables
                         .borrow_mut()
-                        .insert(iter, Rc::new(RefCell::new(Value::I64(i))));
-                    res = RunResult::Yield(unwrap_break!(run(e, ctx)?));
+                        .insert(var, Rc::new(RefCell::new(Value::I64(i))));
+                    res = RunResult::Yield(unwrap_break!(run(stmts, ctx)?));
                 }
             }
             Statement::Break => {

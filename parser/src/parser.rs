@@ -98,13 +98,13 @@ pub enum Statement<'a> {
     },
     Loop(Vec<Statement<'a>>),
     While(Expression<'a>, Vec<Statement<'a>>),
-    For(
-        Span<'a>,
-        Option<TypeDecl>,
-        Expression<'a>,
-        Expression<'a>,
-        Vec<Statement<'a>>,
-    ),
+    For {
+        var: Span<'a>,
+        ty: Option<TypeDecl>,
+        start: Expression<'a>,
+        end: Expression<'a>,
+        stmts: Vec<Statement<'a>>,
+    },
     Break,
 }
 
@@ -879,13 +879,22 @@ fn while_stmt(input: Span) -> IResult<Span, Statement> {
 
 fn for_stmt(input: Span) -> IResult<Span, Statement> {
     let (r, _) = ws(tag("for"))(input)?;
-    let (r, iter) = identifier(r)?;
+    let (r, var) = identifier(r)?;
     let (r, _) = ws(tag("in"))(r)?;
     let (r, from) = expr(r)?;
     let (r, _) = ws(tag(".."))(r)?;
     let (r, to) = expr(r)?;
     let (r, stmts) = delimited(ws(char('{')), source, ws(char('}')))(r)?;
-    Ok((r, Statement::For(iter, None, from, to, stmts)))
+    Ok((
+        r,
+        Statement::For {
+            var,
+            ty: None,
+            start: from,
+            end: to,
+            stmts,
+        },
+    ))
 }
 
 fn break_stmt(input: Span) -> IResult<Span, Statement> {
