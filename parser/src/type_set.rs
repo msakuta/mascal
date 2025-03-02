@@ -1,5 +1,8 @@
 use crate::{interpreter::RetType, type_decl::ArraySize, TypeDecl};
 
+/// TypeSet with a flag whether it was annotated in the original source code.
+/// It can keep track of existence of type annotation even after type inference
+/// fills the holes.
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct TypeSetAnnotated {
     pub(crate) ts: TypeSet,
@@ -15,7 +18,7 @@ pub enum TypeSet {
 }
 
 impl TypeSet {
-    pub fn map<T>(&self, f: impl Fn(&TypeSetFlags) -> T) -> Option<T> {
+    pub fn _map<T>(&self, f: impl Fn(&TypeSetFlags) -> T) -> Option<T> {
         match self {
             Self::Any => None,
             Self::Set(set) => Some(f(set)),
@@ -101,34 +104,6 @@ impl TypeSetAnnotated {
                 f64: true,
                 ..TypeSetFlags::default()
             }),
-            annotated: true,
-        }
-    }
-
-    pub fn void() -> Self {
-        Self {
-            ts: TypeSet::void(),
-            annotated: true,
-        }
-    }
-
-    pub fn str() -> Self {
-        Self {
-            ts: TypeSet::str(),
-            annotated: true,
-        }
-    }
-
-    pub fn array(ty: TypeSet, size: ArraySize) -> Self {
-        Self {
-            ts: TypeSet::array(ty, size),
-            annotated: true,
-        }
-    }
-
-    pub fn tuple(type_sets: Vec<TypeSet>) -> Self {
-        Self {
-            ts: TypeSet::tuple(type_sets),
             annotated: true,
         }
     }

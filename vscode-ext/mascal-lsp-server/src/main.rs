@@ -2,15 +2,13 @@ use std::sync::Mutex;
 
 use dashmap::DashMap;
 use log::debug;
-use mascal::TypeParams;
+use mascal::{nom::Finish, TypeParams};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tower_lsp::{
     jsonrpc::Result, lsp_types::notification::Notification, lsp_types::*, Client, LanguageServer,
     LspService, Server,
 };
-
-use mascal::nom::Finish;
 
 #[derive(Debug)]
 struct Backend {

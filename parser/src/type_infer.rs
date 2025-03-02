@@ -971,9 +971,11 @@ where
                 let intersection = last_ty
                     .try_intersect(&ret_type_set)
                     .map_err(|e| TypeCheckError::new(e, *name, ctx.source_file))?;
-                if let Some(determined_ty) = intersection.determine() {
+                if let Some(_determined_ty) = intersection.determine() {
                     // For now, we require the return type to be fully annotated.
-                    // We may have partial return type inference like `impl Trait` in Rust in the future.
+                    // We may have partial return type inference like `impl Trait` in Rust in the future,
+                    // but not now.
+                    //
                     // ret_type = determined_ts;
                     dbg_println!(
                         "Function {}'s return type is inferred to be {}",
