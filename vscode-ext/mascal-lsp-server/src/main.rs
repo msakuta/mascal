@@ -340,7 +340,11 @@ impl LanguageServer for Backend {
                     data: None,
                     position: type_hint.end,
                     label: InlayHintLabel::LabelParts(vec![InlayHintLabelPart {
-                        value: format!(": {}", type_hint.ty),
+                        value: if type_hint.literal {
+                            type_hint.ty.to_string()
+                        } else {
+                            format!(": {}", type_hint.ty)
+                        },
                         tooltip: None,
                         location: Some(Location {
                             uri: params.text_document.uri.clone(),
@@ -363,7 +367,7 @@ impl LanguageServer for Backend {
         let uri = &params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
         debug!("hover {uri} @ {position:?}");
-        let hashmap = self.type_hints(uri, false).unwrap_or_else(|| vec![]);
+        let hashmap = self.type_hints(uri, true).unwrap_or_else(|| vec![]);
 
         if let Some(item) = hashmap
             .into_iter()
@@ -372,7 +376,11 @@ impl LanguageServer for Backend {
             return Ok(Some(Hover {
                 contents: HoverContents::Scalar(MarkedString::LanguageString(LanguageString {
                     language: "rpar".to_string(),
-                    value: format!("var {}: {}", item.name, item.ty),
+                    value: if item.literal {
+                        format!("{}{}", item.name, item.ty.to_string())
+                    } else {
+                        format!("var {}: {}", item.name, item.ty)
+                    },
                 })),
                 range: None,
             }));
@@ -616,6 +624,7 @@ struct TypeHint {
     end: Position,
     name: String,
     ty: String,
+    literal: bool,
 }
 
 impl Backend {
@@ -644,6 +653,7 @@ impl Backend {
                 span,
                 ty,
                 annotated,
+                literal,
             } = ty_params;
             let start_pos = Position {
                 line: span.location_line().saturating_sub(1),
@@ -660,6 +670,7 @@ impl Backend {
                     end: end_pos,
                     name: span.to_string(),
                     ty: ty.to_string(),
+                    literal,
                 });
             }
         });

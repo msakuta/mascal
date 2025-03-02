@@ -9,6 +9,8 @@ pub struct TypeParams<'a> {
     pub ty: &'a TypeDecl,
     /// If the value has type declaration
     pub annotated: bool,
+    /// If this type is put to a literal (in which case colon shall be omitted)
+    pub literal: bool,
 }
 
 /// Iterate AST and call the callback for each occurrence of type declaration.
@@ -33,6 +35,7 @@ pub fn iter_types(ast: &[Statement], f: &mut impl FnMut(TypeParams)) {
                     span: *name,
                     ty,
                     annotated: *ty_annotated,
+                    literal: false,
                 });
             }
             Statement::Expression { ex, .. } => {
@@ -50,6 +53,7 @@ pub fn iter_types(ast: &[Statement], f: &mut impl FnMut(TypeParams)) {
                         span: *name,
                         ty,
                         annotated: false,
+                        literal: false,
                     });
                 }
                 iter_types_expr(init, f);
@@ -69,6 +73,7 @@ fn iter_types_expr(ex: &Expression, f: &mut impl FnMut(TypeParams)) {
                     span: ex.span,
                     ty: &ty,
                     annotated: false,
+                    literal: true,
                 });
             }
         }
