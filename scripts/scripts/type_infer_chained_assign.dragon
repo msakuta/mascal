@@ -1,0 +1,5 @@
+var a = 1;
+var b = 3;
+var c: i32 = 12;
+
+a = b = c;
