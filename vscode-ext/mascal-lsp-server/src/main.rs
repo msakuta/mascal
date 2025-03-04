@@ -91,9 +91,9 @@ impl LanguageServer for Backend {
     ) -> Result<Option<Vec<InlayHint>>> {
         debug!("inlay hint");
         let uri = &params.text_document.uri;
-        let hashmap = self.type_hints(uri, false).unwrap_or_else(|| vec![]);
+        let type_hints = self.type_hints(uri, false).unwrap_or_else(|| vec![]);
 
-        let inlay_hint_list = hashmap
+        let inlay_hint_list = type_hints
             .into_iter()
             .filter_map(|type_hint| {
                 let inlay_hint = InlayHint {
@@ -132,9 +132,9 @@ impl LanguageServer for Backend {
         let uri = &params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
         debug!("hover {uri} @ {position:?}");
-        let hashmap = self.type_hints(uri, true).unwrap_or_else(|| vec![]);
+        let type_hints = self.type_hints(uri, true).unwrap_or_else(|| vec![]);
 
-        if let Some(item) = hashmap
+        if let Some(item) = type_hints
             .into_iter()
             .find(|item| item.start <= position && position < item.end)
         {
@@ -248,7 +248,7 @@ impl Backend {
         let mut hashmap = vec![];
 
         let doc_str = doc.value();
-        mascal::DEBUG_STREAM.set(Box::new(std::io::sink()));
+        mascal::DEBUG_STREAM.set(Box::new(std::io::stderr()));
         let Ok((_, mut ast)) = mascal::source(&doc_str) else {
             debug!("source failed");
             return None;
