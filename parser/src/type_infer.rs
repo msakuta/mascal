@@ -631,7 +631,7 @@ fn forward_lvalue<'src, 'b, 'native>(
                 if let Some(tuple) = ts.and_then(|ts| ts.tuple.as_ref()) {
                     Ok(tuple
                         .get(*idx)
-                        .map(|v| ((VarRef::Tuple(Box::new(var_ref), *idx), v.clone()))))
+                        .map(|v| (VarRef::Tuple(Box::new(var_ref), *idx), v.clone())))
                 } else {
                     Ok(None)
                 }

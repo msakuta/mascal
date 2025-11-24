@@ -78,7 +78,7 @@ impl SourceListWidget {
             let ip32 = ip as u32;
             let line_info = debug
                 .binary_search_by_key(&ip32, |li| li.instruction)
-                .map_or_else(|res| res, |res| res);
+                .unwrap_or_else(|res| res);
             if let Some(line_info) = debug.get(line_info) {
                 self.line = Some(*line_info);
                 let line = line_info.src_line as usize;
@@ -96,7 +96,10 @@ impl SourceListWidget {
     pub(super) fn update_scroll(&mut self, delta: i32) {
         if delta < 0 {
             // The line number starts with 1
-            self.cursor = self.cursor.saturating_sub(delta.abs() as usize).max(1);
+            self.cursor = self
+                .cursor
+                .saturating_sub(delta.unsigned_abs() as usize)
+                .max(1);
         } else {
             self.cursor = self
                 .cursor
@@ -132,7 +135,7 @@ impl SourceListWidget {
             let ip32 = ip as u32;
             let line_info = debug
                 .binary_search_by_key(&ip32, |li| li.instruction)
-                .map_or_else(|res| res, |res| res);
+                .unwrap_or_else(|res| res);
             if let Some(line_info) = debug.get(line_info) {
                 return skip_line != Some(line_info.src_line)
                     && self.breakpoints.contains(&(line_info.src_line as usize));

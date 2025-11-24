@@ -54,7 +54,7 @@ impl OutputWidget {
 
     pub(super) fn update_scroll(&mut self, delta: i32) {
         if delta < 0 {
-            self.scroll = self.scroll.saturating_sub(delta.abs() as usize);
+            self.scroll = self.scroll.saturating_sub(delta.unsigned_abs() as usize);
         } else {
             self.scroll = self.scroll.saturating_add(delta as usize);
         }

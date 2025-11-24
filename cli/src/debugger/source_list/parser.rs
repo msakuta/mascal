@@ -36,7 +36,7 @@ pub(super) fn style_text<'a>(
     };
     let mut all_line = vec![
         Span::from(current),
-        Span::from(breakpoint),
+        breakpoint,
         Span::from(format!(" {line_num:4} ")),
     ];
     let mut line = lexer
@@ -167,7 +167,7 @@ fn identifier(input: &str) -> IResult<&str, &str> {
     ))(input)
 }
 
-fn keyword(input: &str) -> IResult<&str, Span> {
+fn keyword(input: &str) -> IResult<&str, Span<'_>> {
     let (r, id) = identifier(input)?;
     Ok(
         if matches!(
@@ -185,7 +185,7 @@ fn decimal(input: &str) -> IResult<&str, &str> {
     recognize(many1(terminated(one_of("0123456789"), many0(char('_')))))(input)
 }
 
-fn decimal_value(i: &str) -> IResult<&str, Span> {
+fn decimal_value(i: &str) -> IResult<&str, Span<'_>> {
     recognize(pair(opt(one_of("+-")), decimal))(i).map(|(r, s)| (r, s.light_green()))
 }
 
@@ -199,15 +199,15 @@ fn float(input: &str) -> IResult<&str, &str> {
     )))(input)
 }
 
-fn float_value(i: &str) -> IResult<&str, Span> {
+fn float_value(i: &str) -> IResult<&str, Span<'_>> {
     float(i).map(|(r, s)| (r, s.light_green()))
 }
 
-fn _comment(r: &str) -> IResult<&str, Span> {
+fn _comment(r: &str) -> IResult<&str, Span<'_>> {
     recognize(delimited(tag("/*"), take_until("*/"), tag("*/")))(r).map(|(r, s)| (r, s.green()))
 }
 
-fn comment_start(i: &str) -> IResult<&str, Span> {
+fn comment_start(i: &str) -> IResult<&str, Span<'_>> {
     let (r, s) = tag("/*")(i)?;
     Ok((r, s.green()))
 }
@@ -216,7 +216,7 @@ fn comment_end(i: &str) -> IResult<&str, &str> {
     tag("*/")(i)
 }
 
-fn _non_ident(mut input: &str) -> IResult<&str, Span> {
+fn _non_ident(mut input: &str) -> IResult<&str, Span<'_>> {
     let start = input;
     let mut last = None;
     loop {
@@ -243,17 +243,17 @@ fn _non_ident(mut input: &str) -> IResult<&str, Span> {
     ))
 }
 
-fn punctuation(i: &str) -> IResult<&str, Span> {
+fn punctuation(i: &str) -> IResult<&str, Span<'_>> {
     alt((recognize(one_of("(){}[],:;*+-/=<>")), tag("->"), tag("..")))(i)
         .map(|(r, s)| (r, s.white()))
 }
 
-fn _str_literal(i: &str) -> IResult<&str, Span> {
+fn _str_literal(i: &str) -> IResult<&str, Span<'_>> {
     recognize(delimited(char('\"'), many0(none_of("\"")), char('"')))(i)
         .map(|(r, s)| (r, s.light_magenta()))
 }
 
-fn str_literal_start(i: &str) -> IResult<&str, Span> {
+fn str_literal_start(i: &str) -> IResult<&str, Span<'_>> {
     let (r, s) = recognize(char('"'))(i)?;
     Ok((r, s.light_magenta()))
 }
@@ -262,17 +262,17 @@ fn str_literal_end(i: &str) -> IResult<&str, &str> {
     recognize(char('"'))(i)
 }
 
-fn whitespace(i: &str) -> IResult<&str, Span> {
+fn whitespace(i: &str) -> IResult<&str, Span<'_>> {
     multispace1(i).map(|(r, s)| (r, s.into()))
 }
 
 /// Non-breaking tokens will not span multiple lines, so our syntax highlighter won't need
 /// to retain their states.
-fn non_breaking_token(i: &str) -> IResult<&str, Span> {
+fn non_breaking_token(i: &str) -> IResult<&str, Span<'_>> {
     alt((keyword, whitespace, punctuation, float_value, decimal_value))(i)
 }
 
-fn _text(input: &str) -> Result<(&str, Vec<Span>), nom::error::Error<&str>> {
+fn _text(input: &str) -> Result<(&str, Vec<Span<'_>>), nom::error::Error<&str>> {
     many0(alt((
         _comment,
         keyword,

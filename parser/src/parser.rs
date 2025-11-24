@@ -197,7 +197,7 @@ impl<'a> Subslice for Span<'a> {
     }
 }
 
-fn block_comment<'a, E: ParseError<Span<'a>>>(input: Span<'a>) -> IResult<Span, Span, E> {
+fn block_comment<'a, E: ParseError<Span<'a>>>(input: Span<'a>) -> IResult<Span<'a>, Span<'a>, E> {
     let (r, _) = multispace0(input)?;
     delimited(tag("/*"), take_until("*/"), tag("*/"))(r)
 }
@@ -488,12 +488,12 @@ fn parens(i: Span) -> IResult<Span, Expression> {
     Ok((r, Expression::new(res.expr, r0.take(r0.offset(&r)))))
 }
 
-fn line_comment<'a, E: ParseError<Span<'a>>>(input: Span<'a>) -> IResult<Span, Span, E> {
+fn line_comment<'a, E: ParseError<Span<'a>>>(input: Span<'a>) -> IResult<Span<'a>, Span<'a>, E> {
     let (r, _) = multispace0(input)?;
     delimited(tag("//"), take_until("\n"), tag("\n"))(r)
 }
 
-fn ws_comment<'a, E: ParseError<Span<'a>>>(i: Span<'a>) -> IResult<Span, (), E> {
+fn ws_comment<'a, E: ParseError<Span<'a>>>(i: Span<'a>) -> IResult<Span<'a>, (), E> {
     let (r, _) = many0(alt((line_comment, block_comment, multispace1)))(i)?;
 
     Ok((r, ()))
@@ -947,7 +947,7 @@ pub fn source(mut input: Span) -> IResult<Span, Vec<Statement>> {
     }
 }
 
-pub fn span_source(input: &str) -> IResult<Span, Vec<Statement>> {
+pub fn span_source(input: &str) -> IResult<Span<'_>, Vec<Statement<'_>>> {
     source(Span::new(input))
 }
 

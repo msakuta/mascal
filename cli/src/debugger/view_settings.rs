@@ -138,7 +138,7 @@ impl ViewSettingsWidget {
 
     fn update_scroll(delta: i32, scroll: &mut usize, state: &mut ScrollbarState) {
         if delta < 0 {
-            *scroll = scroll.saturating_sub(delta.abs() as usize);
+            *scroll = scroll.saturating_sub(delta.unsigned_abs() as usize);
         } else {
             *scroll = scroll.saturating_add(delta as usize);
         }
@@ -187,7 +187,7 @@ impl ViewSettingsWidget {
             .into()]),
         ];
 
-        text.into()
+        text
     }
 
     pub(super) fn render(&mut self, area: Rect, buf: &mut Buffer, view_settings: &ViewSettings) {

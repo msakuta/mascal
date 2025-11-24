@@ -114,41 +114,40 @@ impl<'a> App<'a> {
         if let Err(e) = self.inner_events() {
             *self.error.get_mut() = Some(e.to_string());
         }
-        return Ok(());
+        Ok(())
     }
 
     fn inner_events(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if let event::Event::Key(key) = event::read()? {
-            if self.view_settings.view_settings {
-                if self
+            if self.view_settings.view_settings
+                && self
                     .widgets
                     .view_settings
                     .handle_events(&key, &mut self.view_settings)?
+            {
+                // When view settings are changed, some widgets may need to update.
+                if let AppMode::StepRun {
+                    ref vm_history,
+                    btrace_level,
+                    selected_history,
+                    ..
+                } = self.mode
                 {
-                    // When view settings are changed, some widgets may need to update.
-                    if let AppMode::StepRun {
-                        ref vm_history,
-                        btrace_level,
-                        selected_history,
-                        ..
-                    } = self.mode
-                    {
-                        if let Some(vm) = vm_history.get(selected_history) {
-                            let debug_fn = self
-                                .bytecode
-                                .debug_info()
-                                .zip(vm.call_info(btrace_level))
-                                .and_then(|(debug, ci)| debug.get(ci.bytecode().name()));
-                            self.widgets.locals.update(
-                                vm,
-                                btrace_level,
-                                debug_fn,
-                                &self.view_settings,
-                            )?;
-                        }
+                    if let Some(vm) = vm_history.get(selected_history) {
+                        let debug_fn = self
+                            .bytecode
+                            .debug_info()
+                            .zip(vm.call_info(btrace_level))
+                            .and_then(|(debug, ci)| debug.get(ci.bytecode().name()));
+                        self.widgets.locals.update(
+                            vm,
+                            btrace_level,
+                            debug_fn,
+                            &self.view_settings,
+                        )?;
                     }
-                    return Ok(());
                 }
+                return Ok(());
             }
 
             match (key.kind, key.code) {
@@ -359,7 +358,7 @@ impl<'a> App<'a> {
         }
     }
 
-    fn render_inner_text(&self) -> Result<Text, Box<dyn std::error::Error>> {
+    fn render_inner_text(&self) -> Result<Text<'_>, Box<dyn std::error::Error>> {
         let text = match &self.mode {
             AppMode::None => Text::from(vec![
                 Line::from("Press Q to exit"),
@@ -394,7 +393,7 @@ impl<'a> App<'a> {
         let debug_info = self
             .bytecode
             .debug_info()
-            .ok_or_else(|| "Cannot use a breakpoint without debug info")?;
+            .ok_or("Cannot use a breakpoint without debug info")?;
 
         let mut start_line_info;
         if let AppMode::StepRun { ref vm_history, .. } = self.mode {
@@ -407,7 +406,7 @@ impl<'a> App<'a> {
                     let line_info = fn_debug
                         .line_info
                         .binary_search_by_key(&ip32, |li| li.instruction)
-                        .map_or_else(|res| res, |res| res);
+                        .unwrap_or_else(|res| res);
                     fn_debug.line_info.get(line_info).map(|li| li.src_line)
                 });
         } else {
@@ -442,7 +441,7 @@ impl<'a> App<'a> {
             let li_index = fn_debug
                 .line_info
                 .binary_search_by_key(&ip32, |li| li.instruction)
-                .map_or_else(|res| res, |res| res);
+                .unwrap_or_else(|res| res);
 
             if let Some(line_info) = fn_debug.line_info.get(li_index) {
                 if Some(line_info.src_line) != start_line_info {
@@ -485,7 +484,7 @@ impl<'a> App<'a> {
             let prev_vm = next_vm.deepclone();
             let res = next_vm.next_inst();
             self.widgets.update(
-                &mut next_vm,
+                &next_vm,
                 btrace_level,
                 self.bytecode.debug_info(),
                 &self.output_buffer,

@@ -122,11 +122,11 @@ impl<'a> Vm<'a> {
         )
     }
 
-    pub fn call_stack(&self) -> &[CallInfo] {
+    pub fn call_stack(&self) -> &[CallInfo<'_>] {
         &self.call_stack
     }
 
-    pub fn call_info(&self, level: usize) -> Option<&CallInfo> {
+    pub fn call_info(&self, level: usize) -> Option<&CallInfo<'_>> {
         self.call_stack
             .get(self.call_stack.len().saturating_sub(level + 1))
     }
