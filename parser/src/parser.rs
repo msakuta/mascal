@@ -664,7 +664,7 @@ fn term(i: Span) -> IResult<Span, Expression> {
     )(r)
 }
 
-pub(crate) fn expr(i: Span) -> IResult<Span, Expression> {
+pub(crate) fn arithm_expr(i: Span) -> IResult<Span, Expression> {
     let (r, init) = term(i)?;
 
     fold_many0(
@@ -680,6 +680,19 @@ pub(crate) fn expr(i: Span) -> IResult<Span, Expression> {
             } else {
                 Expression::new(ExprEnum::Sub(Box::new(acc), Box::new(val)), span)
             }
+        },
+    )(r)
+}
+
+pub(crate) fn expr(i: Span) -> IResult<Span, Expression> {
+    let (r, init) = arithm_expr(i)?;
+
+    fold_many0(
+        pair(tag("|>"), ident_space),
+        move || init.clone(),
+        move |acc, (_op, val): (Span, Span)| {
+            let span = i.subslice(i.offset(&acc.span), acc.span.offset(&val) + val.len());
+            Expression::new(ExprEnum::FnInvoke(*val, vec![FnArg::new(acc)]), span)
         },
     )(r)
 }
