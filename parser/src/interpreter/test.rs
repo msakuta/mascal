@@ -33,19 +33,19 @@ fn run0(s: &Vec<Statement>) -> Result<RunResult, EvalError> {
 fn eval_test() {
     assert_eq!(
         eval0(&span_expr(" 1 +  2 ").unwrap().1),
-        RunResult::Yield(Value::I64(3))
+        RunResult::Continue(Value::I64(3))
     );
     assert_eq!(
         eval0(&span_expr(" 12 + 6 - 4+  3").unwrap().1),
-        RunResult::Yield(Value::I64(17))
+        RunResult::Continue(Value::I64(17))
     );
     assert_eq!(
         eval0(&span_expr(" 1 + 2*3 + 4").unwrap().1),
-        RunResult::Yield(Value::I64(11))
+        RunResult::Continue(Value::I64(11))
     );
     assert_eq!(
         eval0(&span_expr(" 1 +  2.5 ").unwrap().1),
-        RunResult::Yield(Value::F64(3.5))
+        RunResult::Continue(Value::F64(3.5))
     );
 }
 
@@ -53,15 +53,15 @@ fn eval_test() {
 fn parens_eval_test() {
     assert_eq!(
         eval0(&span_expr(" (  2 )").unwrap().1),
-        RunResult::Yield(Value::I64(2))
+        RunResult::Continue(Value::I64(2))
     );
     assert_eq!(
         eval0(&span_expr(" 2* (  3 + 4 ) ").unwrap().1),
-        RunResult::Yield(Value::I64(14))
+        RunResult::Continue(Value::I64(14))
     );
     assert_eq!(
         eval0(&span_expr("  2*2 / ( 5 - 1) + 3").unwrap().1),
-        RunResult::Yield(Value::I64(4))
+        RunResult::Continue(Value::I64(4))
     );
 }
 
@@ -80,7 +80,7 @@ fn var_test() {
         .insert("x", Rc::new(RefCell::new(Value::F64(42.))));
     assert_eq!(
         eval(&span_expr(" x +  2 ").unwrap().1, &mut ctx).unwrap(),
-        RunResult::Yield(Value::F64(44.))
+        RunResult::Continue(Value::F64(44.))
     );
 }
 
@@ -115,7 +115,7 @@ fn var_assign_test() {
     );
     assert_eq!(
         eval(&var_assign(Span::new("x=12")).finish().unwrap().1, &mut ctx).unwrap(),
-        RunResult::Yield(Value::I64(12))
+        RunResult::Continue(Value::I64(12))
     );
 }
 
@@ -223,7 +223,7 @@ fn cond_test() {
 fn cond_eval_test() {
     assert_eq!(
         eval0(&span_conditional("if 0 { 1; }").finish().unwrap().1),
-        RunResult::Yield(Value::I32(0))
+        RunResult::Continue(Value::I32(0))
     );
     assert_eq!(
         eval0(
@@ -232,7 +232,7 @@ fn cond_eval_test() {
                 .unwrap()
                 .1
         ),
-        RunResult::Yield(Value::I64(2))
+        RunResult::Continue(Value::I64(2))
     );
     assert_eq!(
         eval0(
@@ -241,7 +241,7 @@ fn cond_eval_test() {
                 .unwrap()
                 .1
         ),
-        RunResult::Yield(Value::I64(3))
+        RunResult::Continue(Value::I64(3))
     );
 }
 
@@ -275,35 +275,35 @@ fn cmp_test() {
 fn cmp_eval_test() {
     assert_eq!(
         eval0(&cmp_expr(Span::new(" 1 <  2 ")).finish().unwrap().1),
-        RunResult::Yield(Value::I32(1))
+        RunResult::Continue(Value::I32(1))
     );
     assert_eq!(
         eval0(&cmp_expr(Span::new(" 1 > 2")).finish().unwrap().1),
-        RunResult::Yield(Value::I32(0))
+        RunResult::Continue(Value::I32(0))
     );
     assert_eq!(
         eval0(&cmp_expr(Span::new(" 1 <=  2 ")).finish().unwrap().1),
-        RunResult::Yield(Value::I32(1))
+        RunResult::Continue(Value::I32(1))
     );
     assert_eq!(
         eval0(&cmp_expr(Span::new(" 1 >= 2")).finish().unwrap().1),
-        RunResult::Yield(Value::I32(0))
+        RunResult::Continue(Value::I32(0))
     );
     assert_eq!(
         eval0(&cmp_expr(Span::new(" 2 < 1")).finish().unwrap().1),
-        RunResult::Yield(Value::I32(0))
+        RunResult::Continue(Value::I32(0))
     );
     assert_eq!(
         eval0(&cmp_expr(Span::new(" 2 > 1")).finish().unwrap().1),
-        RunResult::Yield(Value::I32(1))
+        RunResult::Continue(Value::I32(1))
     );
     assert_eq!(
         eval0(&cmp_expr(Span::new(" 2 <= 1")).finish().unwrap().1),
-        RunResult::Yield(Value::I32(0))
+        RunResult::Continue(Value::I32(0))
     );
     assert_eq!(
         eval0(&cmp_expr(Span::new(" 2 >= 1")).finish().unwrap().1),
-        RunResult::Yield(Value::I32(1))
+        RunResult::Continue(Value::I32(1))
     );
 }
 
@@ -423,23 +423,23 @@ fn span_full_expression(s: &str) -> IResult<Span, Expression> {
 fn logic_eval_test() {
     assert_eq!(
         eval0(&span_full_expression(" 0 && 1 ").finish().unwrap().1),
-        RunResult::Yield(Value::I32(0))
+        RunResult::Continue(Value::I32(0))
     );
     assert_eq!(
         eval0(&span_full_expression(" 0 || 1 ").finish().unwrap().1),
-        RunResult::Yield(Value::I32(1))
+        RunResult::Continue(Value::I32(1))
     );
     assert_eq!(
         eval0(&span_full_expression(" 1 && 0 || 1 ").finish().unwrap().1),
-        RunResult::Yield(Value::I32(1))
+        RunResult::Continue(Value::I32(1))
     );
     assert_eq!(
         eval0(&span_full_expression(" 1 && 0 || 0 ").finish().unwrap().1),
-        RunResult::Yield(Value::I32(0))
+        RunResult::Continue(Value::I32(0))
     );
     assert_eq!(
         eval0(&span_full_expression(" 1 && !0 ").finish().unwrap().1),
-        RunResult::Yield(Value::I32(1))
+        RunResult::Continue(Value::I32(1))
     );
 }
 
@@ -503,15 +503,15 @@ fn brace_expr_test() {
 fn brace_expr_eval_test() {
     assert_eq!(
         eval0(&span_full_expression(" { 1; } ").unwrap().1),
-        RunResult::Yield(Value::I64(1))
+        RunResult::Continue(Value::I64(1))
     );
     assert_eq!(
         eval0(&span_full_expression(" { 1; 2 }").unwrap().1),
-        RunResult::Yield(Value::I64(2))
+        RunResult::Continue(Value::I64(2))
     );
     assert_eq!(
         eval0(&span_full_expression(" {1; 2;} ").unwrap().1),
-        RunResult::Yield(Value::I64(2))
+        RunResult::Continue(Value::I64(2))
     );
     assert_eq!(
         eval0(
@@ -519,7 +519,7 @@ fn brace_expr_eval_test() {
                 .unwrap()
                 .1
         ),
-        RunResult::Yield(Value::I64(1))
+        RunResult::Continue(Value::I64(1))
     );
 }
 
@@ -651,7 +651,7 @@ fn array_literal_eval_test() {
     assert_eq!(
         eval0(&span_full_expression("[1,3,5]").finish().unwrap().1),
         // Right now array literals have "Any" internal type, but it should be decided somehow.
-        RunResult::Yield(Value::Array(ArrayInt::new(
+        RunResult::Continue(Value::Array(ArrayInt::new(
             TypeDecl::Any,
             vec![i64(1), i64(3), i64(5)]
         )))
@@ -660,7 +660,7 @@ fn array_literal_eval_test() {
     // Type coercion won't happen through variable declaration, because it is discarded in compiled bytecode.
     assert_eq!(
         run0(&span_source("var v: [f64] = [1,3,5]; v").finish().unwrap().1).unwrap(),
-        RunResult::Yield(Value::Array(ArrayInt::new(
+        RunResult::Continue(Value::Array(ArrayInt::new(
             TypeDecl::Any,
             vec![i64(1), i64(3), i64(5)]
         )))
@@ -740,7 +740,7 @@ fn array_index_eval_test() {
         _ => panic!("a must be an array"),
     });
 
-    assert_eq!(run_result.unwrap(), RunResult::Yield(a_rc.unwrap()));
+    assert_eq!(run_result.unwrap(), RunResult::Continue(a_rc.unwrap()));
 
     // Technically, this test will return a reference to an element in a temporary array,
     // but we wouldn't care and just unwrap_deref.
@@ -748,11 +748,11 @@ fn array_index_eval_test() {
         run0(&span_source("[1,3,5][1]").unwrap().1)
             .and_then(unwrap_deref)
             .unwrap(),
-        RunResult::Yield(I64(3))
+        RunResult::Continue(I64(3))
     );
     assert_eq!(
         run0(&span_source("len([1,3,5])").unwrap().1).unwrap(),
-        RunResult::Yield(I64(3))
+        RunResult::Continue(I64(3))
     );
 }
 
@@ -784,7 +784,7 @@ fn array_index_assign_test() {
     );
     assert_eq!(
         run0(&span_source("var a: [i32] = [1,3,5]; a[1] = 123").unwrap().1).unwrap(),
-        RunResult::Yield(I64(123))
+        RunResult::Continue(I64(123))
     );
 }
 
@@ -793,7 +793,7 @@ fn array_sized_test() {
     let span = Span::new("var a: [i32; 3] = [1,2,3]; var b: [i32; 3] = [4,5,6]; a = b;");
     let mut ast = source(span).finish().unwrap().1;
     type_check(&mut ast, &mut TypeCheckContext::new(None)).unwrap();
-    run0(&ast).unwrap();
+    let _ = run0(&ast).unwrap();
 }
 
 #[test]
@@ -808,7 +808,7 @@ fn array_sized_error_test() {
         ),
     }
     // It will run successfully although the typecheck fails.
-    run0(&ast).unwrap();
+    let _ = run0(&ast).unwrap();
 }
 
 #[test]

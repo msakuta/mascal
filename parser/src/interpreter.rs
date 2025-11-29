@@ -9,13 +9,11 @@ use crate::{
     value::{ArrayInt, TupleEntry, ValueError},
     TypeDecl, Value,
 };
-use std::{cell::RefCell, collections::HashMap, convert::TryInto, io::Write, rc::Rc};
+use std::{
+    cell::RefCell, collections::HashMap, convert::TryInto, io::Write, ops::ControlFlow, rc::Rc,
+};
 
-#[derive(Debug, PartialEq, Clone)]
-pub enum RunResult {
-    Yield(Value),
-    Break,
-}
+pub type RunResult = ControlFlow<(), Value>;
 
 pub type EvalResult<T> = Result<T, EvalError>;
 
@@ -175,19 +173,32 @@ impl<T> EGetExt<T> for Vec<T> {
     }
 }
 
+trait RunResultExt: Sized {
+    fn ok(self) -> EvalResult<Self>;
+}
+
+impl RunResultExt for RunResult {
+    fn ok(self) -> EvalResult<Self> {
+        match self {
+            RunResult::Continue(val) => Ok(RunResult::Continue(val)),
+            RunResult::Break(_) => return Ok(RunResult::Break(())),
+        }
+    }
+}
+
 fn unwrap_deref(e: RunResult) -> EvalResult<RunResult> {
     match &e {
-        RunResult::Break => return Ok(RunResult::Break),
+        RunResult::Break(_) => return Ok(RunResult::Break(())),
         _ => (),
     }
     Ok(e)
 }
 
-macro_rules! unwrap_run {
+macro_rules! try_run {
     ($e:expr) => {
         match unwrap_deref($e)? {
-            RunResult::Yield(v) => v,
-            RunResult::Break => return Ok(RunResult::Break),
+            RunResult::Continue(v) => v,
+            RunResult::Break(_) => return Ok(RunResult::Break(())),
         }
     };
 }
@@ -281,13 +292,13 @@ where
     'native: 'src,
 {
     Ok(match &e.expr {
-        ExprEnum::NumLiteral(val, _) => RunResult::Yield(val.clone()),
-        ExprEnum::StrLiteral(val) => RunResult::Yield(Value::Str(val.clone())),
-        ExprEnum::ArrLiteral(val) => RunResult::Yield(Value::Array(ArrayInt::new(
+        ExprEnum::NumLiteral(val, _) => RunResult::Continue(val.clone()),
+        ExprEnum::StrLiteral(val) => RunResult::Continue(Value::Str(val.clone())),
+        ExprEnum::ArrLiteral(val) => RunResult::Continue(Value::Array(ArrayInt::new(
             TypeDecl::Any,
             val.iter()
                 .map(|v| {
-                    if let RunResult::Yield(y) = eval(v, ctx)? {
+                    if let RunResult::Continue(y) = eval(v, ctx)? {
                         Ok(y)
                     } else {
                         Err(EvalError::DisallowedBreak)
@@ -295,10 +306,10 @@ where
                 })
                 .collect::<Result<Vec<_>, _>>()?,
         ))),
-        ExprEnum::TupleLiteral(val) => RunResult::Yield(Value::Tuple(Rc::new(RefCell::new(
+        ExprEnum::TupleLiteral(val) => RunResult::Continue(Value::Tuple(Rc::new(RefCell::new(
             val.iter()
                 .map(|v| {
-                    if let RunResult::Yield(y) = unwrap_deref(eval(v, ctx)?)? {
+                    if let RunResult::Continue(y) = unwrap_deref(eval(v, ctx)?)? {
                         Ok(TupleEntry {
                             decl: TypeDecl::from_value(&y),
                             value: y,
@@ -309,15 +320,15 @@ where
                 })
                 .collect::<Result<Vec<_>, _>>()?,
         )))),
-        ExprEnum::Variable(str) => RunResult::Yield(
+        ExprEnum::Variable(str) => RunResult::Continue(
             ctx.get_var(str)
                 .ok_or_else(|| EvalError::VarNotFound(str.to_string()))?,
         ),
         ExprEnum::Cast(ex, decl) => {
-            RunResult::Yield(coerce_type(&unwrap_run!(eval(ex, ctx)?), decl)?)
+            RunResult::Continue(coerce_type(&try_run!(eval(ex, ctx)?), decl)?)
         }
         ExprEnum::VarAssign(lhs, rhs) => {
-            let rhs_value = unwrap_run!(eval(rhs, ctx)?);
+            let rhs_value = try_run!(eval(rhs, ctx)?);
             let lhs_result = eval_lvalue(lhs, ctx)?;
             match lhs_result {
                 LValue::Variable(name) => {
@@ -327,7 +338,7 @@ where
                 }
                 LValue::ArrayRef(arr, idx) => arr.borrow_mut().values[idx] = rhs_value.clone(),
             }
-            RunResult::Yield(rhs_value)
+            RunResult::Continue(rhs_value)
         }
         ExprEnum::FnInvoke(fname, args) => {
             let fn_args = ctx
@@ -385,7 +396,7 @@ where
                         if let Some(v) = v {
                             subctx.variables.borrow_mut().insert(
                                 *k.name,
-                                Rc::new(RefCell::new(coerce_type(&unwrap_run!(v.clone()), &k.ty)?)),
+                                Rc::new(RefCell::new(coerce_type(&try_run!(v.clone()), &k.ty)?)),
                             );
                         } else {
                             return Err(EvalError::MissingArg(k.name.to_string()));
@@ -393,19 +404,19 @@ where
                     }
                     let run_result = run(&func.stmts, &mut subctx)?;
                     match unwrap_deref(run_result)? {
-                        RunResult::Yield(v) => match &func.ret_type {
-                            RetType::Some(ty) => RunResult::Yield(coerce_type(&v, ty)?),
-                            RetType::Void => RunResult::Yield(v),
+                        RunResult::Continue(v) => match &func.ret_type {
+                            RetType::Some(ty) => RunResult::Continue(coerce_type(&v, ty)?),
+                            RetType::Void => RunResult::Continue(v),
                         },
-                        RunResult::Break => return Err(EvalError::BreakInToplevel),
+                        RunResult::Break(_) => return Err(EvalError::BreakInToplevel),
                     }
                 }
-                FuncDef::Native(native) => RunResult::Yield((native.code)(
+                FuncDef::Native(native) => RunResult::Continue((native.code)(
                     &eval_args
                         .into_iter()
                         .map(|e| match e {
-                            Some(RunResult::Yield(v)) => Ok(v.clone()),
-                            Some(RunResult::Break) => Err(EvalError::BreakInFnArg),
+                            Some(RunResult::Continue(v)) => Ok(v.clone()),
+                            Some(RunResult::Break(_)) => Err(EvalError::BreakInFnArg),
                             _ => Err(EvalError::MissingArg("arg".to_string())),
                         })
                         .collect::<Result<Vec<_>, _>>()?,
@@ -417,43 +428,43 @@ where
                 .iter()
                 .map(|v| eval(v, ctx))
                 .collect::<Result<Vec<_>, _>>()?;
-            let arg0 = match unwrap_deref(args[0].clone())? {
-                RunResult::Yield(v) => {
+            let arg0 = match args[0].clone().ok()? {
+                RunResult::Continue(v) => {
                     if let Value::I64(idx) = coerce_type(&v, &TypeDecl::I64)? {
                         idx as u64
                     } else {
                         return Err(EvalError::NonIntegerIndex);
                     }
                 }
-                RunResult::Break => {
-                    return Ok(RunResult::Break);
+                RunResult::Break(_) => {
+                    return Ok(RunResult::Break(()));
                 }
             };
-            let result = unwrap_run!(eval(ex, ctx)?);
-            RunResult::Yield(result.array_get(arg0)?)
+            let result = try_run!(eval(ex, ctx)?);
+            RunResult::Continue(result.array_get(arg0)?)
         }
         ExprEnum::TupleIndex(ex, index) => {
-            let result = unwrap_run!(eval(ex, ctx)?);
-            RunResult::Yield(result.tuple_get(*index as u64)?)
+            let result = try_run!(eval(ex, ctx)?);
+            RunResult::Continue(result.tuple_get(*index as u64)?)
         }
         ExprEnum::Not(val) => {
-            RunResult::Yield(Value::I32(if truthy(&unwrap_run!(eval(val, ctx)?)) {
+            RunResult::Continue(Value::I32(if truthy(&try_run!(eval(val, ctx)?)) {
                 0
             } else {
                 1
             }))
         }
         ExprEnum::BitNot(val) => {
-            let val = unwrap_run!(eval(val, ctx)?);
-            RunResult::Yield(match val {
+            let val = try_run!(eval(val, ctx)?);
+            RunResult::Continue(match val {
                 Value::I32(i) => Value::I32(!i),
                 Value::I64(i) => Value::I64(!i),
                 _ => return Err(EvalError::NonIntegerBitwise(format!("{val:?}"))),
             })
         }
         ExprEnum::Neg(val) => {
-            let val = unwrap_run!(eval(val, ctx)?);
-            RunResult::Yield(match val {
+            let val = try_run!(eval(val, ctx)?);
+            RunResult::Continue(match val {
                 Value::I32(i) => Value::I32(-i),
                 Value::I64(i) => Value::I64(-i),
                 Value::F32(i) => Value::F32(-i),
@@ -462,105 +473,105 @@ where
             })
         }
         ExprEnum::Add(lhs, rhs) => {
-            let res = RunResult::Yield(binary_op_str(
-                &unwrap_run!(eval(lhs, ctx)?),
-                &unwrap_run!(eval(rhs, ctx)?),
+            let res = RunResult::Continue(binary_op_str(
+                &try_run!(eval(lhs, ctx)?),
+                &try_run!(eval(rhs, ctx)?),
                 |lhs, rhs| Ok(lhs + rhs),
                 |lhs, rhs| lhs + rhs,
                 |lhs: &str, rhs: &str| Ok(lhs.to_string() + rhs),
             )?);
             res
         }
-        ExprEnum::Sub(lhs, rhs) => RunResult::Yield(binary_op(
-            &unwrap_run!(eval(lhs, ctx)?),
-            &unwrap_run!(eval(rhs, ctx)?),
+        ExprEnum::Sub(lhs, rhs) => RunResult::Continue(binary_op(
+            &try_run!(eval(lhs, ctx)?),
+            &try_run!(eval(rhs, ctx)?),
             |lhs, rhs| lhs - rhs,
             |lhs, rhs| lhs - rhs,
         )?),
-        ExprEnum::Mult(lhs, rhs) => RunResult::Yield(binary_op(
-            &unwrap_run!(eval(lhs, ctx)?),
-            &unwrap_run!(eval(rhs, ctx)?),
+        ExprEnum::Mult(lhs, rhs) => RunResult::Continue(binary_op(
+            &try_run!(eval(lhs, ctx)?),
+            &try_run!(eval(rhs, ctx)?),
             |lhs, rhs| lhs * rhs,
             |lhs, rhs| lhs * rhs,
         )?),
-        ExprEnum::Div(lhs, rhs) => RunResult::Yield(binary_op(
-            &unwrap_run!(eval(lhs, ctx)?),
-            &unwrap_run!(eval(rhs, ctx)?),
+        ExprEnum::Div(lhs, rhs) => RunResult::Continue(binary_op(
+            &try_run!(eval(lhs, ctx)?),
+            &try_run!(eval(rhs, ctx)?),
             |lhs, rhs| lhs / rhs,
             |lhs, rhs| lhs / rhs,
         )?),
-        ExprEnum::LT(lhs, rhs) => RunResult::Yield(compare_op(
-            &unwrap_run!(eval(lhs, ctx)?),
-            &unwrap_run!(eval(rhs, ctx)?),
+        ExprEnum::LT(lhs, rhs) => RunResult::Continue(compare_op(
+            &try_run!(eval(lhs, ctx)?),
+            &try_run!(eval(rhs, ctx)?),
             f64::lt,
             i64::lt,
         )?),
-        ExprEnum::LE(lhs, rhs) => RunResult::Yield(compare_op(
-            &unwrap_run!(eval(lhs, ctx)?),
-            &unwrap_run!(eval(rhs, ctx)?),
+        ExprEnum::LE(lhs, rhs) => RunResult::Continue(compare_op(
+            &try_run!(eval(lhs, ctx)?),
+            &try_run!(eval(rhs, ctx)?),
             f64::le,
             i64::le,
         )?),
-        ExprEnum::GT(lhs, rhs) => RunResult::Yield(compare_op(
-            &unwrap_run!(eval(lhs, ctx)?),
-            &unwrap_run!(eval(rhs, ctx)?),
+        ExprEnum::GT(lhs, rhs) => RunResult::Continue(compare_op(
+            &try_run!(eval(lhs, ctx)?),
+            &try_run!(eval(rhs, ctx)?),
             f64::gt,
             i64::gt,
         )?),
-        ExprEnum::GE(lhs, rhs) => RunResult::Yield(compare_op(
-            &unwrap_run!(eval(lhs, ctx)?),
-            &unwrap_run!(eval(rhs, ctx)?),
+        ExprEnum::GE(lhs, rhs) => RunResult::Continue(compare_op(
+            &try_run!(eval(lhs, ctx)?),
+            &try_run!(eval(rhs, ctx)?),
             f64::ge,
             i64::ge,
         )?),
-        ExprEnum::EQ(lhs, rhs) => RunResult::Yield(compare_op(
-            &unwrap_run!(eval(lhs, ctx)?),
-            &unwrap_run!(eval(rhs, ctx)?),
+        ExprEnum::EQ(lhs, rhs) => RunResult::Continue(compare_op(
+            &try_run!(eval(lhs, ctx)?),
+            &try_run!(eval(rhs, ctx)?),
             f64::eq,
             i64::eq,
         )?),
-        ExprEnum::NE(lhs, rhs) => RunResult::Yield(compare_op(
-            &unwrap_run!(eval(lhs, ctx)?),
-            &unwrap_run!(eval(rhs, ctx)?),
+        ExprEnum::NE(lhs, rhs) => RunResult::Continue(compare_op(
+            &try_run!(eval(lhs, ctx)?),
+            &try_run!(eval(rhs, ctx)?),
             f64::ne,
             i64::ne,
         )?),
-        ExprEnum::BitAnd(lhs, rhs) => RunResult::Yield(binary_op_int(
-            &unwrap_run!(eval(lhs, ctx)?),
-            &unwrap_run!(eval(rhs, ctx)?),
+        ExprEnum::BitAnd(lhs, rhs) => RunResult::Continue(binary_op_int(
+            &try_run!(eval(lhs, ctx)?),
+            &try_run!(eval(rhs, ctx)?),
             |lhs, rhs| lhs & rhs,
         )?),
-        ExprEnum::BitXor(lhs, rhs) => RunResult::Yield(binary_op_int(
-            &unwrap_run!(eval(lhs, ctx)?),
-            &unwrap_run!(eval(rhs, ctx)?),
+        ExprEnum::BitXor(lhs, rhs) => RunResult::Continue(binary_op_int(
+            &try_run!(eval(lhs, ctx)?),
+            &try_run!(eval(rhs, ctx)?),
             |lhs, rhs| lhs ^ rhs,
         )?),
-        ExprEnum::BitOr(lhs, rhs) => RunResult::Yield(binary_op_int(
-            &unwrap_run!(eval(lhs, ctx)?),
-            &unwrap_run!(eval(rhs, ctx)?),
+        ExprEnum::BitOr(lhs, rhs) => RunResult::Continue(binary_op_int(
+            &try_run!(eval(lhs, ctx)?),
+            &try_run!(eval(rhs, ctx)?),
             |lhs, rhs| lhs | rhs,
         )?),
-        ExprEnum::And(lhs, rhs) => RunResult::Yield(Value::I32(
-            if truthy(&unwrap_run!(eval(lhs, ctx)?)) && truthy(&unwrap_run!(eval(rhs, ctx)?)) {
+        ExprEnum::And(lhs, rhs) => RunResult::Continue(Value::I32(
+            if truthy(&try_run!(eval(lhs, ctx)?)) && truthy(&try_run!(eval(rhs, ctx)?)) {
                 1
             } else {
                 0
             },
         )),
-        ExprEnum::Or(lhs, rhs) => RunResult::Yield(Value::I32(
-            if truthy(&unwrap_run!(eval(lhs, ctx)?)) || truthy(&unwrap_run!(eval(rhs, ctx)?)) {
+        ExprEnum::Or(lhs, rhs) => RunResult::Continue(Value::I32(
+            if truthy(&try_run!(eval(lhs, ctx)?)) || truthy(&try_run!(eval(rhs, ctx)?)) {
                 1
             } else {
                 0
             },
         )),
         ExprEnum::Conditional(cond, true_branch, false_branch) => {
-            if truthy(&unwrap_run!(eval(cond, ctx)?)) {
+            if truthy(&try_run!(eval(cond, ctx)?)) {
                 run(true_branch, ctx)?
             } else if let Some(ast) = false_branch {
                 run(ast, ctx)?
             } else {
-                RunResult::Yield(Value::I32(0))
+                RunResult::Continue(Value::I32(0))
             }
         }
         ExprEnum::Brace(stmts) => {
@@ -984,8 +995,8 @@ pub(crate) fn std_functions<'src, 'native>() -> HashMap<String, FuncDef<'src, 'n
 macro_rules! unwrap_break {
     ($e:expr) => {
         match $e {
-            RunResult::Yield(v) => v,
-            RunResult::Break => break,
+            RunResult::Continue(v) => v,
+            RunResult::Break(_) => break,
         }
     };
 }
@@ -997,7 +1008,7 @@ pub fn run<'src, 'native>(
 where
     'native: 'src,
 {
-    let mut res = RunResult::Yield(Value::I32(0));
+    let mut res = RunResult::Continue(Value::I32(0));
     for stmt in stmts {
         match stmt {
             Statement::VarDecl {
@@ -1030,33 +1041,30 @@ where
             Statement::Expression { ex, semicolon } => {
                 let ex_res = eval(&ex, ctx)?;
                 match ex_res {
-                    RunResult::Yield(ex_res) => {
+                    RunResult::Continue(ex_res) => {
                         if *semicolon {
-                            res = RunResult::Yield(ex_res);
+                            res = RunResult::Continue(ex_res);
                         } else {
-                            res = RunResult::Yield(ex_res);
+                            res = RunResult::Continue(ex_res);
                         }
                     }
-                    RunResult::Break => return Ok(ex_res),
+                    RunResult::Break(_) => return Ok(ex_res),
                 }
                 // println!("Expression evaluates to: {:?}", res);
             }
             Statement::Loop(e) => loop {
-                res = RunResult::Yield(unwrap_break!(run(e, ctx)?));
+                res = RunResult::Continue(unwrap_break!(run(e, ctx)?));
             },
             Statement::While(cond, e) => loop {
                 match unwrap_deref(eval(cond, ctx)?)? {
-                    RunResult::Yield(v) => {
+                    RunResult::Continue(v) => {
                         if !truthy(&v) {
                             break;
                         }
                     }
-                    RunResult::Break => break,
+                    RunResult::Break(_) => break,
                 }
-                res = match unwrap_deref(run(e, ctx)?)? {
-                    RunResult::Yield(v) => RunResult::Yield(v),
-                    RunResult::Break => break,
-                };
+                res = RunResult::Continue(try_run!(run(e, ctx)?));
             },
             Statement::For {
                 var,
@@ -1071,11 +1079,11 @@ where
                     ctx.variables
                         .borrow_mut()
                         .insert(var, Rc::new(RefCell::new(Value::I64(i))));
-                    res = RunResult::Yield(unwrap_break!(run(stmts, ctx)?));
+                    res = RunResult::Continue(unwrap_break!(run(stmts, ctx)?));
                 }
             }
             Statement::Break => {
-                return Ok(RunResult::Break);
+                return Ok(RunResult::Break(()));
             }
             _ => {}
         }

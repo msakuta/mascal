@@ -423,7 +423,7 @@ fn emit_stmts<'src>(
                             match eval(init, &mut EvalContext::new())
                                 .map_err(|e| CompileError::new(*name, CEK::EvalError(e)))?
                             {
-                                RunResult::Yield(val) => Some(val),
+                                RunResult::Continue(val) => Some(val),
                                 _ => return Err(CompileError::new(*name, CEK::DisallowedBreak)),
                             }
                         } else {
@@ -530,7 +530,7 @@ fn emit_expr<'src>(expr: &Expression<'src>, compiler: &mut Compiler) -> CompileR
                 values: val
                     .iter()
                     .map(|v| {
-                        if let RunResult::Yield(y) = eval(v, &mut ctx)
+                        if let RunResult::Continue(y) = eval(v, &mut ctx)
                             .map_err(|e| CompileError::new(expr.span, CEK::EvalError(e)))?
                         {
                             Ok(y)
@@ -547,7 +547,7 @@ fn emit_expr<'src>(expr: &Expression<'src>, compiler: &mut Compiler) -> CompileR
             let val = Value::Tuple(Rc::new(RefCell::new(
                 val.iter()
                     .map(|v| {
-                        if let RunResult::Yield(y) = eval(v, &mut ctx)
+                        if let RunResult::Continue(y) = eval(v, &mut ctx)
                             .map_err(|e| CompileError::new(expr.span, CEK::EvalError(e)))?
                         {
                             Ok(TupleEntry {

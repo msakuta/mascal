@@ -49,10 +49,10 @@ where
         Variable(name) => Ok(LValue::Variable(name.to_string())),
         ArrIndex(ex, idx) => {
             let idx = match eval(&idx[0], ctx)? {
-                RunResult::Yield(Value::I32(val)) => val as u64,
-                RunResult::Yield(Value::I64(val)) => val as u64,
-                RunResult::Yield(_) => return Err(EvalError::IndexNonNum),
-                RunResult::Break => return Err(EvalError::BreakInFnArg),
+                RunResult::Continue(Value::I32(val)) => val as u64,
+                RunResult::Continue(Value::I64(val)) => val as u64,
+                RunResult::Continue(_) => return Err(EvalError::IndexNonNum),
+                RunResult::Break(_) => return Err(EvalError::BreakInFnArg),
             };
             let arr = eval_lvalue(ex, ctx)?;
             Ok(match arr {
