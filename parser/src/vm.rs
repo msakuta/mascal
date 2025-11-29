@@ -405,12 +405,30 @@ impl<'a> Vm<'a> {
                 )?;
                 self.set(inst.arg0, Value::I64(result as i64));
             }
+            OpCode::Le => {
+                let result = compare_op(
+                    &self.get(inst.arg0),
+                    &self.get(inst.arg1),
+                    |lhs, rhs| lhs.le(&rhs),
+                    |lhs, rhs| lhs.le(&rhs),
+                )?;
+                self.set(inst.arg0, Value::I64(result as i64));
+            }
             OpCode::Gt => {
                 let result = compare_op(
                     &self.get(inst.arg0),
                     &self.get(inst.arg1),
                     |lhs, rhs| lhs.gt(&rhs),
                     |lhs, rhs| lhs.gt(&rhs),
+                )?;
+                self.set(inst.arg0, Value::I64(result as i64));
+            }
+            OpCode::Ge => {
+                let result = compare_op(
+                    &self.get(inst.arg0),
+                    &self.get(inst.arg1),
+                    |lhs, rhs| lhs.ge(&rhs),
+                    |lhs, rhs| lhs.ge(&rhs),
                 )?;
                 self.set(inst.arg0, Value::I64(result as i64));
             }

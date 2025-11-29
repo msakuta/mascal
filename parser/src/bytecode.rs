@@ -61,7 +61,9 @@ pub enum OpCode {
     /// Compare arg0 and arg1, sets result -1, 0 or 1 to arg0, meaning less, equal and more, respectively
     // Cmp,
     Lt,
+    Le,
     Gt,
+    Ge,
     /// Unconditional jump to arg1.
     Jmp,
     /// Conditional jump. If arg0 is truthy, jump to arg1.
@@ -124,7 +126,9 @@ impl_op_from!(
     Set,
     SetReg,
     Lt,
+    Le,
     Gt,
+    Ge,
     Jmp,
     Jt,
     Jf,

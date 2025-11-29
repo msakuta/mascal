@@ -733,7 +733,9 @@ fn emit_expr<'src>(expr: &Expression<'src>, compiler: &mut Compiler) -> CompileR
             Ok(stk_idx_copy)
         }
         ExprEnum::LT(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::Lt, lhs, rhs)?),
+        ExprEnum::LE(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::Le, lhs, rhs)?),
         ExprEnum::GT(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::Gt, lhs, rhs)?),
+        ExprEnum::GE(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::Ge, lhs, rhs)?),
         ExprEnum::BitAnd(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::BitAnd, lhs, rhs)?),
         ExprEnum::BitXor(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::BitXor, lhs, rhs)?),
         ExprEnum::BitOr(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::BitOr, lhs, rhs)?),

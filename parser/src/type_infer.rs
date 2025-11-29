@@ -417,7 +417,9 @@ where
         ExprEnum::Mult(lhs, rhs) => binary_op(&lhs, &rhs, e.span, ctx, "Mult")?,
         ExprEnum::Div(lhs, rhs) => binary_op(&lhs, &rhs, e.span, ctx, "Div")?,
         ExprEnum::LT(lhs, rhs) => binary_cmp(&lhs, &rhs, e.span, ctx, "LT")?,
+        ExprEnum::LE(lhs, rhs) => binary_cmp(&lhs, &rhs, e.span, ctx, "LE")?,
         ExprEnum::GT(lhs, rhs) => binary_cmp(&lhs, &rhs, e.span, ctx, "GT")?,
+        ExprEnum::GE(lhs, rhs) => binary_cmp(&lhs, &rhs, e.span, ctx, "GE")?,
         ExprEnum::BitAnd(lhs, rhs) => binary_op(&lhs, &rhs, e.span, ctx, "BitAnd")?,
         ExprEnum::BitXor(lhs, rhs) => binary_op(&lhs, &rhs, e.span, ctx, "BitXor")?,
         ExprEnum::BitOr(lhs, rhs) => binary_op(&lhs, &rhs, e.span, ctx, "BitOr")?,
@@ -546,7 +548,10 @@ where
             tc_expr_reverse(lhs, ts, ctx)?;
             tc_expr_reverse(rhs, ts, ctx)?;
         }
-        ExprEnum::LT(lhs, rhs) | ExprEnum::GT(lhs, rhs) => {
+        ExprEnum::LT(lhs, rhs)
+        | ExprEnum::LE(lhs, rhs)
+        | ExprEnum::GT(lhs, rhs)
+        | ExprEnum::GE(lhs, rhs) => {
             // Comparison operators yield I32 regardless of operand types, so reverse propagation
             // loses the original type information. Therefore, we need to forward from either side
             // and propagate to the other side. It has possibility of exponential growth in number
@@ -645,7 +650,9 @@ fn forward_lvalue<'src, 'b, 'native>(
         | ExprEnum::Mult(_, _)
         | ExprEnum::Div(_, _)
         | ExprEnum::LT(_, _)
+        | ExprEnum::LE(_, _)
         | ExprEnum::GT(_, _)
+        | ExprEnum::GE(_, _)
         | ExprEnum::And(_, _)
         | ExprEnum::Or(_, _)
         | ExprEnum::Not(_)

@@ -1,5 +1,7 @@
 #![cfg(test)]
 
+use crate::format_ast::format_expr;
+
 use super::*;
 use nom::Finish;
 use ExprEnum::*;
@@ -881,4 +883,15 @@ fn test_expr_cast() {
             semicolon: false
         }]
     );
+}
+
+#[test]
+fn test_cmp() {
+    for op in ["<=", "<", ">=", ">"] {
+        let s = format!("a {} b", op);
+        let span = Span::new(&s);
+        let mut buf = vec![0u8; 0];
+        format_expr(&cmp(span).finish().unwrap().1, 0, &mut buf).unwrap();
+        assert_eq!(std::str::from_utf8(&buf).unwrap(), &format!("(a {} b)", op));
+    }
 }
