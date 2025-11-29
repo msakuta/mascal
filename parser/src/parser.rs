@@ -16,7 +16,7 @@ use nom::{
     error::ParseError,
     multi::{fold_many0, many0, many1, separated_list0, separated_list1},
     sequence::{delimited, pair, preceded, terminated, tuple},
-    IResult, InputTake, Offset,
+    IResult, InputTake, Offset, Parser,
 };
 use nom_locate::LocatedSpan;
 use std::{rc::Rc, string::FromUtf8Error};
@@ -322,7 +322,12 @@ fn type_tuple(i: Span) -> IResult<Span, TypeDecl> {
 }
 
 pub(crate) fn type_decl(input: Span) -> IResult<Span, TypeDecl> {
-    alt((type_array, type_tuple, type_scalar))(input)
+    alt((
+        type_array,
+        type_tuple,
+        type_scalar,
+        identifier.map(|id| TypeDecl::TypeName(id.to_string())),
+    ))(input)
 }
 
 fn cast(i: Span) -> IResult<Span, Expression> {

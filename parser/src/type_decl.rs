@@ -21,6 +21,7 @@ pub enum TypeDecl {
     Str,
     Array(Box<TypeDecl>, ArraySize),
     Tuple(Vec<TypeDecl>),
+    TypeName(String),
 }
 
 impl TypeDecl {
@@ -62,6 +63,7 @@ impl TypeDecl {
                 }
                 return Ok(());
             }
+            Self::TypeName(_) => todo!(),
         };
         writer.write_all(&tag.to_le_bytes())?;
         Ok(())
@@ -121,6 +123,7 @@ impl std::fmt::Display for TypeDecl {
                     }
                 })
             )?,
+            Self::TypeName(name) => write!(f, "{name}")?,
         }
         Ok(())
     }

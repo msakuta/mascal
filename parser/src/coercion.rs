@@ -177,5 +177,11 @@ pub fn coerce_type(value: &Value, target: &TypeDecl) -> Result<Value, EvalError>
                 ));
             }
         }
+        TypeDecl::TypeName(name) => {
+            return Err(EvalError::CoerceError(
+                value.to_string(),
+                format!("typename {name}"),
+            ));
+        }
     })
 }
