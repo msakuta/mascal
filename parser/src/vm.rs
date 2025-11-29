@@ -4,8 +4,10 @@ use std::{collections::HashMap, io::Write};
 
 use crate::{
     bytecode::{Bytecode, FnBytecode, FnProto, FnProtos, OpCode},
-    coercion::{coerce_f64, coerce_i64, coerce_type},
-    interpreter::{binary_op, binary_op_int, binary_op_str, truthy, EvalError, EvalResult},
+    coercion::{coerce_i64, coerce_type},
+    interpreter::{
+        binary_op, binary_op_int, binary_op_str, compare_op, truthy, EvalError, EvalResult,
+    },
     type_decl::TypeDecl,
     Value,
 };
@@ -399,27 +401,27 @@ impl<'a> Vm<'a> {
             OpCode::Lt => {
                 let result =
                     compare_op(&self.get(inst.arg0), &self.get(inst.arg1), f64::lt, i64::lt)?;
-                self.set(inst.arg0, Value::I32(result as i32));
+                self.set(inst.arg0, result);
             }
             OpCode::Le => {
                 let result =
                     compare_op(&self.get(inst.arg0), &self.get(inst.arg1), f64::le, i64::le)?;
-                self.set(inst.arg0, Value::I32(result as i32));
+                self.set(inst.arg0, result);
             }
             OpCode::Gt => {
                 let result =
                     compare_op(&self.get(inst.arg0), &self.get(inst.arg1), f64::gt, i64::gt)?;
-                self.set(inst.arg0, Value::I32(result as i32));
+                self.set(inst.arg0, result);
             }
             OpCode::Ge => {
                 let result =
                     compare_op(&self.get(inst.arg0), &self.get(inst.arg1), f64::ge, i64::ge)?;
-                self.set(inst.arg0, Value::I32(result as i32));
+                self.set(inst.arg0, result);
             }
             OpCode::Eq => {
                 let result =
                     compare_op(&self.get(inst.arg0), &self.get(inst.arg1), f64::eq, i64::eq)?;
-                self.set(inst.arg0, Value::I32(result as i32));
+                self.set(inst.arg0, result);
             }
             OpCode::Jmp => {
                 self.call_stack.clast_mut()?.ip = inst.arg1 as usize;
@@ -509,27 +511,6 @@ impl<'a> Vm<'a> {
 
         Ok(None)
     }
-}
-
-fn compare_op(
-    lhs: &Value,
-    rhs: &Value,
-    d: impl Fn(&f64, &f64) -> bool,
-    i: impl Fn(&i64, &i64) -> bool,
-) -> Result<bool, EvalError> {
-    let d = |lhs, rhs| d(&lhs, &rhs);
-    let i = |lhs, rhs| i(&lhs, &rhs);
-    Ok(match (lhs.clone(), rhs.clone()) {
-        (Value::F64(lhs), rhs) => d(lhs, coerce_f64(&rhs)?),
-        (lhs, Value::F64(rhs)) => d(coerce_f64(&lhs)?, rhs),
-        (Value::F32(lhs), rhs) => d(lhs as f64, coerce_f64(&rhs)?),
-        (lhs, Value::F32(rhs)) => d(coerce_f64(&lhs)?, rhs as f64),
-        (Value::I64(lhs), Value::I64(rhs)) => i(lhs, rhs),
-        (Value::I64(lhs), Value::I32(rhs)) => i(lhs, rhs as i64),
-        (Value::I32(lhs), Value::I64(rhs)) => i(lhs as i64, rhs),
-        (Value::I32(lhs), Value::I32(rhs)) => i(lhs as i64, rhs as i64),
-        _ => return Err(EvalError::OpError(lhs.to_string(), rhs.to_string())),
-    })
 }
 
 #[cfg(test)]

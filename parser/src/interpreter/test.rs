@@ -275,19 +275,35 @@ fn cmp_test() {
 fn cmp_eval_test() {
     assert_eq!(
         eval0(&cmp_expr(Span::new(" 1 <  2 ")).finish().unwrap().1),
-        RunResult::Yield(Value::I64(1))
+        RunResult::Yield(Value::I32(1))
     );
     assert_eq!(
         eval0(&cmp_expr(Span::new(" 1 > 2")).finish().unwrap().1),
-        RunResult::Yield(Value::I64(0))
+        RunResult::Yield(Value::I32(0))
+    );
+    assert_eq!(
+        eval0(&cmp_expr(Span::new(" 1 <=  2 ")).finish().unwrap().1),
+        RunResult::Yield(Value::I32(1))
+    );
+    assert_eq!(
+        eval0(&cmp_expr(Span::new(" 1 >= 2")).finish().unwrap().1),
+        RunResult::Yield(Value::I32(0))
     );
     assert_eq!(
         eval0(&cmp_expr(Span::new(" 2 < 1")).finish().unwrap().1),
-        RunResult::Yield(Value::I64(0))
+        RunResult::Yield(Value::I32(0))
     );
     assert_eq!(
         eval0(&cmp_expr(Span::new(" 2 > 1")).finish().unwrap().1),
-        RunResult::Yield(Value::I64(1))
+        RunResult::Yield(Value::I32(1))
+    );
+    assert_eq!(
+        eval0(&cmp_expr(Span::new(" 2 <= 1")).finish().unwrap().1),
+        RunResult::Yield(Value::I32(0))
+    );
+    assert_eq!(
+        eval0(&cmp_expr(Span::new(" 2 >= 1")).finish().unwrap().1),
+        RunResult::Yield(Value::I32(1))
     );
 }
 

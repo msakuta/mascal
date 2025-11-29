@@ -228,6 +228,27 @@ pub(crate) fn binary_op(
     )
 }
 
+pub(crate) fn compare_op(
+    lhs: &Value,
+    rhs: &Value,
+    d: impl Fn(&f64, &f64) -> bool,
+    i: impl Fn(&i64, &i64) -> bool,
+) -> Result<Value, EvalError> {
+    let d = |lhs, rhs| d(&lhs, &rhs);
+    let i = |lhs, rhs| i(&lhs, &rhs);
+    Ok(Value::I32(match (lhs.clone(), rhs.clone()) {
+        (Value::F64(lhs), rhs) => d(lhs, coerce_f64(&rhs)?),
+        (lhs, Value::F64(rhs)) => d(coerce_f64(&lhs)?, rhs),
+        (Value::F32(lhs), rhs) => d(lhs as f64, coerce_f64(&rhs)?),
+        (lhs, Value::F32(rhs)) => d(coerce_f64(&lhs)?, rhs as f64),
+        (Value::I64(lhs), Value::I64(rhs)) => i(lhs, rhs),
+        (Value::I64(lhs), Value::I32(rhs)) => i(lhs, rhs as i64),
+        (Value::I32(lhs), Value::I64(rhs)) => i(lhs as i64, rhs),
+        (Value::I32(lhs), Value::I32(rhs)) => i(lhs as i64, rhs as i64),
+        _ => return Err(EvalError::OpError(lhs.to_string(), rhs.to_string())),
+    } as i32))
+}
+
 pub(crate) fn binary_op_int(
     lhs: &Value,
     rhs: &Value,
@@ -468,41 +489,41 @@ where
             |lhs, rhs| lhs / rhs,
             |lhs, rhs| lhs / rhs,
         )?),
-        ExprEnum::LT(lhs, rhs) => RunResult::Yield(binary_op(
+        ExprEnum::LT(lhs, rhs) => RunResult::Yield(compare_op(
             &unwrap_run!(eval(lhs, ctx)?),
             &unwrap_run!(eval(rhs, ctx)?),
-            |lhs, rhs| if lhs < rhs { 1. } else { 0. },
-            |lhs, rhs| if lhs < rhs { 1 } else { 0 },
+            f64::lt,
+            i64::lt,
         )?),
-        ExprEnum::LE(lhs, rhs) => RunResult::Yield(binary_op(
+        ExprEnum::LE(lhs, rhs) => RunResult::Yield(compare_op(
             &unwrap_run!(eval(lhs, ctx)?),
             &unwrap_run!(eval(rhs, ctx)?),
-            |lhs, rhs| if lhs <= rhs { 1. } else { 0. },
-            |lhs, rhs| if lhs <= rhs { 1 } else { 0 },
+            f64::le,
+            i64::le,
         )?),
-        ExprEnum::GT(lhs, rhs) => RunResult::Yield(binary_op(
+        ExprEnum::GT(lhs, rhs) => RunResult::Yield(compare_op(
             &unwrap_run!(eval(lhs, ctx)?),
             &unwrap_run!(eval(rhs, ctx)?),
-            |lhs, rhs| if lhs > rhs { 1. } else { 0. },
-            |lhs, rhs| if lhs > rhs { 1 } else { 0 },
+            f64::gt,
+            i64::gt,
         )?),
-        ExprEnum::GE(lhs, rhs) => RunResult::Yield(binary_op(
+        ExprEnum::GE(lhs, rhs) => RunResult::Yield(compare_op(
             &unwrap_run!(eval(lhs, ctx)?),
             &unwrap_run!(eval(rhs, ctx)?),
-            |lhs, rhs| if lhs >= rhs { 1. } else { 0. },
-            |lhs, rhs| if lhs >= rhs { 1 } else { 0 },
+            f64::ge,
+            i64::ge,
         )?),
-        ExprEnum::EQ(lhs, rhs) => RunResult::Yield(binary_op(
+        ExprEnum::EQ(lhs, rhs) => RunResult::Yield(compare_op(
             &unwrap_run!(eval(lhs, ctx)?),
             &unwrap_run!(eval(rhs, ctx)?),
-            |lhs, rhs| if lhs == rhs { 1. } else { 0. },
-            |lhs, rhs| if lhs == rhs { 1 } else { 0 },
+            f64::eq,
+            i64::eq,
         )?),
-        ExprEnum::NE(lhs, rhs) => RunResult::Yield(binary_op(
+        ExprEnum::NE(lhs, rhs) => RunResult::Yield(compare_op(
             &unwrap_run!(eval(lhs, ctx)?),
             &unwrap_run!(eval(rhs, ctx)?),
-            |lhs, rhs| if lhs != rhs { 1. } else { 0. },
-            |lhs, rhs| if lhs != rhs { 1 } else { 0 },
+            f64::ne,
+            i64::ne,
         )?),
         ExprEnum::BitAnd(lhs, rhs) => RunResult::Yield(binary_op_int(
             &unwrap_run!(eval(lhs, ctx)?),
