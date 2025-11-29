@@ -8,6 +8,6 @@ fn mult10(n: i64) -> i64 {
 }
 
 print(mult10(add2(10)));
-print(10 |> add2 |> mult10);
+10 |> add2 |> mult10 |> print;
 print(add2(mult10(10)));
-print(10 |> mult10 |> add2);
+10 |> mult10 |> add2 |> print;
