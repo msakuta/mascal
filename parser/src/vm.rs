@@ -397,40 +397,29 @@ impl<'a> Vm<'a> {
                 self.set_register = coerce_i64(self.get(inst.arg0 as usize))? as usize;
             }
             OpCode::Lt => {
-                let result = compare_op(
-                    &self.get(inst.arg0),
-                    &self.get(inst.arg1),
-                    |lhs, rhs| lhs.lt(&rhs),
-                    |lhs, rhs| lhs.lt(&rhs),
-                )?;
-                self.set(inst.arg0, Value::I64(result as i64));
+                let result =
+                    compare_op(&self.get(inst.arg0), &self.get(inst.arg1), f64::lt, i64::lt)?;
+                self.set(inst.arg0, Value::I32(result as i32));
             }
             OpCode::Le => {
-                let result = compare_op(
-                    &self.get(inst.arg0),
-                    &self.get(inst.arg1),
-                    |lhs, rhs| lhs.le(&rhs),
-                    |lhs, rhs| lhs.le(&rhs),
-                )?;
-                self.set(inst.arg0, Value::I64(result as i64));
+                let result =
+                    compare_op(&self.get(inst.arg0), &self.get(inst.arg1), f64::le, i64::le)?;
+                self.set(inst.arg0, Value::I32(result as i32));
             }
             OpCode::Gt => {
-                let result = compare_op(
-                    &self.get(inst.arg0),
-                    &self.get(inst.arg1),
-                    |lhs, rhs| lhs.gt(&rhs),
-                    |lhs, rhs| lhs.gt(&rhs),
-                )?;
-                self.set(inst.arg0, Value::I64(result as i64));
+                let result =
+                    compare_op(&self.get(inst.arg0), &self.get(inst.arg1), f64::gt, i64::gt)?;
+                self.set(inst.arg0, Value::I32(result as i32));
             }
             OpCode::Ge => {
-                let result = compare_op(
-                    &self.get(inst.arg0),
-                    &self.get(inst.arg1),
-                    |lhs, rhs| lhs.ge(&rhs),
-                    |lhs, rhs| lhs.ge(&rhs),
-                )?;
-                self.set(inst.arg0, Value::I64(result as i64));
+                let result =
+                    compare_op(&self.get(inst.arg0), &self.get(inst.arg1), f64::ge, i64::ge)?;
+                self.set(inst.arg0, Value::I32(result as i32));
+            }
+            OpCode::Eq => {
+                let result =
+                    compare_op(&self.get(inst.arg0), &self.get(inst.arg1), f64::eq, i64::eq)?;
+                self.set(inst.arg0, Value::I32(result as i32));
             }
             OpCode::Jmp => {
                 self.call_stack.clast_mut()?.ip = inst.arg1 as usize;
@@ -525,9 +514,11 @@ impl<'a> Vm<'a> {
 fn compare_op(
     lhs: &Value,
     rhs: &Value,
-    d: impl Fn(f64, f64) -> bool,
-    i: impl Fn(i64, i64) -> bool,
+    d: impl Fn(&f64, &f64) -> bool,
+    i: impl Fn(&i64, &i64) -> bool,
 ) -> Result<bool, EvalError> {
+    let d = |lhs, rhs| d(&lhs, &rhs);
+    let i = |lhs, rhs| i(&lhs, &rhs);
     Ok(match (lhs.clone(), rhs.clone()) {
         (Value::F64(lhs), rhs) => d(lhs, coerce_f64(&rhs)?),
         (lhs, Value::F64(rhs)) => d(coerce_f64(&lhs)?, rhs),

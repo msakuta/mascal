@@ -143,6 +143,8 @@ pub(crate) enum ExprEnum<'a> {
     LE(Box<Expression<'a>>, Box<Expression<'a>>),
     GT(Box<Expression<'a>>, Box<Expression<'a>>),
     GE(Box<Expression<'a>>, Box<Expression<'a>>),
+    EQ(Box<Expression<'a>>, Box<Expression<'a>>),
+    NE(Box<Expression<'a>>, Box<Expression<'a>>),
     BitAnd(Box<Expression<'a>>, Box<Expression<'a>>),
     BitXor(Box<Expression<'a>>, Box<Expression<'a>>),
     BitOr(Box<Expression<'a>>, Box<Expression<'a>>),
@@ -702,7 +704,17 @@ pub(crate) fn expr(i: Span) -> IResult<Span, Expression> {
 fn cmp(i: Span) -> IResult<Span, Expression> {
     let (r, lhs) = expr(i)?;
 
-    let (r, (op, val)) = pair(ws(alt((tag("<="), tag(">="), tag("<"), tag(">")))), expr)(r)?;
+    let (r, (op, val)) = pair(
+        ws(alt((
+            tag("<="),
+            tag(">="),
+            tag("<"),
+            tag(">"),
+            tag("=="),
+            tag("!="),
+        ))),
+        expr,
+    )(r)?;
     let span = calc_offset(i, r);
     Ok((
         r,
@@ -711,7 +723,9 @@ fn cmp(i: Span) -> IResult<Span, Expression> {
             "<=" => Expression::new(ExprEnum::LE(Box::new(lhs), Box::new(val)), span),
             ">" => Expression::new(ExprEnum::GT(Box::new(lhs), Box::new(val)), span),
             ">=" => Expression::new(ExprEnum::GE(Box::new(lhs), Box::new(val)), span),
-            _ => unreachable!("Comparison operator should be <, >, <=, >= or =="),
+            "==" => Expression::new(ExprEnum::EQ(Box::new(lhs), Box::new(val)), span),
+            "!=" => Expression::new(ExprEnum::NE(Box::new(lhs), Box::new(val)), span),
+            _ => unreachable!("Comparison operator should be <, >, <=, >=, == or !="),
         },
     ))
 }

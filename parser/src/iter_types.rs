@@ -114,6 +114,8 @@ fn iter_types_expr(ex: &Expression, f: &mut impl FnMut(TypeParams)) {
         | ExprEnum::LE(lhs, rhs)
         | ExprEnum::GT(lhs, rhs)
         | ExprEnum::GE(lhs, rhs)
+        | ExprEnum::EQ(lhs, rhs)
+        | ExprEnum::NE(lhs, rhs)
         | ExprEnum::BitAnd(lhs, rhs)
         | ExprEnum::BitXor(lhs, rhs)
         | ExprEnum::BitOr(lhs, rhs)

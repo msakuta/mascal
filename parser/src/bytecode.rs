@@ -64,6 +64,8 @@ pub enum OpCode {
     Le,
     Gt,
     Ge,
+    /// Compare arg0 and arg1 for equality.
+    Eq,
     /// Unconditional jump to arg1.
     Jmp,
     /// Conditional jump. If arg0 is truthy, jump to arg1.
@@ -129,6 +131,7 @@ impl_op_from!(
     Le,
     Gt,
     Ge,
+    Eq,
     Jmp,
     Jt,
     Jf,

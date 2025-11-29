@@ -48,6 +48,8 @@ pub fn format_expr(
         ExprEnum::LE(lhs, rhs) => format_bin_op("<=", lhs, rhs, level, f),
         ExprEnum::GT(lhs, rhs) => format_bin_op(">", lhs, rhs, level, f),
         ExprEnum::GE(lhs, rhs) => format_bin_op(">=", lhs, rhs, level, f),
+        ExprEnum::EQ(lhs, rhs) => format_bin_op("==", lhs, rhs, level, f),
+        ExprEnum::NE(lhs, rhs) => format_bin_op("!=", lhs, rhs, level, f),
         ExprEnum::And(lhs, rhs) => format_bin_op("&&", lhs, rhs, level, f),
         ExprEnum::Or(lhs, rhs) => format_bin_op("||", lhs, rhs, level, f),
         ExprEnum::Not(ex) => {

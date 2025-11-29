@@ -46,7 +46,7 @@ fn parens_eval_test() {
     );
 }
 
-fn compile_and_run(src: &str) -> Result<Value, CompileError> {
+fn compile_and_run(src: &str) -> Result<Value, CompileError<'_>> {
     Ok(interpret(
         &compile(&span_source(src).unwrap().1, HashMap::new()).unwrap(),
     )?)
@@ -83,10 +83,10 @@ fn cond_test() {
 
 #[test]
 fn cmp_eval_test() {
-    assert_eq!(compile_and_run(" 1 <  2 ").unwrap(), Value::I64(1));
-    assert_eq!(compile_and_run(" 1 > 2").unwrap(), Value::I64(0));
-    assert_eq!(compile_and_run(" 2 < 1").unwrap(), Value::I64(0));
-    assert_eq!(compile_and_run(" 2 > 1").unwrap(), Value::I64(1));
+    assert_eq!(compile_and_run(" 1 <  2 ").unwrap(), Value::I32(1));
+    assert_eq!(compile_and_run(" 1 > 2").unwrap(), Value::I32(0));
+    assert_eq!(compile_and_run(" 2 < 1").unwrap(), Value::I32(0));
+    assert_eq!(compile_and_run(" 2 > 1").unwrap(), Value::I32(1));
 }
 
 #[test]
@@ -294,4 +294,19 @@ print(a.1.1);"#,
         |vals| assert_eq!(vals[0], Value::I64(3)),
     );
     assert!(res.is_ok());
+}
+
+#[test]
+fn cmp() {
+    for (op, expected) in [
+        ("<=", 1),
+        ("<", 0),
+        (">=", 1),
+        (">", 0),
+        ("==", 1),
+        ("!=", 0),
+    ] {
+        let s = format!("print(1 {} 1)", op);
+        compile_and_run_with(&s, move |vals| assert_eq!(vals[0], Value::I32(expected))).unwrap();
+    }
 }

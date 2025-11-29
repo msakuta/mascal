@@ -492,6 +492,18 @@ where
             |lhs, rhs| if lhs >= rhs { 1. } else { 0. },
             |lhs, rhs| if lhs >= rhs { 1 } else { 0 },
         )?),
+        ExprEnum::EQ(lhs, rhs) => RunResult::Yield(binary_op(
+            &unwrap_run!(eval(lhs, ctx)?),
+            &unwrap_run!(eval(rhs, ctx)?),
+            |lhs, rhs| if lhs == rhs { 1. } else { 0. },
+            |lhs, rhs| if lhs == rhs { 1 } else { 0 },
+        )?),
+        ExprEnum::NE(lhs, rhs) => RunResult::Yield(binary_op(
+            &unwrap_run!(eval(lhs, ctx)?),
+            &unwrap_run!(eval(rhs, ctx)?),
+            |lhs, rhs| if lhs != rhs { 1. } else { 0. },
+            |lhs, rhs| if lhs != rhs { 1 } else { 0 },
+        )?),
         ExprEnum::BitAnd(lhs, rhs) => RunResult::Yield(binary_op_int(
             &unwrap_run!(eval(lhs, ctx)?),
             &unwrap_run!(eval(rhs, ctx)?),

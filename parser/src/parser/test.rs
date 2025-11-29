@@ -887,7 +887,7 @@ fn test_expr_cast() {
 
 #[test]
 fn test_cmp() {
-    for op in ["<=", "<", ">=", ">"] {
+    for op in ["<=", "<", ">=", ">", "==", "!="] {
         let s = format!("a {} b", op);
         let span = Span::new(&s);
         let mut buf = vec![0u8; 0];

@@ -97,6 +97,7 @@ In ascending order of difficulty.
 * [x] Static type checking (instead of runtime coercion)
 * [x] Type cast operator `as`
 * [x] Line and block comments (`/*`, `*/`, `//`)
+* [x] Comparison operators (`<`, `>`, `<=`, `>=`, `==`, `!=`)
 * [x] Pipe operator (`|>`), which chains functions with arity 1. Note that there is no currying.
 * [x] [Named arguments in function calls](https://github.com/msakuta/mascal/wiki/Function-signature#named-argument-in-function-call)
 * [x] [Default argument](https://github.com/msakuta/mascal/wiki/Function-signature#default-argument)
