@@ -66,7 +66,7 @@ pub fn iter_types(ast: &[Statement], f: &mut impl FnMut(TypeParams)) {
                 iter_types_expr(end, f);
                 iter_types(stmts, f);
             }
-            Statement::Break => (),
+            Statement::Break | Statement::Struct(_) => (),
         }
     }
 }

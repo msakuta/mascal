@@ -1,0 +1,10 @@
+
+struct S {
+    a: i32,
+    b: str,
+    c: f64
+}
+
+var a: (i32, str, f64) = (1, "a", 3.14);
+
+print("a: ", a, type(a));

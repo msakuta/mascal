@@ -512,7 +512,8 @@ fn emit_stmts<'src>(
                 compiler.push_inst(OpCode::Jmp, 0, 0);
                 compiler.break_ips.push(break_ip);
             }
-            Statement::Comment(_) => (),
+            // For now, structs are concepts only at compile time.
+            Statement::Struct(_) | Statement::Comment(_) => (),
         }
     }
     Ok(last_target)

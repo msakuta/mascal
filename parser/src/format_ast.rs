@@ -246,6 +246,14 @@ pub fn format_stmt(
             Ok(())
         }
         Statement::Break => write!(f, "{indent}break;"),
+        Statement::Struct(str) => {
+            writeln!(f, "struct {} {{", str.name)?;
+            for field in &str.fields {
+                writeln!(f, "{}: {}", field.name, field.ty)?;
+            }
+            writeln!(f, "}}")?;
+            Ok(())
+        }
     }
 }
 

@@ -809,7 +809,8 @@ where
         Statement::Break => {
             // TODO: check types in break out site. For now we disallow break with values like Rust.
         }
-        Statement::Comment(_) => (),
+        // Struct should be definitely typed, until we have generic types.
+        Statement::Struct(_) | Statement::Comment(_) => (),
     }
     Ok(res)
 }
@@ -901,7 +902,8 @@ where
         Statement::Break => {
             // TODO: check types in break out site. For now we disallow break with values like Rust.
         }
-        Statement::Comment(_) => (),
+        // Struct should be definitely typed, until we have generic types.
+        Statement::Struct(_) | Statement::Comment(_) => (),
     }
     Ok(())
 }

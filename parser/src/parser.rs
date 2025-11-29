@@ -77,6 +77,18 @@ impl<'a> ArgDecl<'a> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructField<'src> {
+    pub(crate) name: Span<'src>,
+    pub(crate) ty: TypeDecl,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructDecl<'src> {
+    pub(crate) name: Span<'src>,
+    pub(crate) fields: Vec<StructField<'src>>,
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum Statement<'a> {
     Comment(&'a str),
@@ -106,6 +118,7 @@ pub enum Statement<'a> {
         stmts: Vec<Statement<'a>>,
     },
     Break,
+    Struct(StructDecl<'a>),
 }
 
 impl<'a> Statement<'a> {
@@ -933,6 +946,36 @@ fn break_stmt(input: Span) -> IResult<Span, Statement> {
     Ok((r, Statement::Break))
 }
 
+/// The difference from [`func_arg`] is that the type is not optional.
+fn struct_field(i: Span) -> IResult<Span, StructField> {
+    let (r, field_name) = ws(identifier)(i)?;
+    let (r, ty) = ws(type_spec)(r)?;
+    Ok((
+        r,
+        StructField {
+            name: field_name,
+            ty,
+        },
+    ))
+}
+
+fn struct_def(i: Span<'_>) -> IResult<Span<'_>, Statement<'_>> {
+    let (r, _) = tuple((multispace0, tag("struct"), multispace1))(i)?;
+
+    let (r, name) = identifier(r)?;
+
+    let (r, _) = ws(tag("{"))(r)?;
+
+    let (r, fields) = terminated(
+        separated_list0(ws(tag(",")), struct_field),
+        opt(ws(char(','))),
+    )(r)?;
+
+    let (r, _) = ws(tag("}"))(r)?;
+
+    Ok((r, Statement::Struct(StructDecl { name, fields })))
+}
+
 pub(crate) fn statement(input: Span) -> IResult<Span, Statement> {
     alt((
         var_decl,
@@ -941,6 +984,7 @@ pub(crate) fn statement(input: Span) -> IResult<Span, Statement> {
         while_stmt,
         for_stmt,
         break_stmt,
+        struct_def,
         expression_statement,
         comment_stmt,
     ))(input)
