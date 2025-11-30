@@ -299,7 +299,7 @@ where
         }
         ExprEnum::Cast(_ex, decl) => decl.into(),
         ExprEnum::VarAssign(lhs, rhs) => {
-            let span = e.span;
+            let span = lhs.span;
             if let Some((var_ref, decl_ty)) = forward_lvalue(lhs, ctx)
                 .map_err(|err| TypeCheckError::new(err, span, ctx.source_file))?
             {
@@ -823,12 +823,7 @@ fn forward_lvalue<'src, 'b, 'native>(
                         .fields
                         .iter()
                         .find(|field| *field.name == **field_name)
-                        .ok_or_else(|| {
-                            format!(
-                                "TypeCheckError::field not found({}, {:?})",
-                                ex.span, ctx.source_file
-                            )
-                        })?;
+                        .ok_or_else(|| format!("field {} not found", field_name))?;
                     // We make sure that the struct and the field exists, but we do not apply type constraints by lvalue,
                     // because field types should be determined without inference.
                     Ok(None)
