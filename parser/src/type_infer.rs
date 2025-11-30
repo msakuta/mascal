@@ -879,7 +879,10 @@ where
             // TODO: check types in break out site. For now we disallow break with values like Rust.
         }
         // Struct should be definitely typed, until we have generic types.
-        Statement::Struct(_) | Statement::Comment(_) => (),
+        Statement::Struct(st) => {
+            ctx.typedefs.insert(st.name.to_string(), st.clone());
+        }
+        Statement::Comment(_) => (),
     }
     Ok(res)
 }

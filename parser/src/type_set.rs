@@ -191,6 +191,7 @@ impl TypeSet {
                     && !set.void
                     && set.array.is_none()
                     && set.tuple.is_none()
+                    && set.type_name.is_empty()
             }
         }
     }
@@ -243,6 +244,8 @@ impl TypeSet {
                         .map(|a| a.determine().and_then(|d| d.as_opt().cloned()))
                         .collect::<Option<_>>()?;
                     return Some(RetType::Some(TypeDecl::Tuple(type_sets)));
+                } else if let Some(tn) = set.type_name.first().cloned() {
+                    return Some(RetType::Some(TypeDecl::TypeName(tn)));
                 }
             }
         }
