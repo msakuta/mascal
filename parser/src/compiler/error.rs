@@ -14,6 +14,7 @@ pub enum CompileErrorKind {
     AssignToLiteral(String),
     NonLValue(String),
     TypeNameNotFound(String),
+    FieldNotFound(String),
     FromUtf8Error(std::string::FromUtf8Error),
     IoError(std::io::Error),
 }
@@ -55,6 +56,7 @@ impl std::fmt::Display for CompileErrorKind {
                 ex
             ),
             Self::TypeNameNotFound(name) => write!(f, "Struct {name} is not defined"),
+            Self::FieldNotFound(name) => write!(f, "Field {name} is not defined"),
             Self::FromUtf8Error(e) => e.fmt(f),
             Self::IoError(e) => e.fmt(f),
         }

@@ -518,7 +518,13 @@ fn emit_stmts<'src>(
                 compiler.break_ips.push(break_ip);
             }
             // For now, structs are concepts only at compile time.
-            Statement::Struct(_) | Statement::Comment(_) => (),
+            Statement::Struct(st) => {
+                compiler
+                    .env
+                    .typedefs
+                    .insert(st.name.to_string(), st.clone());
+            }
+            Statement::Comment(_) => (),
         }
     }
     Ok(last_target)
@@ -576,15 +582,15 @@ fn emit_expr<'src>(
             } else {
                 // If it is not a constant expression, build the expression to construct a tuple at runtime.
 
-                // First, reserve the stack slot to return the tuple.
-                let stk_ret = compiler.target_stack.len();
-                compiler.target_stack.push(Target::None);
-
                 // Emit expressions in each element of the tuple.
                 let arg_values = values
                     .iter()
                     .map(|value| emit_expr(&value, compiler))
                     .collect::<CompileResult<Vec<_>>>()?;
+
+                // Reserve the stack slot to return the tuple.
+                let stk_ret = compiler.target_stack.len();
+                compiler.target_stack.push(Target::None);
 
                 // Copy the elements in a contiguous region of the stack.
                 // It is important to not call emit_expr between those elements, since they can push temporary variables.
@@ -813,18 +819,54 @@ fn emit_expr<'src>(
             Ok(res)
         }
         ExprEnum::StructLiteral(st_name, fields) => {
-            for (name, ex) in fields {
-                let ty = compiler.env.typedefs.get(**name).ok_or_else(|| {
+            // TODO: work around clone for the borrow checker
+            let st_ty = compiler
+                .env
+                .typedefs
+                .get(**st_name)
+                .ok_or_else(|| {
                     CompileError::new(*st_name, CEK::TypeNameNotFound(st_name.to_string()))
-                })?;
+                })?
+                .clone();
+
+            let mut arg_values = vec![None; st_ty.fields.len()];
+
+            // Emit expressions in each field of the struct.
+            for (name, ex) in fields {
+                let (idx, _) = st_ty
+                    .fields
+                    .iter()
+                    .enumerate()
+                    .find(|(_, field_decl)| *field_decl.name == **name)
+                    .ok_or_else(|| {
+                        CompileError::new(*name, CEK::FieldNotFound(name.to_string()))
+                    })?;
 
                 let stk_from = emit_expr(ex, compiler)?;
-                compiler.locals.last_mut().unwrap().push(LocalVar {
-                    name: "".to_string(),
-                    stack_idx: stk_from,
-                });
+                arg_values[idx] = Some(stk_from);
             }
-            todo!()
+
+            // Reserve the stack slot to return the tuple.
+            let stk_ret = compiler.target_stack.len();
+            compiler.target_stack.push(Target::None);
+
+            // If a named argument is duplicate, you would have a hole in actual args.
+            // Until we have the default parameter value, it would be a compile error.
+            let arg_values = arg_values
+                .into_iter()
+                .collect::<Option<Vec<_>>>()
+                .ok_or_else(|| CompileError::new(expr.span, CEK::InsufficientNamedArgs))?;
+
+            // Copy the elements in a contiguous region of the stack.
+            // It is important to not call emit_expr between those elements, since they can push temporary variables.
+            for arg in dbg!(&arg_values) {
+                let arg_target = compiler.target_stack.len();
+                compiler.target_stack.push(Target::None);
+                compiler.push_inst(OpCode::Move, *arg as u8, arg_target as u16);
+            }
+
+            compiler.push_inst(OpCode::MakeTuple, arg_values.len() as u8, stk_ret as u16);
+            Ok(stk_ret)
         }
     };
     compiler.end_src_pos(expr.span.into());
