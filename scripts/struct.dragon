@@ -11,4 +11,6 @@ var a = S {
     b: "a",
 };
 
+print(a.a);
+
 print("a: ", a, type(a));

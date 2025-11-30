@@ -146,6 +146,7 @@ pub(crate) enum ExprEnum<'a> {
     FnInvoke(&'a str, Vec<FnArg<'a>>),
     ArrIndex(Box<Expression<'a>>, Vec<Expression<'a>>),
     TupleIndex(Box<Expression<'a>>, usize),
+    FieldAccess(Box<Expression<'a>>, Span<'a>),
     Not(Box<Expression<'a>>),
     BitNot(Box<Expression<'a>>),
     Neg(Box<Expression<'a>>),
@@ -623,6 +624,23 @@ pub(crate) fn tuple_index(i: Span) -> IResult<Span, Expression> {
     ))
 }
 
+pub(crate) fn field_access(i: Span) -> IResult<Span, Expression> {
+    let (r, prim) = primary_expression(i)?;
+    let (r, indices) = many1(ws(preceded(tag("."), ident_space)))(r)?;
+    let prim_span = prim.span;
+    Ok((
+        r,
+        indices
+            .into_iter()
+            .fold(Ok(prim), |acc, field: Span| -> Result<_, _> {
+                Ok(Expression::new(
+                    ExprEnum::FieldAccess(Box::new(acc?), field),
+                    i.subslice(i.offset(&prim_span), prim_span.offset(&r)),
+                ))
+            })?,
+    ))
+}
+
 pub(crate) fn primary_expression(i: Span) -> IResult<Span, Expression> {
     alt((
         numeric_literal_expression,
@@ -676,6 +694,7 @@ fn postfix_expression(i: Span) -> IResult<Span, Expression> {
         func_invoke,
         array_index,
         tuple_index,
+        field_access,
         cast,
         primary_expression,
     ))(i)

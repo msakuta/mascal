@@ -16,8 +16,9 @@ use crate::{
     },
     interpreter::{eval, EvalContext, RunResult, TypeMap},
     parser::{ExprEnum, Expression, Statement},
+    type_infer::tc_expr_forward,
     value::{ArrayInt, TupleEntry},
-    DebugInfo, Span, TypeDecl, Value,
+    DebugInfo, Span, TypeCheckContext, TypeDecl, Value,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -766,6 +767,48 @@ fn emit_expr<'src>(
         ExprEnum::TupleIndex(ex, index) => {
             let stk_ex = emit_expr(ex, compiler)?;
             let stk_idx = compiler.find_or_create_literal(&Value::I64(*index as i64));
+            let stk_idx_copy = compiler.target_stack.len();
+            compiler.target_stack.push(Target::None);
+            compiler.push_inst(OpCode::Move, stk_idx as u8, stk_idx_copy as u16);
+
+            compiler.push_inst(OpCode::Get, stk_ex as u8, stk_idx_copy as u16);
+
+            Ok(stk_idx_copy)
+        }
+        ExprEnum::FieldAccess(ex, name) => {
+            let mut ctx = TypeCheckContext::new(None);
+            ctx.typedefs = compiler.env.typedefs.clone();
+            let ty = tc_expr_forward(ex, &mut ctx).map_err(|_e| {
+                CompileError::new(ex.span, CEK::TypeNameNotFound("???".to_string()))
+            })?;
+            let st_ty = ty
+                .determine()
+                .ok_or_else(|| {
+                    CompileError::new(ex.span, CEK::TypeNameNotFound("???".to_string()))
+                })?
+                .ok_or_else(|| {
+                    CompileError::new(ex.span, CEK::TypeNameNotFound("???".to_string()))
+                })?;
+            let TypeDecl::TypeName(st_name) = st_ty else {
+                return Err(CompileError::new(
+                    ex.span,
+                    CEK::TypeNameNotFound("???".to_string()),
+                ));
+            };
+            let st_ty = compiler
+                .env
+                .typedefs
+                .get(&st_name)
+                .ok_or_else(|| CompileError::new(ex.span, CEK::TypeNameNotFound(st_name)))?;
+            let (idx, _) = st_ty
+                .fields
+                .iter()
+                .enumerate()
+                .find(|(_, field)| *field.name == **name)
+                .ok_or_else(|| CompileError::new(ex.span, CEK::FieldNotFound(name.to_string())))?;
+
+            let stk_ex = emit_expr(ex, compiler)?;
+            let stk_idx = compiler.find_or_create_literal(&Value::I64(idx as i64));
             let stk_idx_copy = compiler.target_stack.len();
             compiler.target_stack.push(Target::None);
             compiler.push_inst(OpCode::Move, stk_idx as u8, stk_idx_copy as u16);

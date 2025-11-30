@@ -35,9 +35,9 @@ impl<'src> Display for TypeCheckError<'src> {
 }
 
 impl<'src> TypeCheckError<'src> {
-    fn new(msg: String, span: Span<'src>, source_file: Option<&'src str>) -> Self {
+    fn new(msg: impl Into<String>, span: Span<'src>, source_file: Option<&'src str>) -> Self {
         Self {
-            msg,
+            msg: msg.into(),
             span,
             source_file,
         }
@@ -154,12 +154,12 @@ impl std::fmt::Display for VariableType {
 #[derive(Clone)]
 pub struct TypeCheckContext<'src, 'native, 'ctx> {
     /// Variables table for type checking.
-    variables: HashMap<&'src str, VariableType>,
+    pub(crate) variables: HashMap<&'src str, VariableType>,
     /// Function names are owned strings because it can be either from source or native.
     functions: HashMap<String, FuncDef<'src, 'native>>,
     super_context: Option<&'ctx TypeCheckContext<'src, 'native, 'ctx>>,
     source_file: Option<&'src str>,
-    typedefs: TypeMap<'src>,
+    pub(crate) typedefs: TypeMap<'src>,
 }
 
 impl<'src, 'native, 'ctx> TypeCheckContext<'src, 'native, 'ctx> {
@@ -254,7 +254,7 @@ impl<'src, 'native, 'ctx> TypeCheckContext<'src, 'native, 'ctx> {
     }
 }
 
-fn tc_expr_forward<'src, 'b, 'native>(
+pub(crate) fn tc_expr_forward<'src, 'b, 'native>(
     e: &'b Expression<'src>,
     ctx: &mut TypeCheckContext<'src, 'native, '_>,
 ) -> Result<TypeSet, TypeCheckError<'src>>
@@ -419,6 +419,48 @@ where
                     ctx.source_file,
                 ));
             }
+        }
+        ExprEnum::FieldAccess(ex, field_name) => {
+            let result = tc_expr_forward(ex, ctx)?;
+            let Some(RetType::Some(ty)) = result.determine() else {
+                return Err(TypeCheckError::new(
+                    "Field access operator must have a determined type",
+                    ex.span,
+                    ctx.source_file,
+                ));
+            };
+
+            let TypeDecl::TypeName(name) = ty else {
+                return Err(TypeCheckError::new(
+                    "Field access operator must have a typedefed name",
+                    ex.span,
+                    ctx.source_file,
+                ));
+            };
+
+            let st_ty = ctx.typedefs.get(&name).ok_or_else(|| {
+                TypeCheckError::new(
+                    "Field access operator type name was not found",
+                    ex.span,
+                    ctx.source_file,
+                )
+            })?;
+
+            let (_, field) = st_ty
+                .fields
+                .iter()
+                .enumerate()
+                .find(|(_, field)| *field.name == **field_name)
+                .ok_or_else(|| {
+                    TypeCheckError::new(
+                        "Struct field name not found".to_string(),
+                        ex.span,
+                        ctx.source_file,
+                    )
+                })?
+                .clone();
+
+            TypeSet::from(&field.ty)
         }
         ExprEnum::Not(val) => {
             tc_expr_forward(val, ctx)?;
@@ -603,6 +645,7 @@ where
                 tc_expr_reverse(ex, &TypeSet::tuple(altered_tuple), ctx)?;
             }
         }
+        ExprEnum::FieldAccess(_, _) => {}
         ExprEnum::Not(ex) | ExprEnum::BitNot(ex) | ExprEnum::Neg(ex) => {
             tc_expr_reverse(ex, ts, ctx)?;
         }
@@ -716,6 +759,21 @@ fn forward_lvalue<'src, 'b, 'native>(
             } else {
                 Ok(None)
             }
+        }
+        ExprEnum::FieldAccess(ex, idx) => {
+            todo!()
+            // let prior = forward_lvalue(&ex, ctx)?;
+            // if let Some((var_ref, ts)) = prior {
+            //     if let Some(tuple) = ts._map(|ts| &ts.type_name) {
+            //         Ok(tuple
+            //             .get(*idx)
+            //             .map(|v| (VarRef::Tuple(Box::new(var_ref), *idx), v.clone())))
+            //     } else {
+            //         Ok(None)
+            //     }
+            // } else {
+            //     Ok(None)
+            // }
         }
         ExprEnum::Neg(_)
         | ExprEnum::Add(_, _)

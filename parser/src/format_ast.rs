@@ -127,6 +127,11 @@ pub fn format_expr(
             write!(f, ".{}", idx)?;
             Ok(())
         }
+        ExprEnum::FieldAccess(ex, field_name) => {
+            format_expr(ex, level, f)?;
+            write!(f, ".{}", field_name)?;
+            Ok(())
+        }
         ExprEnum::Brace(stmts) => {
             for stmt in stmts {
                 format_stmt(stmt, level + 1, f)?;

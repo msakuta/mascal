@@ -6,8 +6,9 @@ use crate::{
     coercion::{coerce_f64, coerce_i64, coerce_type},
     parser::*,
     type_decl::ArraySize,
+    type_infer::tc_expr_forward,
     value::{ArrayInt, TupleEntry, ValueError},
-    TypeDecl, Value,
+    TypeCheckContext, TypeDecl, Value,
 };
 use std::{cell::RefCell, collections::HashMap, convert::TryInto, io::Write, rc::Rc};
 
@@ -61,6 +62,7 @@ pub enum EvalError {
     ValueError(ValueError),
     NoStructFound(String),
     NoFieldFound(String),
+    TypeCheck(String),
 }
 
 impl std::convert::From<ValueError> for EvalError {
@@ -141,6 +143,7 @@ impl std::fmt::Display for EvalError {
             Self::ValueError(e) => e.fmt(f),
             Self::NoStructFound(name) => write!(f, "Struct {name} not found"),
             Self::NoFieldFound(name) => write!(f, "Field {name} not found"),
+            Self::TypeCheck(name) => write!(f, "Type check error: {name}"),
         }
     }
 }
@@ -477,6 +480,32 @@ where
         ExprEnum::TupleIndex(ex, index) => {
             let result = unwrap_run!(eval(ex, ctx)?);
             RunResult::Yield(result.tuple_get(*index as u64)?)
+        }
+        ExprEnum::FieldAccess(ex, field_name) => {
+            let mut tc_ctx = TypeCheckContext::new(None);
+            tc_ctx.typedefs = ctx.typedefs.clone();
+            let ty = tc_expr_forward(ex, &mut tc_ctx)
+                .map_err(|e| EvalError::TypeCheck(e.to_string()))?;
+            let st_ty = ty
+                .determine()
+                .ok_or_else(|| EvalError::TypeCheck("Type could not be determined".to_string()))?
+                .ok_or_else(|| EvalError::TypeCheck("Type cannot be a void".to_string()))?;
+            let TypeDecl::TypeName(st_name) = st_ty else {
+                return Err(EvalError::TypeCheck("Type must be named".to_string()));
+            };
+            let st_ty = ctx
+                .typedefs
+                .get(&st_name)
+                .ok_or_else(|| EvalError::NoStructFound(st_name.to_string()))?;
+            let (idx, _) = st_ty
+                .fields
+                .iter()
+                .enumerate()
+                .find(|(_, field)| *field.name == **field_name)
+                .ok_or_else(|| EvalError::NoFieldFound(field_name.to_string()))?;
+
+            let result = unwrap_run!(eval(ex, ctx)?);
+            RunResult::Yield(result.tuple_get(idx as u64)?)
         }
         ExprEnum::Not(val) => {
             RunResult::Yield(Value::I32(if truthy(&unwrap_run!(eval(val, ctx)?)) {

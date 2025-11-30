@@ -114,6 +114,7 @@ fn iter_types_expr(ex: &Expression, f: &mut impl FnMut(TypeParams)) {
             }
         }
         ExprEnum::TupleIndex(ex, _)
+        | ExprEnum::FieldAccess(ex, _)
         | ExprEnum::Not(ex)
         | ExprEnum::BitNot(ex)
         | ExprEnum::Neg(ex) => {
