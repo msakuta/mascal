@@ -223,6 +223,7 @@ where
                     }
                 }
                 LValue::ArrayRef(arr, idx) => arr.borrow_mut().values[idx] = rhs_value.clone(),
+                LValue::StructRef(st, idx) => st.borrow_mut().fields[idx] = rhs_value.clone(),
             }
             RunResult::Yield(rhs_value)
         }

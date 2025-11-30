@@ -13,4 +13,6 @@ var a = S {
 
 print(a.a);
 
+a.a = 42;
+
 print("a: ", a, type(a));

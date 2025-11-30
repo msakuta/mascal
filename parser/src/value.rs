@@ -385,6 +385,15 @@ pub struct StructInt {
     pub(crate) fields: Vec<Value>,
 }
 
+impl StructInt {
+    pub fn get(&self, idx: usize) -> EvalResult<Value> {
+        self.fields
+            .get(idx)
+            .ok_or_else(|| EvalError::ArrayOutOfBounds(self.fields.len(), idx))
+            .cloned()
+    }
+}
+
 #[derive(Debug)]
 pub enum ValueError {
     Domain,
