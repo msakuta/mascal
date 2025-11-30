@@ -897,9 +897,9 @@ fn test_cmp() {
 }
 
 #[test]
-fn test_struct() {
+fn test_struct_def() {
     let src = Span::new("struct A { a: i32, b: f64 }");
-    let (r, stmt) = dbg!(statement(src).finish().unwrap());
+    let (r, stmt) = statement(src).finish().unwrap();
     assert!(r.is_empty());
     assert_eq!(
         stmt,
@@ -916,5 +916,21 @@ fn test_struct() {
                 }
             ]
         })
+    );
+}
+
+#[test]
+fn test_struct() {
+    let src = Span::new("var a: A;");
+    let (r, stmt) = statement(src).finish().unwrap();
+    assert!(r.is_empty());
+    assert_eq!(
+        stmt,
+        Statement::VarDecl {
+            name: src.subslice(4, 1),
+            ty: TypeDecl::TypeName(src.subslice(7, 1).to_string()),
+            ty_annotated: true,
+            init: None
+        }
     );
 }

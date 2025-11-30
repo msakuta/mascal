@@ -59,6 +59,7 @@ pub enum EvalError {
     WrongArgType(String, String),
     IOError(std::io::Error),
     ValueError(ValueError),
+    NoStructFound(String),
 }
 
 impl std::convert::From<ValueError> for EvalError {
@@ -137,6 +138,7 @@ impl std::fmt::Display for EvalError {
             }
             Self::IOError(e) => e.fmt(f),
             Self::ValueError(e) => e.fmt(f),
+            Self::NoStructFound(name) => write!(f, "Struct {name} not found"),
         }
     }
 }
@@ -295,6 +297,22 @@ where
                 })
                 .collect::<Result<Vec<_>, _>>()?,
         ))),
+        ExprEnum::StructLiteral(_name, val) => {
+            RunResult::Yield(Value::Tuple(Rc::new(RefCell::new(
+                val.iter()
+                    .map(|(_, v)| {
+                        if let RunResult::Yield(y) = unwrap_deref(eval(v, ctx)?)? {
+                            Ok(TupleEntry {
+                                decl: TypeDecl::from_value(&y),
+                                value: y,
+                            })
+                        } else {
+                            Err(EvalError::DisallowedBreak)
+                        }
+                    })
+                    .collect::<Result<Vec<_>, _>>()?,
+            ))))
+        }
         ExprEnum::TupleLiteral(val) => RunResult::Yield(Value::Tuple(Rc::new(RefCell::new(
             val.iter()
                 .map(|v| {
@@ -313,9 +331,11 @@ where
             ctx.get_var(str)
                 .ok_or_else(|| EvalError::VarNotFound(str.to_string()))?,
         ),
-        ExprEnum::Cast(ex, decl) => {
-            RunResult::Yield(coerce_type(&unwrap_run!(eval(ex, ctx)?), decl)?)
-        }
+        ExprEnum::Cast(ex, decl) => RunResult::Yield(coerce_type(
+            &unwrap_run!(eval(ex, ctx)?),
+            decl,
+            &ctx.typedefs,
+        )?),
         ExprEnum::VarAssign(lhs, rhs) => {
             let rhs_value = unwrap_run!(eval(rhs, ctx)?);
             let lhs_result = eval_lvalue(lhs, ctx)?;
@@ -385,7 +405,11 @@ where
                         if let Some(v) = v {
                             subctx.variables.borrow_mut().insert(
                                 *k.name,
-                                Rc::new(RefCell::new(coerce_type(&unwrap_run!(v.clone()), &k.ty)?)),
+                                Rc::new(RefCell::new(coerce_type(
+                                    &unwrap_run!(v.clone()),
+                                    &k.ty,
+                                    &ctx.typedefs,
+                                )?)),
                             );
                         } else {
                             return Err(EvalError::MissingArg(k.name.to_string()));
@@ -394,7 +418,9 @@ where
                     let run_result = run(&func.stmts, &mut subctx)?;
                     match unwrap_deref(run_result)? {
                         RunResult::Yield(v) => match &func.ret_type {
-                            RetType::Some(ty) => RunResult::Yield(coerce_type(&v, ty)?),
+                            RetType::Some(ty) => {
+                                RunResult::Yield(coerce_type(&v, ty, &ctx.typedefs)?)
+                            }
                             RetType::Void => RunResult::Yield(v),
                         },
                         RunResult::Break => return Err(EvalError::BreakInToplevel),
@@ -419,7 +445,7 @@ where
                 .collect::<Result<Vec<_>, _>>()?;
             let arg0 = match unwrap_deref(args[0].clone())? {
                 RunResult::Yield(v) => {
-                    if let Value::I64(idx) = coerce_type(&v, &TypeDecl::I64)? {
+                    if let Value::I64(idx) = coerce_type(&v, &TypeDecl::I64, &ctx.typedefs)? {
                         idx as u64
                     } else {
                         return Err(EvalError::NonIntegerIndex);
@@ -701,7 +727,7 @@ pub(crate) fn s_resize(vals: &[Value]) -> Result<Value, EvalError> {
 
 pub(crate) fn s_hex_string(vals: &[Value]) -> Result<Value, EvalError> {
     if let [val, ..] = vals {
-        match coerce_type(val, &TypeDecl::I64)? {
+        match coerce_type(val, &TypeDecl::I64, &TypeMap::new())? {
             Value::I64(i) => Ok(Value::Str(format!("{:02x}", i))),
             _ => Err(EvalError::Other(
                 "hex_string() could not convert argument to i64".to_string(),
@@ -828,6 +854,8 @@ impl<'src, 'native> FuncDef<'src, 'native> {
     }
 }
 
+pub(crate) type TypeMap<'src> = HashMap<String, StructDecl<'src>>;
+
 /// A context stat for evaluating a script.
 ///
 /// It has 3 lifetime arguments:
@@ -846,6 +874,7 @@ pub struct EvalContext<'src, 'native, 'ctx> {
     /// Unlike variables, functions cannot be overwritten in the outer scope, so it does not
     /// need to be wrapped in a RefCell.
     functions: HashMap<String, FuncDef<'src, 'native>>,
+    typedefs: TypeMap<'src>,
     super_context: Option<&'ctx EvalContext<'src, 'native, 'ctx>>,
 }
 
@@ -854,6 +883,7 @@ impl<'src, 'ast, 'native, 'ctx> EvalContext<'src, 'native, 'ctx> {
         Self {
             variables: RefCell::new(HashMap::new()),
             functions: std_functions(),
+            typedefs: HashMap::new(),
             super_context: None,
         }
     }
@@ -866,6 +896,7 @@ impl<'src, 'ast, 'native, 'ctx> EvalContext<'src, 'native, 'ctx> {
         Self {
             variables: RefCell::new(HashMap::new()),
             functions: HashMap::new(),
+            typedefs: HashMap::new(),
             super_context: Some(super_ctx),
         }
     }
@@ -1011,7 +1042,7 @@ where
                 } else {
                     Value::I32(0)
                 };
-                let init_val = coerce_type(&init_val, ty)?;
+                let init_val = coerce_type(&init_val, ty, &ctx.typedefs)?;
                 ctx.variables
                     .borrow_mut()
                     .insert(**var, Rc::new(RefCell::new(init_val)));
@@ -1076,6 +1107,9 @@ where
             }
             Statement::Break => {
                 return Ok(RunResult::Break);
+            }
+            Statement::Struct(str) => {
+                ctx.typedefs.insert(str.name.to_string(), str.clone());
             }
             _ => {}
         }

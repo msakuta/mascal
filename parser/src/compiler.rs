@@ -777,6 +777,16 @@ fn emit_expr<'src>(expr: &Expression<'src>, compiler: &mut Compiler) -> CompileR
             compiler.locals.pop();
             Ok(res)
         }
+        ExprEnum::StructLiteral(_name, fields) => {
+            for (_name, ex) in fields {
+                let stk_from = emit_expr(ex, compiler)?;
+                compiler.locals.last_mut().unwrap().push(LocalVar {
+                    name: "".to_string(),
+                    stack_idx: stk_from,
+                });
+            }
+            todo!()
+        }
     };
     compiler.end_src_pos(expr.span.into());
     res

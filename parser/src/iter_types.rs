@@ -83,6 +83,19 @@ fn iter_types_expr(ex: &Expression, f: &mut impl FnMut(TypeParams)) {
                 });
             }
         }
+        ExprEnum::StructLiteral(_, fields) => {
+            for (_, field_ex) in fields {
+                iter_types_expr(field_ex, f);
+            }
+            // if let Some(RetType::Some(ty)) = fields.determine() {
+            //     f(TypeParams {
+            //         span: ex.span,
+            //         ty: &ty,
+            //         annotated: false,
+            //         literal: true,
+            //     });
+            // }
+        }
         ExprEnum::StrLiteral(_)
         | ExprEnum::ArrLiteral(_)
         | ExprEnum::TupleLiteral(_)

@@ -12,6 +12,16 @@ pub fn format_expr(
     match &ex.expr {
         ExprEnum::NumLiteral(num, ts) => write!(f, "{num}{}", format_tsa(ts)),
         ExprEnum::StrLiteral(s) => write!(f, "\"{s}\""), // TODO: escape
+        ExprEnum::StructLiteral(name, fields) => {
+            let indent = "  ".repeat(level);
+            writeln!(f, "{name} {{")?;
+            for field in fields {
+                write!(f, "{indent}  {}: ", field.0)?;
+                format_expr(&field.1, level, f)?;
+                writeln!(f, ",")?;
+            }
+            write!(f, "{indent}}}")
+        }
         ExprEnum::Variable(name) => write!(f, "{name}"),
         ExprEnum::VarAssign(lhs, rhs) => {
             format_expr(lhs, level, f)?;

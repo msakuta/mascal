@@ -16,7 +16,7 @@ use nom::{
     error::ParseError,
     multi::{fold_many0, many0, many1, separated_list0, separated_list1},
     sequence::{delimited, pair, preceded, terminated, tuple},
-    IResult, InputTake, Offset, Parser,
+    IResult, InputTake, Offset,
 };
 use nom_locate::LocatedSpan;
 use std::{rc::Rc, string::FromUtf8Error};
@@ -139,6 +139,7 @@ pub(crate) enum ExprEnum<'a> {
     StrLiteral(String),
     ArrLiteral(Vec<Expression<'a>>),
     TupleLiteral(Vec<Expression<'a>>),
+    StructLiteral(Span<'a>, Vec<(Span<'a>, Expression<'a>)>),
     Variable(&'a str),
     Cast(Box<Expression<'a>>, TypeDecl),
     VarAssign(Box<Expression<'a>>, Box<Expression<'a>>),
@@ -242,7 +243,7 @@ fn ident_space(input: Span) -> IResult<Span, Span> {
     ws(identifier)(input)
 }
 
-pub(crate) fn var_ref(input: Span) -> IResult<Span, Expression> {
+pub(crate) fn _var_ref(input: Span) -> IResult<Span, Expression> {
     let (r, res) = ident_space(input)?;
     Ok((r, Expression::new(ExprEnum::Variable(res.fragment()), res)))
 }
@@ -321,13 +322,19 @@ fn type_tuple(i: Span) -> IResult<Span, TypeDecl> {
     Ok((r, TypeDecl::Tuple(val)))
 }
 
+fn type_name(i: Span) -> IResult<Span, TypeDecl> {
+    let (r, id) = identifier(i)?;
+    match *id {
+        "void" => Err(nom::Err::Failure(nom::error::Error::new(
+            id,
+            nom::error::ErrorKind::Tag,
+        ))),
+        _ => Ok((r, TypeDecl::TypeName(id.to_string()))),
+    }
+}
+
 pub(crate) fn type_decl(input: Span) -> IResult<Span, TypeDecl> {
-    alt((
-        type_array,
-        type_tuple,
-        type_scalar,
-        identifier.map(|id| TypeDecl::TypeName(id.to_string())),
-    ))(input)
+    alt((type_array, type_tuple, type_scalar, type_name))(input)
 }
 
 fn cast(i: Span) -> IResult<Span, Expression> {
@@ -621,11 +628,47 @@ pub(crate) fn primary_expression(i: Span) -> IResult<Span, Expression> {
         numeric_literal_expression,
         str_literal,
         array_literal,
-        var_ref,
         parens,
         brace_expr,
         tuple_literal,
+        primary_with_ident,
     ))(i)
+}
+
+fn primary_with_ident(i: Span) -> IResult<Span, Expression> {
+    let (r, ident) = ident_space(i)?;
+
+    if let Ok(str_lit) = struct_literal(ident, r) {
+        return Ok(str_lit);
+    };
+
+    Ok((
+        r,
+        Expression::new(ExprEnum::Variable(ident.fragment()), ident),
+    ))
+}
+
+/// The difference from [`func_arg`] is that the type is not optional.
+fn struct_field_literal(i: Span) -> IResult<Span, (Span, Expression)> {
+    let (r, field_name) = ws(identifier)(i)?;
+    let (r, _) = tag(":")(r)?;
+    let (r, ex) = expr(r)?;
+    Ok((r, (field_name, ex)))
+}
+
+fn struct_literal<'a>(name: Span<'a>, i: Span<'a>) -> IResult<Span<'a>, Expression<'a>> {
+    let (r, _) = ws(tag("{"))(i)?;
+
+    let (r, fields) = terminated(
+        separated_list0(ws(tag(",")), struct_field_literal),
+        opt(ws(char(','))),
+    )(r)?;
+
+    let (r, _) = ws(tag("}"))(r)?;
+    return Ok((
+        r,
+        Expression::new(ExprEnum::StructLiteral(name, fields), calc_offset(i, r)),
+    ));
 }
 
 fn postfix_expression(i: Span) -> IResult<Span, Expression> {

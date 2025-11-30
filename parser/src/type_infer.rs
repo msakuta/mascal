@@ -7,7 +7,7 @@ use std::{collections::HashMap, fmt::Display, rc::Rc};
 
 use crate::{
     format_ast::{format_expr, format_stmt},
-    interpreter::{std_functions, FuncCode, RetType},
+    interpreter::{std_functions, FuncCode, RetType, TypeMap},
     parser::{ExprEnum, Expression, Statement},
     type_decl::{ArraySize, TypeDecl},
     type_set::TypeSet,
@@ -106,6 +106,18 @@ impl<'src> TypeCheckError<'src> {
             source_file,
         )
     }
+
+    pub(crate) fn undefined_type(
+        name: Span<'src>,
+        span: Span<'src>,
+        source_file: Option<&'src str>,
+    ) -> Self {
+        Self::new(format!("type {} is not defined", name), span, source_file)
+    }
+
+    pub(crate) fn undefined_field(name: Span<'src>, source_file: Option<&'src str>) -> Self {
+        Self::new(format!("field {} is not defined", name), name, source_file)
+    }
 }
 
 /// A type information about a variable in the type inference context.
@@ -147,6 +159,7 @@ pub struct TypeCheckContext<'src, 'native, 'ctx> {
     functions: HashMap<String, FuncDef<'src, 'native>>,
     super_context: Option<&'ctx TypeCheckContext<'src, 'native, 'ctx>>,
     source_file: Option<&'src str>,
+    typedefs: TypeMap<'src>,
 }
 
 impl<'src, 'native, 'ctx> TypeCheckContext<'src, 'native, 'ctx> {
@@ -156,6 +169,7 @@ impl<'src, 'native, 'ctx> TypeCheckContext<'src, 'native, 'ctx> {
             functions: std_functions(),
             super_context: None,
             source_file,
+            typedefs: HashMap::new(),
         }
     }
 
@@ -189,6 +203,7 @@ impl<'src, 'native, 'ctx> TypeCheckContext<'src, 'native, 'ctx> {
             functions: HashMap::new(),
             super_context: Some(super_ctx),
             source_file: super_ctx.source_file,
+            typedefs: HashMap::new(),
         }
     }
 
@@ -447,6 +462,25 @@ where
             let mut subctx = TypeCheckContext::push_stack(ctx);
             tc_stmts_forward(stmts, &mut subctx)?
         }
+        ExprEnum::StructLiteral(name, fields) => {
+            let struct_decl = ctx
+                .typedefs
+                .get(**name)
+                .ok_or_else(|| TypeCheckError::undefined_type(*name, e.span, ctx.source_file))?
+                .clone();
+            for (field_name, ex) in fields {
+                let forward_ty = tc_expr_forward(ex, ctx)?;
+                let field = struct_decl
+                    .fields
+                    .iter()
+                    .find(|field| *field.name == **field_name)
+                    .ok_or_else(|| TypeCheckError::undefined_field(*field_name, ctx.source_file))?;
+                let ts: TypeSet = TypeSet::from(&field.ty);
+                ts.try_intersect(&forward_ty)
+                    .map_err(|err| TypeCheckError::new(err, ex.span, ctx.source_file))?;
+            }
+            TypeSet::type_name(name.to_string())
+        }
     })
 }
 
@@ -495,6 +529,40 @@ where
                 }
                 for (target, source) in vec.iter_mut().zip(tuple.iter()) {
                     tc_expr_reverse(target, source, ctx)?;
+                }
+            }
+        }
+        ExprEnum::StructLiteral(name, fields) => {
+            let span = e.span;
+
+            // TODO: work around clone() for the borrow checker
+            let struct_decl = ctx
+                .typedefs
+                .get(**name)
+                .ok_or_else(|| TypeCheckError::undefined_type(*name, span, ctx.source_file))?
+                .clone();
+
+            if let Some(tuple) = ts.and_then(|ts| ts.tuple.as_ref()) {
+                if tuple.len() != fields.len() {
+                    return Err(TypeCheckError::new(
+                        format!(
+                            "Tuple sizes are not the same: {} != {}",
+                            tuple.len(),
+                            fields.len()
+                        ),
+                        span,
+                        ctx.source_file,
+                    ));
+                }
+                for (field_name, field) in fields.iter_mut() {
+                    let decl = struct_decl
+                        .fields
+                        .iter()
+                        .find(|field_decl| *field_decl.name == **field_name)
+                        .ok_or_else(|| {
+                            TypeCheckError::undefined_field(*field_name, ctx.source_file)
+                        })?;
+                    tc_expr_reverse(field, &TypeSet::from(&decl.ty), ctx)?;
                 }
             }
         }
@@ -607,6 +675,7 @@ fn forward_lvalue<'src, 'b, 'native>(
         ExprEnum::StrLiteral(_) => Err("Literal string cannot be a lvalue".to_string()),
         ExprEnum::ArrLiteral(_) => Err("Array literal cannot be a lvalue".to_string()),
         ExprEnum::TupleLiteral(_) => Err("Tuple literal cannot be a lvalue".to_string()),
+        ExprEnum::StructLiteral(_, _) => Err("Struct literal cannot be a lvalue".to_string()),
         ExprEnum::Variable(name) => {
             let var_type = ctx
                 .get_var(name)

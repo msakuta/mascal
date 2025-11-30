@@ -1,7 +1,7 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
-    interpreter::EvalResult,
+    interpreter::{EvalResult, TypeMap},
     type_decl::ArraySize,
     value::{ArrayInt, TupleEntry},
     EvalError, TypeDecl, Value,
@@ -63,7 +63,7 @@ fn coerce_str(a: &Value) -> EvalResult<String> {
     })
 }
 
-fn _coerce_var(value: &Value, target: &Value) -> Result<Value, EvalError> {
+fn _coerce_var(value: &Value, target: &Value, typedefs: &TypeMap) -> Result<Value, EvalError> {
     Ok(match target {
         Value::F64(_) => Value::F64(coerce_f64(value)?),
         Value::F32(_) => Value::F32(coerce_f64(value)? as f32),
@@ -93,7 +93,9 @@ fn _coerce_var(value: &Value, target: &Value) -> Result<Value, EvalError> {
                             .borrow()
                             .values
                             .iter()
-                            .map(|val| -> EvalResult<_> { Ok(coerce_type(val, inner_type)?) })
+                            .map(|val| -> EvalResult<_> {
+                                Ok(coerce_type(val, inner_type, typedefs)?)
+                            })
                             .collect::<Result<_, _>>()?,
                     ))
                 } else {
@@ -126,7 +128,7 @@ fn _coerce_var(value: &Value, target: &Value) -> Result<Value, EvalError> {
                             .map(|(val, tgt)| -> EvalResult<_> {
                                 Ok(TupleEntry {
                                     decl: tgt.decl.clone(),
-                                    value: coerce_type(&val.value, &tgt.decl)?,
+                                    value: coerce_type(&val.value, &tgt.decl, typedefs)?,
                                 })
                             })
                             .collect::<Result<_, _>>()?,
@@ -142,7 +144,11 @@ fn _coerce_var(value: &Value, target: &Value) -> Result<Value, EvalError> {
     })
 }
 
-pub fn coerce_type(value: &Value, target: &TypeDecl) -> Result<Value, EvalError> {
+pub fn coerce_type(
+    value: &Value,
+    target: &TypeDecl,
+    typedefs: &TypeMap,
+) -> Result<Value, EvalError> {
     Ok(match target {
         TypeDecl::Any => value.clone(),
         TypeDecl::F64 => Value::F64(coerce_f64(value)?),
@@ -178,10 +184,17 @@ pub fn coerce_type(value: &Value, target: &TypeDecl) -> Result<Value, EvalError>
             }
         }
         TypeDecl::TypeName(name) => {
-            return Err(EvalError::CoerceError(
-                value.to_string(),
-                format!("typename {name}"),
-            ));
+            let _struct_decl = typedefs
+                .get(name)
+                .ok_or_else(|| EvalError::NoStructFound(name.clone()))?;
+            if let Value::Tuple(_) = value {
+                return Ok(value.clone());
+            } else {
+                return Err(EvalError::CoerceError(
+                    value.to_string(),
+                    format!("typename {name}"),
+                ));
+            }
         }
     })
 }

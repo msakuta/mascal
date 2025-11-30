@@ -5,6 +5,10 @@ struct S {
     c: f64
 }
 
-var a: S = (1, "a", 3.14);
+var a: S = S {
+    a: 1,
+    b: "a",
+    c: 3.14
+};
 
 print("a: ", a, type(a));
