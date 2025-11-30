@@ -14,7 +14,7 @@ use crate::{
         std_functions, Bytecode, BytecodeArg, FnBytecode, FnProto, FunctionInfo, Instruction,
         LineInfo, NativeFn, OpCode,
     },
-    interpreter::{eval, EvalContext, RunResult},
+    interpreter::{eval, EvalContext, RunResult, TypeMap},
     parser::{ExprEnum, Expression, Statement},
     value::{ArrayInt, TupleEntry},
     DebugInfo, Span, TypeDecl, Value,
@@ -48,23 +48,28 @@ struct LocalVar {
     stack_idx: usize,
 }
 
-struct CompilerEnv {
+struct CompilerEnv<'src> {
     functions: HashMap<String, FnProto>,
     debug: HashMap<String, FunctionInfo>,
+    typedefs: TypeMap<'src>,
 }
 
-impl CompilerEnv {
+impl<'src> CompilerEnv<'src> {
     fn new(mut functions: HashMap<String, FnProto>, debug: HashMap<String, FunctionInfo>) -> Self {
         let out = Rc::new(RefCell::new(std::io::stdout()));
         std_functions(out, &mut |name, f| {
             functions.insert(name, FnProto::Native(f));
         });
-        Self { functions, debug }
+        Self {
+            functions,
+            debug,
+            typedefs: TypeMap::new(),
+        }
     }
 }
 
-struct Compiler<'a> {
-    env: &'a mut CompilerEnv,
+struct Compiler<'a, 'src> {
+    env: &'a mut CompilerEnv<'src>,
     bytecode: FnBytecode,
     target_stack: Vec<Target>,
     locals: Vec<Vec<LocalVar>>,
@@ -90,8 +95,8 @@ impl<'a> From<Span<'a>> for CompSourcePos {
     }
 }
 
-impl<'a> Compiler<'a> {
-    fn new(args: Vec<LocalVar>, fn_args: Vec<BytecodeArg>, env: &'a mut CompilerEnv) -> Self {
+impl<'a, 'src> Compiler<'a, 'src> {
+    fn new(args: Vec<LocalVar>, fn_args: Vec<BytecodeArg>, env: &'a mut CompilerEnv<'src>) -> Self {
         Self {
             env,
             bytecode: FnBytecode {
@@ -150,7 +155,7 @@ impl<'a> Compiler<'a> {
         stk_target
     }
 
-    fn find_local<'src>(&self, name: &str, span: Span<'src>) -> CompileResult<'src, &LocalVar> {
+    fn find_local(&self, name: &str, span: Span<'src>) -> CompileResult<'src, &LocalVar> {
         self.locals
             .iter()
             .rev()
@@ -318,7 +323,7 @@ impl<'src, 'ast> CompilerBuilder<'src, 'ast> {
 }
 
 fn compile_fn<'src, 'ast>(
-    env: &mut CompilerEnv,
+    env: &mut CompilerEnv<'src>,
     name: String,
     src_pos: &CompSourcePos,
     stmts: &'ast [Statement<'src>],
@@ -363,7 +368,7 @@ fn retrieve_fn_signatures(stmts: &[Statement], env: &mut CompilerEnv) {
 
 fn emit_stmts<'src>(
     stmts: &[Statement<'src>],
-    compiler: &mut Compiler,
+    compiler: &mut Compiler<'_, 'src>,
 ) -> CompileResult<'src, Option<usize>> {
     let mut last_target = None;
     for stmt in stmts {
@@ -519,7 +524,10 @@ fn emit_stmts<'src>(
     Ok(last_target)
 }
 
-fn emit_expr<'src>(expr: &Expression<'src>, compiler: &mut Compiler) -> CompileResult<'src, usize> {
+fn emit_expr<'src>(
+    expr: &Expression<'src>,
+    compiler: &mut Compiler<'_, 'src>,
+) -> CompileResult<'src, usize> {
     compiler.start_src_pos(expr.span.into());
     let res = match &expr.expr {
         ExprEnum::NumLiteral(val, _) => Ok(compiler.find_or_create_literal(val)),
@@ -543,25 +551,52 @@ fn emit_expr<'src>(expr: &Expression<'src>, compiler: &mut Compiler) -> CompileR
             })));
             Ok(compiler.find_or_create_literal(&val))
         }
-        ExprEnum::TupleLiteral(val) => {
+        ExprEnum::TupleLiteral(values) => {
             let mut ctx = EvalContext::new();
-            let val = Value::Tuple(Rc::new(RefCell::new(
-                val.iter()
-                    .map(|v| {
-                        if let RunResult::Yield(y) = eval(v, &mut ctx)
-                            .map_err(|e| CompileError::new(expr.span, CEK::EvalError(e)))?
-                        {
-                            Ok(TupleEntry {
-                                decl: TypeDecl::from_value(&y),
-                                value: y,
-                            })
-                        } else {
-                            Err(CompileError::new(expr.span, CEK::BreakInArrayLiteral))
-                        }
-                    })
-                    .collect::<Result<Vec<_>, _>>()?,
-            )));
-            Ok(compiler.find_or_create_literal(&val))
+            let val = values
+                .iter()
+                .map(|v| {
+                    if let RunResult::Yield(y) = eval(v, &mut ctx)
+                        .map_err(|e| CompileError::new(expr.span, CEK::EvalError(e)))?
+                    {
+                        Ok(TupleEntry {
+                            decl: TypeDecl::from_value(&y),
+                            value: y,
+                        })
+                    } else {
+                        Err(CompileError::new(expr.span, CEK::BreakInArrayLiteral))
+                    }
+                })
+                .collect::<Result<Vec<_>, _>>();
+
+            // If the tuple literal is a constant expression, put it into the literal table.
+            if let Ok(val) = val {
+                let val = Value::Tuple(Rc::new(RefCell::new(val)));
+                Ok(compiler.find_or_create_literal(&val))
+            } else {
+                // If it is not a constant expression, build the expression to construct a tuple at runtime.
+
+                // First, reserve the stack slot to return the tuple.
+                let stk_ret = compiler.target_stack.len();
+                compiler.target_stack.push(Target::None);
+
+                // Emit expressions in each element of the tuple.
+                let arg_values = values
+                    .iter()
+                    .map(|value| emit_expr(&value, compiler))
+                    .collect::<CompileResult<Vec<_>>>()?;
+
+                // Copy the elements in a contiguous region of the stack.
+                // It is important to not call emit_expr between those elements, since they can push temporary variables.
+                for arg in &arg_values {
+                    let arg_target = compiler.target_stack.len();
+                    compiler.target_stack.push(Target::None);
+                    compiler.push_inst(OpCode::Move, *arg as u8, arg_target as u16);
+                }
+
+                compiler.push_inst(OpCode::MakeTuple, arg_values.len() as u8, stk_ret as u16);
+                Ok(stk_ret)
+            }
         }
         ExprEnum::Variable(str) => {
             let local = compiler.find_local(*str, expr.span)?;
@@ -777,8 +812,12 @@ fn emit_expr<'src>(expr: &Expression<'src>, compiler: &mut Compiler) -> CompileR
             compiler.locals.pop();
             Ok(res)
         }
-        ExprEnum::StructLiteral(_name, fields) => {
-            for (_name, ex) in fields {
+        ExprEnum::StructLiteral(st_name, fields) => {
+            for (name, ex) in fields {
+                let ty = compiler.env.typedefs.get(**name).ok_or_else(|| {
+                    CompileError::new(*st_name, CEK::TypeNameNotFound(st_name.to_string()))
+                })?;
+
                 let stk_from = emit_expr(ex, compiler)?;
                 compiler.locals.last_mut().unwrap().push(LocalVar {
                     name: "".to_string(),
@@ -793,7 +832,7 @@ fn emit_expr<'src>(expr: &Expression<'src>, compiler: &mut Compiler) -> CompileR
 }
 
 fn emit_binary_op<'src>(
-    compiler: &mut Compiler,
+    compiler: &mut Compiler<'_, 'src>,
     op: OpCode,
     lhs: &Expression<'src>,
     rhs: &Expression<'src>,

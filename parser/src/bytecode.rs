@@ -79,6 +79,8 @@ pub enum OpCode {
     /// Casts a value at arg0 to a type indicated by arg1. I'm feeling this should be a standard library function
     /// rather than a opcode, but let's finish implementation compatible with AST interpreter first.
     Cast,
+    /// Make a tuple with arg0 argument on the stack at index arg1.
+    MakeTuple,
 }
 
 macro_rules! impl_op_from {
@@ -137,7 +139,8 @@ impl_op_from!(
     Jf,
     Call,
     Ret,
-    Cast
+    Cast,
+    MakeTuple
 );
 
 /// A single instruction in a bytecode. OpCodes can have 0 to 2 arguments.

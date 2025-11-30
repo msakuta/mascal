@@ -1,6 +1,6 @@
 //! Bytecode interpreter, aka a Virtual Machine.
 
-use std::{collections::HashMap, io::Write};
+use std::{cell::RefCell, collections::HashMap, io::Write, rc::Rc};
 
 use crate::{
     bytecode::{Bytecode, FnBytecode, FnProto, FnProtos, OpCode},
@@ -9,6 +9,7 @@ use crate::{
         binary_op, binary_op_int, binary_op_str, compare_op, truthy, EvalError, EvalResult, TypeMap,
     },
     type_decl::TypeDecl,
+    value::TupleEntry,
     Value,
 };
 
@@ -502,6 +503,22 @@ impl<'a> Vm<'a> {
                     .map_err(|e| format!("arg1 of Cast was not a TypeDecl: {e:?}"))?;
                 let new_val = coerce_type(target_var, &tt, &TypeMap::new())?;
                 self.set(inst.arg0, new_val);
+            }
+            OpCode::MakeTuple => {
+                let values = (0..inst.arg0)
+                    .map(|i| {
+                        // +1 for the return slot
+                        let stk_val = i as usize + inst.arg1 as usize + 1;
+                        let value = self.get(stk_val);
+                        TupleEntry {
+                            decl: TypeDecl::from_value(value),
+                            value: value.clone(),
+                        }
+                    })
+                    .collect::<Vec<_>>();
+
+                let tuple = Value::Tuple(Rc::new(RefCell::new(values)));
+                self.set(inst.arg1, tuple);
             }
         }
 
