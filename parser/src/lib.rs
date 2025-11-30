@@ -9,6 +9,7 @@ macro_rules! dbg_println {
 mod bytecode;
 mod coercion;
 mod compiler;
+mod eval_error;
 mod format_ast;
 mod interpreter;
 mod iter_types;
@@ -29,8 +30,9 @@ pub use self::bytecode::{
 };
 pub use self::coercion::coerce_type;
 pub use self::compiler::*;
+pub use self::eval_error::EvalError;
 pub use self::format_ast::format_stmts;
-pub use self::interpreter::{run, EvalContext, EvalError, FuncDef, RunResult};
+pub use self::interpreter::{run, EvalContext, FuncDef, RunResult};
 pub use self::iter_types::{iter_types, TypeParams};
 pub use self::parser::{span_source as source, ArgDecl, ReadError, Span};
 pub use self::type_decl::TypeDecl;

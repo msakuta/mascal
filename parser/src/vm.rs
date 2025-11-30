@@ -5,8 +5,9 @@ use std::{cell::RefCell, collections::HashMap, io::Write, rc::Rc};
 use crate::{
     bytecode::{Bytecode, FnBytecode, FnProto, FnProtos, OpCode},
     coercion::{coerce_i64, coerce_type},
+    eval_error::EvalError,
     interpreter::{
-        binary_op, binary_op_int, binary_op_str, compare_op, truthy, EvalError, EvalResult, TypeMap,
+        binary_op, binary_op_int, binary_op_str, compare_op, truthy, EvalResult, TypeMap,
     },
     type_decl::TypeDecl,
     value::TupleEntry,

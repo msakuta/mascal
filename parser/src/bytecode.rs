@@ -13,9 +13,8 @@ use std::{
 pub use self::debug_info::{DebugInfo, FunctionInfo, LineInfo};
 
 use crate::{
-    interpreter::{
-        s_hex_string, s_len, s_print, s_push, s_puts, s_resize, s_strlen, s_type, EvalError,
-    },
+    eval_error::EvalError,
+    interpreter::{s_hex_string, s_len, s_print, s_push, s_puts, s_resize, s_strlen, s_type},
     parser::ReadError,
     value::Value,
 };
