@@ -68,7 +68,7 @@ fn parens_eval_test() {
 #[test]
 fn var_ident_test() {
     let span = Span::new(" x123 ");
-    let res = var_ref(span).finish().unwrap().1;
+    let res = _var_ref(span).finish().unwrap().1;
     assert_eq!(res, Expression::new(Variable("x123"), span.subslice(1, 4)));
 }
 
