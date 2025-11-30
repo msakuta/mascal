@@ -1,7 +1,7 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
-    interpreter::EvalResult,
+    interpreter::{EvalResult, TypeMap},
     type_decl::ArraySize,
     value::{ArrayInt, TupleEntry},
     EvalError, TypeDecl, Value,
@@ -63,7 +63,7 @@ fn coerce_str(a: &Value) -> EvalResult<String> {
     })
 }
 
-fn _coerce_var(value: &Value, target: &Value) -> Result<Value, EvalError> {
+fn _coerce_var(value: &Value, target: &Value, typedefs: &TypeMap) -> Result<Value, EvalError> {
     Ok(match target {
         Value::F64(_) => Value::F64(coerce_f64(value)?),
         Value::F32(_) => Value::F32(coerce_f64(value)? as f32),
@@ -139,6 +139,16 @@ fn _coerce_var(value: &Value, target: &Value) -> Result<Value, EvalError> {
                 }
             }
         }
+        Value::Struct(str) => {
+            let borrow = str.borrow();
+            let _ty = typedefs
+                .get(&borrow.name)
+                .ok_or_else(|| EvalError::CoerceError(borrow.name.clone(), "".to_string()))?;
+            let Value::Struct(value) = value else {
+                return Err(EvalError::CoerceError(borrow.name.clone(), "".to_string()));
+            };
+            Value::Struct(value.clone())
+        }
     })
 }
 
@@ -176,6 +186,17 @@ pub fn coerce_type(value: &Value, target: &TypeDecl) -> Result<Value, EvalError>
                     "tuple".to_string(),
                 ));
             }
+        }
+        TypeDecl::TypeName(name) => {
+            if let Value::Struct(str) = value {
+                if str.borrow().name == *name {
+                    return Ok(value.clone());
+                }
+            }
+            return Err(EvalError::CoerceError(
+                value.to_string(),
+                format!("typename {name}"),
+            ));
         }
     })
 }

@@ -5,7 +5,10 @@
 use std::{cell::RefCell, rc::Rc};
 
 use super::{eval, EvalContext, EvalError, EvalResult, Expression, RunResult};
-use crate::{value::ArrayInt, Value};
+use crate::{
+    value::{ArrayInt, StructInt},
+    TypeDecl, Value,
+};
 
 /// An LValue is a description of a target memory to be written to.
 pub(super) enum LValue {
@@ -13,6 +16,8 @@ pub(super) enum LValue {
     Variable(String),
     /// Reference to a refcounted variable, e.g. an array element.
     ArrayRef(Rc<RefCell<ArrayInt>>, usize),
+    /// Reference to a field of a refcounted struct.
+    StructRef(Rc<RefCell<StructInt>>, usize),
 }
 
 impl Value {
@@ -26,6 +31,23 @@ impl Value {
                     return Err(EvalError::ArrayOutOfBounds(
                         idx as usize,
                         array_int.values.len(),
+                    ));
+                }
+            }
+            _ => return Err(EvalError::IndexNonArray),
+        })
+    }
+
+    pub(super) fn struct_get_lvalue(&self, idx: usize) -> Result<LValue, EvalError> {
+        Ok(match self {
+            Value::Struct(str) => {
+                let str_int = str.borrow();
+                if (idx as usize) < str_int.fields.len() {
+                    LValue::StructRef(str.clone(), idx as usize)
+                } else {
+                    return Err(EvalError::ArrayOutOfBounds(
+                        idx as usize,
+                        str_int.fields.len(),
                     ));
                 }
             }
@@ -67,7 +89,50 @@ where
                     let elem = RefCell::borrow(&value).get(subidx)?;
                     elem.array_get_lvalue(idx)?
                 }
+                LValue::StructRef(value, subidx) => {
+                    let field = RefCell::borrow(&value).get(subidx)?;
+                    field.array_get_lvalue(idx)?
+                }
             })
+        }
+        FieldAccess(ex, field_name) => {
+            let val = eval_lvalue(ex, ctx)?;
+
+            let resolve_struct = |var: &Value| {
+                let Value::Struct(s) = var else {
+                    return Err(EvalError::ExpectStruct(TypeDecl::from_value(var)));
+                };
+                let st_borrow = s.borrow();
+                let Some(st_ty) = ctx.typedefs.get(&st_borrow.name) else {
+                    return Err(EvalError::NoStructFound(st_borrow.name.clone()));
+                };
+                let (idx, _) = st_ty
+                    .fields
+                    .iter()
+                    .enumerate()
+                    .find(|(_, field)| *field.name == **field_name)
+                    .ok_or_else(|| EvalError::NoFieldFound(field_name.to_string()))?;
+                var.struct_get_lvalue(idx)
+            };
+
+            match val {
+                LValue::Variable(name) => {
+                    let variables = ctx.variables.borrow();
+                    let var = variables
+                        .get(name.as_str())
+                        .ok_or_else(|| EvalError::VarNotFound(name))?
+                        .borrow();
+                    resolve_struct(&*var)
+                }
+                LValue::ArrayRef(arr, subidx) => {
+                    let var = RefCell::borrow(&arr).get(subidx)?;
+                    resolve_struct(&var)
+                }
+                LValue::StructRef(st, subidx) => {
+                    let var = RefCell::borrow(&st).get(subidx)?;
+                    resolve_struct(&var)
+                }
+            }
         }
         _ => Err(EvalError::NonLValue(expr.span.to_string())),
     }

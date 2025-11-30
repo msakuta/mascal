@@ -21,6 +21,7 @@ pub enum TypeDecl {
     Str,
     Array(Box<TypeDecl>, ArraySize),
     Tuple(Vec<TypeDecl>),
+    TypeName(String),
 }
 
 impl TypeDecl {
@@ -38,6 +39,7 @@ impl TypeDecl {
                     .map(|val| Self::from_value(&val.value))
                     .collect(),
             ),
+            Value::Struct(a) => Self::TypeName(a.borrow().name.clone()),
         }
     }
 
@@ -62,6 +64,7 @@ impl TypeDecl {
                 }
                 return Ok(());
             }
+            Self::TypeName(_) => todo!(),
         };
         writer.write_all(&tag.to_le_bytes())?;
         Ok(())
@@ -121,6 +124,7 @@ impl std::fmt::Display for TypeDecl {
                     }
                 })
             )?,
+            Self::TypeName(name) => write!(f, "{name}")?,
         }
         Ok(())
     }

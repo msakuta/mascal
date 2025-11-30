@@ -895,3 +895,42 @@ fn test_cmp() {
         assert_eq!(std::str::from_utf8(&buf).unwrap(), &format!("(a {} b)", op));
     }
 }
+
+#[test]
+fn test_struct_def() {
+    let src = Span::new("struct A { a: i32, b: f64 }");
+    let (r, stmt) = statement(src).finish().unwrap();
+    assert!(r.is_empty());
+    assert_eq!(
+        stmt,
+        Statement::Struct(StructDecl {
+            name: src.subslice(7, 1),
+            fields: vec![
+                StructField {
+                    name: src.subslice(11, 1),
+                    ty: TypeDecl::I32,
+                },
+                StructField {
+                    name: src.subslice(19, 1),
+                    ty: TypeDecl::F64,
+                }
+            ]
+        })
+    );
+}
+
+#[test]
+fn test_struct() {
+    let src = Span::new("var a: A;");
+    let (r, stmt) = statement(src).finish().unwrap();
+    assert!(r.is_empty());
+    assert_eq!(
+        stmt,
+        Statement::VarDecl {
+            name: src.subslice(4, 1),
+            ty: TypeDecl::TypeName(src.subslice(7, 1).to_string()),
+            ty_annotated: true,
+            init: None
+        }
+    );
+}

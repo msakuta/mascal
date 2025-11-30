@@ -19,7 +19,7 @@ pub(super) enum LValue {
 
 pub(super) fn emit_lvalue<'src, 'env, 'c>(
     ex: &Expression<'src>,
-    compiler: &'c mut Compiler<'env>,
+    compiler: &'c mut Compiler<'env, 'src>,
 ) -> CompileResult<'src, LValue> {
     match &ex.expr {
         ExprEnum::NumLiteral(_, _)
