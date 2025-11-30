@@ -43,6 +43,7 @@ pub enum Value {
     Str(String),
     Array(Rc<RefCell<ArrayInt>>),
     Tuple(Rc<RefCell<TupleInt>>),
+    Struct(Rc<RefCell<StructInt>>),
 }
 
 impl Default for Value {
@@ -81,6 +82,21 @@ impl std::fmt::Display for Value {
                     }
                 })
             ),
+            Self::Struct(v) => {
+                let borrow = v.borrow();
+                write!(
+                    f,
+                    "{}({})",
+                    borrow.name,
+                    &borrow.fields.iter().fold("".to_string(), |acc, cur| {
+                        if acc.is_empty() {
+                            cur.to_string()
+                        } else {
+                            acc + ", " + &cur.to_string()
+                        }
+                    })
+                )
+            }
         }
     }
 }
@@ -126,6 +142,17 @@ impl Value {
                 for entry in values.iter() {
                     entry.decl.serialize(writer)?;
                     entry.value.serialize(writer)?;
+                }
+                Ok(())
+            }
+            Self::Struct(rc) => {
+                let values = rc.borrow();
+                writer.write_all(&STRUCT_TAG.to_le_bytes())?;
+                writer.write_all(&(values.name.len() as u32).to_le_bytes())?;
+                writer.write_all(values.name.as_bytes())?;
+                writer.write_all(&values.fields.len().to_le_bytes())?;
+                for value in values.fields.iter() {
+                    value.serialize(writer)?;
                 }
                 Ok(())
             }
@@ -250,6 +277,21 @@ impl Value {
         })
     }
 
+    pub fn struct_field(&self, field_idx: u64) -> Result<Value, EvalError> {
+        Ok(match self {
+            Value::Struct(str) => {
+                let str = str.borrow();
+                str.fields
+                    .get(field_idx as usize)
+                    .ok_or_else(|| {
+                        EvalError::TupleOutOfBounds(field_idx as usize, str.fields.len())
+                    })?
+                    .clone()
+            }
+            _ => return Err(EvalError::ExpectStruct(TypeDecl::from_value(self))),
+        })
+    }
+
     pub fn deepclone(&self) -> Self {
         match self {
             Self::Array(a) => {
@@ -311,6 +353,13 @@ impl std::convert::TryFrom<&Value> for usize {
                     TypeDecl::I64,
                 ))
             }
+            Value::Struct(rc) => {
+                let str = rc.borrow();
+                Err(ValueError::Invalid(
+                    TypeDecl::TypeName(str.name.clone()),
+                    TypeDecl::I64,
+                ))
+            }
         }
     }
 }
@@ -327,6 +376,13 @@ impl TupleEntry {
     pub fn value(&self) -> &Value {
         &self.value
     }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct StructInt {
+    /// Type name of the struct
+    pub(crate) name: String,
+    pub(crate) fields: Vec<Value>,
 }
 
 #[derive(Debug)]

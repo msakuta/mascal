@@ -6,9 +6,8 @@ use crate::{
     coercion::{coerce_f64, coerce_i64, coerce_type},
     parser::*,
     type_decl::ArraySize,
-    type_infer::tc_expr_forward,
-    value::{ArrayInt, TupleEntry, ValueError},
-    TypeCheckContext, TypeDecl, Value,
+    value::{ArrayInt, StructInt, TupleEntry, ValueError},
+    TypeDecl, Value,
 };
 use std::{cell::RefCell, collections::HashMap, convert::TryInto, io::Write, rc::Rc};
 
@@ -63,6 +62,7 @@ pub enum EvalError {
     NoStructFound(String),
     NoFieldFound(String),
     TypeCheck(String),
+    ExpectStruct(TypeDecl),
 }
 
 impl std::convert::From<ValueError> for EvalError {
@@ -144,6 +144,7 @@ impl std::fmt::Display for EvalError {
             Self::NoStructFound(name) => write!(f, "Struct {name} not found"),
             Self::NoFieldFound(name) => write!(f, "Field {name} not found"),
             Self::TypeCheck(name) => write!(f, "Type check error: {name}"),
+            Self::ExpectStruct(ty) => write!(f, "Expect a struct, but got a {ty}"),
         }
     }
 }
@@ -310,8 +311,9 @@ where
                 .ok_or_else(|| EvalError::NoStructFound(name.to_string()))?
                 .clone();
 
-            RunResult::Yield(Value::Tuple(Rc::new(RefCell::new(
-                st_ty
+            RunResult::Yield(Value::Struct(Rc::new(RefCell::new(StructInt {
+                name: name.to_string(),
+                fields: st_ty
                     .fields
                     .iter()
                     .map(|field_ty| {
@@ -321,16 +323,13 @@ where
                             .ok_or_else(|| EvalError::NoFieldFound(field_ty.name.to_string()))?;
 
                         if let RunResult::Yield(y) = unwrap_deref(eval(ex, ctx)?)? {
-                            Ok(TupleEntry {
-                                decl: TypeDecl::from_value(&y),
-                                value: y,
-                            })
+                            Ok(y)
                         } else {
                             Err(EvalError::DisallowedBreak)
                         }
                     })
                     .collect::<Result<Vec<_>, _>>()?,
-            ))))
+            }))))
         }
         ExprEnum::TupleLiteral(val) => RunResult::Yield(Value::Tuple(Rc::new(RefCell::new(
             val.iter()
@@ -482,14 +481,9 @@ where
             RunResult::Yield(result.tuple_get(*index as u64)?)
         }
         ExprEnum::FieldAccess(ex, field_name) => {
-            let mut tc_ctx = TypeCheckContext::new(None);
-            tc_ctx.typedefs = ctx.typedefs.clone();
-            let ty = tc_expr_forward(ex, &mut tc_ctx)
-                .map_err(|e| EvalError::TypeCheck(e.to_string()))?;
-            let st_ty = ty
-                .determine()
-                .ok_or_else(|| EvalError::TypeCheck("Type could not be determined".to_string()))?
-                .ok_or_else(|| EvalError::TypeCheck("Type cannot be a void".to_string()))?;
+            let result = unwrap_run!(eval(ex, ctx)?);
+
+            let st_ty = TypeDecl::from_value(&result);
             let TypeDecl::TypeName(st_name) = st_ty else {
                 return Err(EvalError::TypeCheck("Type must be named".to_string()));
             };
@@ -504,8 +498,7 @@ where
                 .find(|(_, field)| *field.name == **field_name)
                 .ok_or_else(|| EvalError::NoFieldFound(field_name.to_string()))?;
 
-            let result = unwrap_run!(eval(ex, ctx)?);
-            RunResult::Yield(result.tuple_get(idx as u64)?)
+            RunResult::Yield(result.struct_field(idx as u64)?)
         }
         ExprEnum::Not(val) => {
             RunResult::Yield(Value::I32(if truthy(&unwrap_run!(eval(val, ctx)?)) {
@@ -669,6 +662,17 @@ pub(crate) fn s_print(out: &mut dyn Write, vals: &[Value]) -> EvalResult<Value> 
                 }
                 write!(out, ")")?;
             }
+            Value::Struct(val) => {
+                let val = val.borrow();
+                write!(out, "{} (", val.name)?;
+                for (i, val) in val.fields.iter().enumerate() {
+                    if i != 0 {
+                        write!(out, ", ")?;
+                    }
+                    print_inner(out, &val)?;
+                }
+                write!(out, ")")?;
+            }
         }
         Ok(())
     }
@@ -695,6 +699,7 @@ pub(crate) fn s_puts(out: &mut dyn Write, vals: &[Value]) -> Result<Value, EvalE
                 Value::Str(val) => write!(out, "{}", val)?,
                 Value::Array(val) => puts_inner(out, &mut val.borrow().values.iter())?,
                 Value::Tuple(val) => puts_inner(out, &mut val.borrow().iter().map(|v| &v.value))?,
+                Value::Struct(val) => puts_inner(out, &mut val.borrow().fields.iter())?,
             }
         }
         Ok(())
@@ -722,6 +727,7 @@ pub(crate) fn s_type(vals: &[Value]) -> Result<Value, EvalError> {
                     }
                 })
             ),
+            Value::Struct(inner) => inner.borrow().name.clone(),
         }
     }
     if let [val, ..] = vals {

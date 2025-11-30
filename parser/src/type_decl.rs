@@ -39,6 +39,7 @@ impl TypeDecl {
                     .map(|val| Self::from_value(&val.value))
                     .collect(),
             ),
+            Value::Struct(a) => Self::TypeName(a.borrow().name.clone()),
         }
     }
 

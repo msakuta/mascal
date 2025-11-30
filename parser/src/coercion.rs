@@ -141,6 +141,16 @@ fn _coerce_var(value: &Value, target: &Value, typedefs: &TypeMap) -> Result<Valu
                 }
             }
         }
+        Value::Struct(str) => {
+            let borrow = str.borrow();
+            let ty = typedefs
+                .get(&borrow.name)
+                .ok_or_else(|| EvalError::CoerceError(borrow.name.clone(), "".to_string()))?;
+            let Value::Struct(value) = value else {
+                return Err(EvalError::CoerceError(borrow.name.clone(), "".to_string()));
+            };
+            Value::Struct(value.clone())
+        }
     })
 }
 
@@ -184,17 +194,15 @@ pub fn coerce_type(
             }
         }
         TypeDecl::TypeName(name) => {
-            let _struct_decl = typedefs
-                .get(name)
-                .ok_or_else(|| EvalError::NoStructFound(name.clone()))?;
-            if let Value::Tuple(_) = value {
-                return Ok(value.clone());
-            } else {
-                return Err(EvalError::CoerceError(
-                    value.to_string(),
-                    format!("typename {name}"),
-                ));
+            if let Value::Struct(str) = value {
+                if str.borrow().name == *name {
+                    return Ok(value.clone());
+                }
             }
+            return Err(EvalError::CoerceError(
+                value.to_string(),
+                format!("typename {name}"),
+            ));
         }
     })
 }
