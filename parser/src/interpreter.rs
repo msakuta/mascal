@@ -208,11 +208,9 @@ where
             ctx.get_var(str)
                 .ok_or_else(|| EvalError::VarNotFound(str.to_string()))?,
         ),
-        ExprEnum::Cast(ex, decl) => RunResult::Yield(coerce_type(
-            &unwrap_run!(eval(ex, ctx)?),
-            decl,
-            &ctx.typedefs,
-        )?),
+        ExprEnum::Cast(ex, decl) => {
+            RunResult::Yield(coerce_type(&unwrap_run!(eval(ex, ctx)?), decl)?)
+        }
         ExprEnum::VarAssign(lhs, rhs) => {
             let rhs_value = unwrap_run!(eval(rhs, ctx)?);
             let lhs_result = eval_lvalue(lhs, ctx)?;
@@ -283,11 +281,7 @@ where
                         if let Some(v) = v {
                             subctx.variables.borrow_mut().insert(
                                 *k.name,
-                                Rc::new(RefCell::new(coerce_type(
-                                    &unwrap_run!(v.clone()),
-                                    &k.ty,
-                                    &ctx.typedefs,
-                                )?)),
+                                Rc::new(RefCell::new(coerce_type(&unwrap_run!(v.clone()), &k.ty)?)),
                             );
                         } else {
                             return Err(EvalError::MissingArg(k.name.to_string()));
@@ -296,9 +290,7 @@ where
                     let run_result = run(&func.stmts, &mut subctx)?;
                     match unwrap_deref(run_result)? {
                         RunResult::Yield(v) => match &func.ret_type {
-                            RetType::Some(ty) => {
-                                RunResult::Yield(coerce_type(&v, ty, &ctx.typedefs)?)
-                            }
+                            RetType::Some(ty) => RunResult::Yield(coerce_type(&v, ty)?),
                             RetType::Void => RunResult::Yield(v),
                         },
                         RunResult::Break => return Err(EvalError::BreakInToplevel),
@@ -323,7 +315,7 @@ where
                 .collect::<Result<Vec<_>, _>>()?;
             let arg0 = match unwrap_deref(args[0].clone())? {
                 RunResult::Yield(v) => {
-                    if let Value::I64(idx) = coerce_type(&v, &TypeDecl::I64, &ctx.typedefs)? {
+                    if let Value::I64(idx) = coerce_type(&v, &TypeDecl::I64)? {
                         idx as u64
                     } else {
                         return Err(EvalError::NonIntegerIndex);
@@ -638,7 +630,7 @@ pub(crate) fn s_resize(vals: &[Value]) -> Result<Value, EvalError> {
 
 pub(crate) fn s_hex_string(vals: &[Value]) -> Result<Value, EvalError> {
     if let [val, ..] = vals {
-        match coerce_type(val, &TypeDecl::I64, &TypeMap::new())? {
+        match coerce_type(val, &TypeDecl::I64)? {
             Value::I64(i) => Ok(Value::Str(format!("{:02x}", i))),
             _ => Err(EvalError::Other(
                 "hex_string() could not convert argument to i64".to_string(),
@@ -953,7 +945,7 @@ where
                 } else {
                     Value::I32(0)
                 };
-                let init_val = coerce_type(&init_val, ty, &ctx.typedefs)?;
+                let init_val = coerce_type(&init_val, ty)?;
                 ctx.variables
                     .borrow_mut()
                     .insert(**var, Rc::new(RefCell::new(init_val)));

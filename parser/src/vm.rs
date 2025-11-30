@@ -6,9 +6,7 @@ use crate::{
     bytecode::{Bytecode, FnBytecode, FnProto, FnProtos, OpCode},
     coercion::{coerce_i64, coerce_type},
     eval_error::EvalError,
-    interpreter::{
-        binary_op, binary_op_int, binary_op_str, compare_op, truthy, EvalResult, TypeMap,
-    },
+    interpreter::{binary_op, binary_op_int, binary_op_str, compare_op, truthy, EvalResult},
     type_decl::TypeDecl,
     value::TupleEntry,
     Value,
@@ -502,7 +500,7 @@ impl<'a> Vm<'a> {
                 let tt_buf = target_type.to_le_bytes();
                 let tt = TypeDecl::deserialize(&mut &tt_buf[..])
                     .map_err(|e| format!("arg1 of Cast was not a TypeDecl: {e:?}"))?;
-                let new_val = coerce_type(target_var, &tt, &TypeMap::new())?;
+                let new_val = coerce_type(target_var, &tt)?;
                 self.set(inst.arg0, new_val);
             }
             OpCode::MakeTuple => {

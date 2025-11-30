@@ -124,7 +124,7 @@ impl<'src> TypeCheckError<'src> {
 /// The difference between parameter and non-parameter (locally declared variables)
 /// is that the former cannot be modified.
 #[derive(Clone, Default, Debug)]
-struct VariableType {
+pub struct VariableType {
     parameter: bool,
     ts: TypeSet,
 }
@@ -760,20 +760,49 @@ fn forward_lvalue<'src, 'b, 'native>(
                 Ok(None)
             }
         }
-        ExprEnum::FieldAccess(ex, idx) => {
-            todo!()
-            // let prior = forward_lvalue(&ex, ctx)?;
-            // if let Some((var_ref, ts)) = prior {
-            //     if let Some(tuple) = ts._map(|ts| &ts.type_name) {
-            //         Ok(tuple
-            //             .get(*idx)
-            //             .map(|v| (VarRef::Tuple(Box::new(var_ref), *idx), v.clone())))
-            //     } else {
-            //         Ok(None)
-            //     }
-            // } else {
-            //     Ok(None)
-            // }
+        ExprEnum::FieldAccess(ex, field_name) => {
+            let prior = forward_lvalue(&ex, ctx)?;
+            if let Some((_var_ref, ts)) = prior {
+                let ty = ts
+                    .determine()
+                    .ok_or_else(|| {
+                        format!(
+                            "TypeCheckError::indeterminant_type({}, {:?})",
+                            ex.span, ctx.source_file
+                        )
+                    })?
+                    .ok_or_else(|| {
+                        format!(
+                            "TypeCheckError::void_value({}, {:?})",
+                            ex.span, ctx.source_file
+                        )
+                    })?;
+                if let TypeDecl::TypeName(type_name) = ty {
+                    let st_ty = ctx.typedefs.get(&type_name).ok_or_else(|| {
+                        format!(
+                            "TypeCheckError::struct not found({}, {:?})",
+                            ex.span, ctx.source_file
+                        )
+                    })?;
+                    let _ = st_ty
+                        .fields
+                        .iter()
+                        .find(|field| *field.name == **field_name)
+                        .ok_or_else(|| {
+                            format!(
+                                "TypeCheckError::field not found({}, {:?})",
+                                ex.span, ctx.source_file
+                            )
+                        })?;
+                    // We make sure that the struct and the field exists, but we do not apply type constraints by lvalue,
+                    // because field types should be determined without inference.
+                    Ok(None)
+                } else {
+                    Ok(None)
+                }
+            } else {
+                Ok(None)
+            }
         }
         ExprEnum::Neg(_)
         | ExprEnum::Add(_, _)

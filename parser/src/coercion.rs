@@ -93,9 +93,7 @@ fn _coerce_var(value: &Value, target: &Value, typedefs: &TypeMap) -> Result<Valu
                             .borrow()
                             .values
                             .iter()
-                            .map(|val| -> EvalResult<_> {
-                                Ok(coerce_type(val, inner_type, typedefs)?)
-                            })
+                            .map(|val| -> EvalResult<_> { Ok(coerce_type(val, inner_type)?) })
                             .collect::<Result<_, _>>()?,
                     ))
                 } else {
@@ -128,7 +126,7 @@ fn _coerce_var(value: &Value, target: &Value, typedefs: &TypeMap) -> Result<Valu
                             .map(|(val, tgt)| -> EvalResult<_> {
                                 Ok(TupleEntry {
                                     decl: tgt.decl.clone(),
-                                    value: coerce_type(&val.value, &tgt.decl, typedefs)?,
+                                    value: coerce_type(&val.value, &tgt.decl)?,
                                 })
                             })
                             .collect::<Result<_, _>>()?,
@@ -143,7 +141,7 @@ fn _coerce_var(value: &Value, target: &Value, typedefs: &TypeMap) -> Result<Valu
         }
         Value::Struct(str) => {
             let borrow = str.borrow();
-            let ty = typedefs
+            let _ty = typedefs
                 .get(&borrow.name)
                 .ok_or_else(|| EvalError::CoerceError(borrow.name.clone(), "".to_string()))?;
             let Value::Struct(value) = value else {
@@ -154,11 +152,7 @@ fn _coerce_var(value: &Value, target: &Value, typedefs: &TypeMap) -> Result<Valu
     })
 }
 
-pub fn coerce_type(
-    value: &Value,
-    target: &TypeDecl,
-    typedefs: &TypeMap,
-) -> Result<Value, EvalError> {
+pub fn coerce_type(value: &Value, target: &TypeDecl) -> Result<Value, EvalError> {
     Ok(match target {
         TypeDecl::Any => value.clone(),
         TypeDecl::F64 => Value::F64(coerce_f64(value)?),
