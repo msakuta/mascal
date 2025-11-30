@@ -60,6 +60,7 @@ pub enum EvalError {
     IOError(std::io::Error),
     ValueError(ValueError),
     NoStructFound(String),
+    NoFieldFound(String),
 }
 
 impl std::convert::From<ValueError> for EvalError {
@@ -139,6 +140,7 @@ impl std::fmt::Display for EvalError {
             Self::IOError(e) => e.fmt(f),
             Self::ValueError(e) => e.fmt(f),
             Self::NoStructFound(name) => write!(f, "Struct {name} not found"),
+            Self::NoFieldFound(name) => write!(f, "Field {name} not found"),
         }
     }
 }
@@ -297,11 +299,25 @@ where
                 })
                 .collect::<Result<Vec<_>, _>>()?,
         ))),
-        ExprEnum::StructLiteral(_name, val) => {
+        ExprEnum::StructLiteral(name, fields) => {
+            // TODO: work around clone for the borrow checker
+            let st_ty = ctx
+                .typedefs
+                .get(**name)
+                .ok_or_else(|| EvalError::NoStructFound(name.to_string()))?
+                .clone();
+
             RunResult::Yield(Value::Tuple(Rc::new(RefCell::new(
-                val.iter()
-                    .map(|(_, v)| {
-                        if let RunResult::Yield(y) = unwrap_deref(eval(v, ctx)?)? {
+                st_ty
+                    .fields
+                    .iter()
+                    .map(|field_ty| {
+                        let (_, ex) = fields
+                            .iter()
+                            .find(|field| *field.0 == *field_ty.name)
+                            .ok_or_else(|| EvalError::NoFieldFound(field_ty.name.to_string()))?;
+
+                        if let RunResult::Yield(y) = unwrap_deref(eval(ex, ctx)?)? {
                             Ok(TupleEntry {
                                 decl: TypeDecl::from_value(&y),
                                 value: y,
