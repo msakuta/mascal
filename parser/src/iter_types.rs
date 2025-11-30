@@ -83,7 +83,7 @@ fn iter_types_expr(ex: &Expression, f: &mut impl FnMut(TypeParams)) {
                 });
             }
         }
-        ExprEnum::StructLiteral(_, fields) => {
+        ExprEnum::StructLiteral { fields, .. } => {
             for (_, field_ex) in fields {
                 iter_types_expr(field_ex, f);
             }
@@ -114,7 +114,7 @@ fn iter_types_expr(ex: &Expression, f: &mut impl FnMut(TypeParams)) {
             }
         }
         ExprEnum::TupleIndex(ex, _)
-        | ExprEnum::FieldAccess(ex, _)
+        | ExprEnum::FieldAccess { prefix: ex, .. }
         | ExprEnum::Not(ex)
         | ExprEnum::BitNot(ex)
         | ExprEnum::Neg(ex) => {

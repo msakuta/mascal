@@ -95,7 +95,11 @@ where
                 }
             })
         }
-        FieldAccess(ex, field_name) => {
+        FieldAccess {
+            prefix: ex,
+            postfix: field_name,
+            ..
+        } => {
             let val = eval_lvalue(ex, ctx)?;
 
             let resolve_struct = |var: &Value| {

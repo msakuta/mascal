@@ -139,14 +139,24 @@ pub(crate) enum ExprEnum<'a> {
     StrLiteral(String),
     ArrLiteral(Vec<Expression<'a>>),
     TupleLiteral(Vec<Expression<'a>>),
-    StructLiteral(Span<'a>, Vec<(Span<'a>, Expression<'a>)>),
+    StructLiteral {
+        name: Span<'a>,
+        fields: Vec<(Span<'a>, Expression<'a>)>,
+        /// A reference to struct definition. It will be filled in type inference pass.
+        def: Option<Rc<StructDecl<'a>>>,
+    },
     Variable(&'a str),
     Cast(Box<Expression<'a>>, TypeDecl),
     VarAssign(Box<Expression<'a>>, Box<Expression<'a>>),
     FnInvoke(&'a str, Vec<FnArg<'a>>),
     ArrIndex(Box<Expression<'a>>, Vec<Expression<'a>>),
     TupleIndex(Box<Expression<'a>>, usize),
-    FieldAccess(Box<Expression<'a>>, Span<'a>),
+    FieldAccess {
+        prefix: Box<Expression<'a>>,
+        postfix: Span<'a>,
+        /// A reference to struct definition. It will be filled in type inference pass.
+        def: Option<Rc<StructDecl<'a>>>,
+    },
     Not(Box<Expression<'a>>),
     BitNot(Box<Expression<'a>>),
     Neg(Box<Expression<'a>>),
@@ -634,7 +644,11 @@ pub(crate) fn field_access(i: Span) -> IResult<Span, Expression> {
             .into_iter()
             .fold(Ok(prim), |acc, field: Span| -> Result<_, _> {
                 Ok(Expression::new(
-                    ExprEnum::FieldAccess(Box::new(acc?), field),
+                    ExprEnum::FieldAccess {
+                        prefix: Box::new(acc?),
+                        postfix: field,
+                        def: None,
+                    },
                     i.subslice(i.offset(&prim_span), prim_span.offset(&r)),
                 ))
             })?,
@@ -685,7 +699,14 @@ fn struct_literal<'a>(name: Span<'a>, i: Span<'a>) -> IResult<Span<'a>, Expressi
     let (r, _) = ws(tag("}"))(r)?;
     return Ok((
         r,
-        Expression::new(ExprEnum::StructLiteral(name, fields), calc_offset(i, r)),
+        Expression::new(
+            ExprEnum::StructLiteral {
+                name,
+                fields,
+                def: None,
+            },
+            calc_offset(i, r),
+        ),
     ));
 }
 

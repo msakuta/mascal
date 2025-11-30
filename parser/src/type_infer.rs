@@ -7,7 +7,7 @@ use std::{collections::HashMap, fmt::Display, rc::Rc};
 
 use crate::{
     format_ast::{format_expr, format_stmt},
-    interpreter::{std_functions, FuncCode, RetType, TypeMap},
+    interpreter::{std_functions, FuncCode, RetType, TypeMapRc},
     parser::{ExprEnum, Expression, Statement},
     type_decl::{ArraySize, TypeDecl},
     type_set::TypeSet,
@@ -159,7 +159,7 @@ pub struct TypeCheckContext<'src, 'native, 'ctx> {
     functions: HashMap<String, FuncDef<'src, 'native>>,
     super_context: Option<&'ctx TypeCheckContext<'src, 'native, 'ctx>>,
     source_file: Option<&'src str>,
-    pub(crate) typedefs: TypeMap<'src>,
+    pub(crate) typedefs: TypeMapRc<'src>,
 }
 
 impl<'src, 'native, 'ctx> TypeCheckContext<'src, 'native, 'ctx> {
@@ -420,7 +420,11 @@ where
                 ));
             }
         }
-        ExprEnum::FieldAccess(ex, field_name) => {
+        ExprEnum::FieldAccess {
+            prefix: ex,
+            postfix: field_name,
+            ..
+        } => {
             let result = tc_expr_forward(ex, ctx)?;
             let Some(RetType::Some(ty)) = result.determine() else {
                 return Err(TypeCheckError::new(
@@ -504,7 +508,7 @@ where
             let mut subctx = TypeCheckContext::push_stack(ctx);
             tc_stmts_forward(stmts, &mut subctx)?
         }
-        ExprEnum::StructLiteral(name, fields) => {
+        ExprEnum::StructLiteral { name, fields, .. } => {
             let struct_decl = ctx
                 .typedefs
                 .get(**name)
@@ -574,7 +578,7 @@ where
                 }
             }
         }
-        ExprEnum::StructLiteral(name, fields) => {
+        ExprEnum::StructLiteral { name, fields, def } => {
             let span = e.span;
 
             // TODO: work around clone() for the borrow checker
@@ -583,6 +587,8 @@ where
                 .get(**name)
                 .ok_or_else(|| TypeCheckError::undefined_type(*name, span, ctx.source_file))?
                 .clone();
+
+            *def = Some(struct_decl.clone());
 
             if let Some(tuple) = ts.and_then(|ts| ts.tuple.as_ref()) {
                 if tuple.len() != fields.len() {
@@ -620,8 +626,11 @@ where
                 .get_fn(*fname)
                 .ok_or_else(|| TypeCheckError::undefined_fn(fname, span, ctx.source_file))?;
             let params = fn_decl.args().clone();
-            for (arg, param) in args.iter_mut().zip(params.iter()).rev() {
-                tc_expr_reverse(&mut arg.expr, &(&param.ty).into(), ctx)?;
+            for (i, arg) in args.iter_mut().enumerate().rev() {
+                let ty = params
+                    .get(i)
+                    .map_or(TypeDecl::Any, |param| param.ty.clone());
+                tc_expr_reverse(&mut arg.expr, &(&ty).into(), ctx)?;
             }
         }
         ExprEnum::ArrIndex(ex, indices) => {
@@ -645,7 +654,29 @@ where
                 tc_expr_reverse(ex, &TypeSet::tuple(altered_tuple), ctx)?;
             }
         }
-        ExprEnum::FieldAccess(_, _) => {}
+        ExprEnum::FieldAccess { prefix, def, .. } => {
+            tc_expr_reverse(prefix, ts, ctx)?;
+            let ty = tc_expr_forward(prefix, ctx)?
+                .determine()
+                .ok_or_else(|| TypeCheckError::indeterminant_type(prefix.span, ctx.source_file))?
+                .ok_or_else(|| TypeCheckError::indeterminant_type(prefix.span, ctx.source_file))?;
+
+            let TypeDecl::TypeName(name) = ty else {
+                return Err(TypeCheckError::indeterminant_type(
+                    prefix.span,
+                    ctx.source_file,
+                ));
+            };
+
+            // TODO: work around clone() for the borrow checker
+            let struct_decl = ctx
+                .typedefs
+                .get(&name)
+                .ok_or_else(|| TypeCheckError::undefined_type(prefix.span, span, ctx.source_file))?
+                .clone();
+
+            *def = Some(struct_decl.clone());
+        }
         ExprEnum::Not(ex) | ExprEnum::BitNot(ex) | ExprEnum::Neg(ex) => {
             tc_expr_reverse(ex, ts, ctx)?;
         }
@@ -718,7 +749,7 @@ fn forward_lvalue<'src, 'b, 'native>(
         ExprEnum::StrLiteral(_) => Err("Literal string cannot be a lvalue".to_string()),
         ExprEnum::ArrLiteral(_) => Err("Array literal cannot be a lvalue".to_string()),
         ExprEnum::TupleLiteral(_) => Err("Tuple literal cannot be a lvalue".to_string()),
-        ExprEnum::StructLiteral(_, _) => Err("Struct literal cannot be a lvalue".to_string()),
+        ExprEnum::StructLiteral { .. } => Err("Struct literal cannot be a lvalue".to_string()),
         ExprEnum::Variable(name) => {
             let var_type = ctx
                 .get_var(name)
@@ -760,7 +791,11 @@ fn forward_lvalue<'src, 'b, 'native>(
                 Ok(None)
             }
         }
-        ExprEnum::FieldAccess(ex, field_name) => {
+        ExprEnum::FieldAccess {
+            prefix: ex,
+            postfix: field_name,
+            ..
+        } => {
             let prior = forward_lvalue(&ex, ctx)?;
             if let Some((_var_ref, ts)) = prior {
                 let ty = ts
@@ -967,7 +1002,8 @@ where
         }
         // Struct should be definitely typed, until we have generic types.
         Statement::Struct(st) => {
-            ctx.typedefs.insert(st.name.to_string(), st.clone());
+            ctx.typedefs
+                .insert(st.name.to_string(), Rc::new(st.clone()));
         }
         Statement::Comment(_) => (),
     }

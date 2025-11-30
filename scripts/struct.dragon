@@ -8,11 +8,11 @@ struct S {
 var a = S {
     a: 1,
     c: 3.14,
-    b: "a",
+    b: "Hello",
 };
 
-print(a.a);
+print(a.b);
 
-a.a = 42;
+// a.a = 42;
 
 print("a: ", a, type(a));

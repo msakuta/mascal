@@ -162,7 +162,7 @@ where
                 })
                 .collect::<Result<Vec<_>, _>>()?,
         ))),
-        ExprEnum::StructLiteral(name, fields) => {
+        ExprEnum::StructLiteral { name, fields, .. } => {
             // TODO: work around clone for the borrow checker
             let st_ty = ctx
                 .typedefs
@@ -332,7 +332,11 @@ where
             let result = unwrap_run!(eval(ex, ctx)?);
             RunResult::Yield(result.tuple_get(*index as u64)?)
         }
-        ExprEnum::FieldAccess(ex, field_name) => {
+        ExprEnum::FieldAccess {
+            prefix: ex,
+            postfix: field_name,
+            ..
+        } => {
             let result = unwrap_run!(eval(ex, ctx)?);
 
             let st_ty = TypeDecl::from_value(&result);
@@ -758,6 +762,7 @@ impl<'src, 'native> FuncDef<'src, 'native> {
 }
 
 pub(crate) type TypeMap<'src> = HashMap<String, StructDecl<'src>>;
+pub(crate) type TypeMapRc<'src> = HashMap<String, Rc<StructDecl<'src>>>;
 
 /// A context stat for evaluating a script.
 ///

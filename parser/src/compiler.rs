@@ -14,11 +14,11 @@ use crate::{
         std_functions, Bytecode, BytecodeArg, FnBytecode, FnProto, FunctionInfo, Instruction,
         LineInfo, NativeFn, OpCode,
     },
+    format_ast::format_expr,
     interpreter::{eval, EvalContext, RunResult, TypeMap},
     parser::{ExprEnum, Expression, Statement},
-    type_infer::tc_expr_forward,
     value::{ArrayInt, TupleEntry},
-    DebugInfo, Span, TypeCheckContext, TypeDecl, Value,
+    DebugInfo, Span, TypeDecl, Value,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -775,39 +775,26 @@ fn emit_expr<'src>(
 
             Ok(stk_idx_copy)
         }
-        ExprEnum::FieldAccess(ex, name) => {
-            let mut ctx = TypeCheckContext::new(None);
-            ctx.typedefs = compiler.env.typedefs.clone();
-            let ty = tc_expr_forward(ex, &mut ctx).map_err(|_e| {
-                CompileError::new(ex.span, CEK::TypeNameNotFound("???".to_string()))
+        ExprEnum::FieldAccess {
+            prefix,
+            postfix,
+            def,
+        } => {
+            let def = def;
+            let st_ty = def.as_ref().ok_or_else(|| {
+                CompileError::new(prefix.span, CEK::TypeNameNotFound(expr_to_string(prefix)))
             })?;
-            let st_ty = ty
-                .determine()
-                .ok_or_else(|| {
-                    CompileError::new(ex.span, CEK::TypeNameNotFound("???".to_string()))
-                })?
-                .ok_or_else(|| {
-                    CompileError::new(ex.span, CEK::TypeNameNotFound("???".to_string()))
-                })?;
-            let TypeDecl::TypeName(st_name) = st_ty else {
-                return Err(CompileError::new(
-                    ex.span,
-                    CEK::TypeNameNotFound("???".to_string()),
-                ));
-            };
-            let st_ty = compiler
-                .env
-                .typedefs
-                .get(&st_name)
-                .ok_or_else(|| CompileError::new(ex.span, CEK::TypeNameNotFound(st_name)))?;
+
             let (idx, _) = st_ty
                 .fields
                 .iter()
                 .enumerate()
-                .find(|(_, field)| *field.name == **name)
-                .ok_or_else(|| CompileError::new(ex.span, CEK::FieldNotFound(name.to_string())))?;
+                .find(|(_, field)| *field.name == **postfix)
+                .ok_or_else(|| {
+                    CompileError::new(prefix.span, CEK::FieldNotFound(postfix.to_string()))
+                })?;
 
-            let stk_ex = emit_expr(ex, compiler)?;
+            let stk_ex = emit_expr(prefix, compiler)?;
             let stk_idx = compiler.find_or_create_literal(&Value::I64(idx as i64));
             let stk_idx_copy = compiler.target_stack.len();
             compiler.target_stack.push(Target::None);
@@ -861,16 +848,15 @@ fn emit_expr<'src>(
             compiler.locals.pop();
             Ok(res)
         }
-        ExprEnum::StructLiteral(st_name, fields) => {
+        ExprEnum::StructLiteral {
+            name: st_name,
+            fields,
+            def,
+        } => {
             // TODO: work around clone for the borrow checker
-            let st_ty = compiler
-                .env
-                .typedefs
-                .get(**st_name)
-                .ok_or_else(|| {
-                    CompileError::new(*st_name, CEK::TypeNameNotFound(st_name.to_string()))
-                })?
-                .clone();
+            let st_ty = def.as_ref().ok_or_else(|| {
+                CompileError::new(*st_name, CEK::TypeNameNotFound(st_name.to_string()))
+            })?;
 
             let mut arg_values = vec![None; st_ty.fields.len()];
 
@@ -889,9 +875,8 @@ fn emit_expr<'src>(
                 arg_values[idx] = Some(stk_from);
             }
 
-            // Reserve the stack slot to return the tuple.
-            let stk_ret = compiler.target_stack.len();
-            compiler.target_stack.push(Target::None);
+            // Reserve the stack slot to return and load the struct name at the same time.
+            let stk_ret = compiler.find_or_create_literal(&Value::Str(st_name.to_string()));
 
             // If a named argument is duplicate, you would have a hole in actual args.
             // Until we have the default parameter value, it would be a compile error.
@@ -902,13 +887,13 @@ fn emit_expr<'src>(
 
             // Copy the elements in a contiguous region of the stack.
             // It is important to not call emit_expr between those elements, since they can push temporary variables.
-            for arg in dbg!(&arg_values) {
+            for arg in &arg_values {
                 let arg_target = compiler.target_stack.len();
                 compiler.target_stack.push(Target::None);
                 compiler.push_inst(OpCode::Move, *arg as u8, arg_target as u16);
             }
 
-            compiler.push_inst(OpCode::MakeTuple, arg_values.len() as u8, stk_ret as u16);
+            compiler.push_inst(OpCode::MakeStruct, arg_values.len() as u8, stk_ret as u16);
             Ok(stk_ret)
         }
     };
@@ -935,4 +920,13 @@ fn emit_binary_op<'src>(
     };
     compiler.push_inst(op, lhs as u8, rhs as u16);
     Ok(lhs)
+}
+
+fn expr_to_string(ex: &Expression) -> String {
+    let mut buf = vec![0u8; 0];
+    if format_expr(ex, 0, &mut buf).is_ok() {
+        String::from_utf8_lossy(&buf).to_string()
+    } else {
+        "???".to_string()
+    }
 }

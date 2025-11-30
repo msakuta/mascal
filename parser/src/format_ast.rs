@@ -12,7 +12,7 @@ pub fn format_expr(
     match &ex.expr {
         ExprEnum::NumLiteral(num, ts) => write!(f, "{num}{}", format_tsa(ts)),
         ExprEnum::StrLiteral(s) => write!(f, "\"{s}\""), // TODO: escape
-        ExprEnum::StructLiteral(name, fields) => {
+        ExprEnum::StructLiteral { name, fields, .. } => {
             let indent = "  ".repeat(level);
             writeln!(f, "{name} {{")?;
             for field in fields {
@@ -127,9 +127,17 @@ pub fn format_expr(
             write!(f, ".{}", idx)?;
             Ok(())
         }
-        ExprEnum::FieldAccess(ex, field_name) => {
-            format_expr(ex, level, f)?;
-            write!(f, ".{}", field_name)?;
+        ExprEnum::FieldAccess {
+            prefix,
+            postfix,
+            def,
+        } => {
+            format_expr(prefix, level, f)?;
+            if let Some(def) = def.as_ref() {
+                write!(f, "({}).{}", def.name, postfix)?;
+            } else {
+                write!(f, ".{}", postfix)?;
+            }
             Ok(())
         }
         ExprEnum::Brace(stmts) => {
