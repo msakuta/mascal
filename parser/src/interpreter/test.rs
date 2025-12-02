@@ -804,7 +804,7 @@ fn array_sized_error_test() {
         Ok(_) => panic!(),
         Err(e) => assert_eq!(
             e.to_string(),
-            "Array size is not compatible: 4 cannot assign to 3\ninput:1:56"
+            "Array size is not compatible: 4 cannot assign to 3\ninput:1:57"
         ),
     }
     // It will run successfully although the typecheck fails.
