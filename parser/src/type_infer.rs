@@ -250,6 +250,7 @@ impl<'src, 'native, 'ctx> TypeCheckContext<'src, 'native, 'ctx> {
                     None
                 }
             }
+            _ => None,
         }
     }
 }
@@ -261,6 +262,12 @@ pub(crate) fn tc_expr_forward<'src, 'b, 'native>(
 where
     'native: 'src,
 {
+    macro_rules! tc_bail {
+        ($msg:expr, $ex:expr) => {
+            return Err(TypeCheckError::new($msg, $ex.span, ctx.source_file));
+        };
+    }
+
     Ok(match &e.expr {
         ExprEnum::NumLiteral(_, ts) => ts.ts.clone(),
         ExprEnum::StrLiteral(_val) => TypeSet::str(),
@@ -389,14 +396,13 @@ where
             if let Some((inner, _)) = res.and_then(|ts| ts.array.as_ref()) {
                 *inner.clone()
             } else {
-                return Err(TypeCheckError::new(
+                tc_bail!(
                     format!(
                         "Subscript operator's first operand is not an array but {}",
                         res
                     ),
-                    ex.span,
-                    ctx.source_file,
-                ));
+                    ex
+                );
             }
         }
         ExprEnum::TupleIndex(ex, index) => {
@@ -405,64 +411,42 @@ where
                 tuple
                     .get(*index)
                     .ok_or_else(|| {
-                        TypeCheckError::new(
-                            "Tuple index out of range".to_string(),
-                            ex.span,
-                            ctx.source_file,
-                        )
+                        TypeCheckError::new("Tuple index out of range", ex.span, ctx.source_file)
                     })?
                     .clone()
             } else {
-                return Err(TypeCheckError::new(
-                    "Tuple index applied to a non-tuple".to_string(),
-                    ex.span,
-                    ctx.source_file,
-                ));
+                tc_bail!("Tuple index applied to a non-tuple", ex);
             }
         }
         ExprEnum::FieldAccess {
-            prefix: ex,
+            prefix,
             postfix: field_name,
             ..
         } => {
-            let result = tc_expr_forward(ex, ctx)?;
+            let result = tc_expr_forward(prefix, ctx)?;
+
             let Some(RetType::Some(ty)) = result.determine() else {
-                return Err(TypeCheckError::new(
-                    "Field access operator must have a determined type",
-                    ex.span,
-                    ctx.source_file,
-                ));
+                tc_bail!("Field access operator must have a determined type", prefix);
             };
 
-            let TypeDecl::TypeName(name) = ty else {
-                return Err(TypeCheckError::new(
-                    "Field access operator must have a typedefed name",
-                    ex.span,
-                    ctx.source_file,
-                ));
+            let TypeDecl::TypeName(tn) = ty else {
+                tc_bail!(
+                    "Field access operator must have a struct operand on left hand side",
+                    prefix
+                );
             };
 
-            let st_ty = ctx.typedefs.get(&name).ok_or_else(|| {
-                TypeCheckError::new(
-                    "Field access operator type name was not found",
-                    ex.span,
-                    ctx.source_file,
-                )
-            })?;
+            let Some(st_ty) = ctx.typedefs.get(&tn) else {
+                tc_bail!(format!("Type name {tn} not found"), prefix);
+            };
 
-            let (_, field) = st_ty
+            let Some(field) = st_ty
                 .fields
                 .iter()
-                .enumerate()
-                .find(|(_, field)| *field.name == **field_name)
-                .ok_or_else(|| {
-                    TypeCheckError::new(
-                        "Struct field name not found".to_string(),
-                        ex.span,
-                        ctx.source_file,
-                    )
-                })?
-                .clone();
+                .find(|field| *field.name == **field_name)
+            else {
+                tc_bail!(format!("Field name {field_name} not found"), prefix);
+            };
 
             TypeSet::from(&field.ty)
         }
@@ -620,7 +604,10 @@ where
                 .map_err(|e| TypeCheckError::new(e, span, source_file))?;
         }
         ExprEnum::Cast(ex, _ty) => tc_expr_reverse(ex, &TypeSet::all(), ctx)?,
-        ExprEnum::VarAssign(lhs, rhs) => tc_expr_reverse(rhs, &tc_expr_forward(lhs, ctx)?, ctx)?,
+        ExprEnum::VarAssign(lhs, rhs) => {
+            tc_expr_reverse(lhs, ts, ctx)?;
+            tc_expr_reverse(rhs, &tc_expr_forward(lhs, ctx)?, ctx)?
+        }
         ExprEnum::FnInvoke(fname, args) => {
             let fn_decl = ctx
                 .get_fn(*fname)
@@ -736,6 +723,9 @@ enum VarRef<'src> {
     Variable(&'src str),
     Array(Box<VarRef<'src>>),
     Tuple(Box<VarRef<'src>>, usize),
+    /// Struct fields have definite type by definition, so there is no need to constrain
+    /// their types with type inference.
+    Struct,
 }
 
 /// Try to evaluate expression as an lvalue and return its variable name and TypeSet,
@@ -819,14 +809,14 @@ fn forward_lvalue<'src, 'b, 'native>(
                             ex.span, ctx.source_file
                         )
                     })?;
-                    let _ = st_ty
+                    let field_ty = st_ty
                         .fields
                         .iter()
                         .find(|field| *field.name == **field_name)
                         .ok_or_else(|| format!("field {} not found", field_name))?;
                     // We make sure that the struct and the field exists, but we do not apply type constraints by lvalue,
                     // because field types should be determined without inference.
-                    Ok(None)
+                    Ok(Some((VarRef::Struct, TypeSet::from(&field_ty.ty))))
                 } else {
                     Ok(None)
                 }

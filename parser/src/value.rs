@@ -222,6 +222,9 @@ impl Value {
             Value::Array(array) => {
                 *array.borrow_mut().values.eget_mut(idx)? = value;
             }
+            Value::Struct(st) => {
+                *st.borrow_mut().fields.eget_mut(idx)? = value;
+            }
             _ => return Err(EvalError::IndexNonArray),
         }
         Ok(())
@@ -230,6 +233,7 @@ impl Value {
     pub fn array_get(&self, idx: u64) -> EvalResult<Value> {
         match self {
             Value::Array(array) => Ok(array.borrow_mut().values.eget(idx as usize)?.clone()),
+            Value::Struct(st) => Ok(st.borrow_mut().fields.eget(idx as usize)?.clone()),
             _ => Err(EvalError::IndexNonArray),
         }
     }

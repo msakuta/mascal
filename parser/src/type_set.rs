@@ -523,9 +523,9 @@ impl std::fmt::Display for TypeSetFlags {
             )?;
         }
 
-        // for st in &self.structs {
-        //     write_ty(true, st)?;
-        // }
+        for tn in &self.type_name {
+            write_ty(true, tn)?;
+        }
 
         if !written {
             write!(f, "(none)")?;
