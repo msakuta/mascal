@@ -50,8 +50,8 @@ pub enum OpCode {
     BitNot,
     /// Unary negation (-).
     Neg,
-    /// Get an element of an array (or a table in the future) at arg0 with the key at arg1, and make a copy at arg1.
-    /// Array elements are always Rc wrapped, so the user can assign into it.
+    /// Get an element of an array or a struct (or a table in the future) at arg0 with the key at arg1, and make a
+    /// copy at arg1.
     Get,
     Set,
     /// Set a value to the special register to use in later instructions.

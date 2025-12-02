@@ -580,28 +580,13 @@ where
 
             *def = Some(struct_decl.clone());
 
-            if let Some(tuple) = ts.and_then(|ts| ts.tuple.as_ref()) {
-                if tuple.len() != fields.len() {
-                    return Err(TypeCheckError::new(
-                        format!(
-                            "Tuple sizes are not the same: {} != {}",
-                            tuple.len(),
-                            fields.len()
-                        ),
-                        span,
-                        ctx.source_file,
-                    ));
-                }
-                for (field_name, field) in fields.iter_mut() {
-                    let decl = struct_decl
-                        .fields
-                        .iter()
-                        .find(|field_decl| *field_decl.name == **field_name)
-                        .ok_or_else(|| {
-                            TypeCheckError::undefined_field(*field_name, ctx.source_file)
-                        })?;
-                    tc_expr_reverse(field, &TypeSet::from(&decl.ty), ctx)?;
-                }
+            for (field_name, field) in fields.iter_mut() {
+                let decl = struct_decl
+                    .fields
+                    .iter()
+                    .find(|field_decl| *field_decl.name == **field_name)
+                    .ok_or_else(|| TypeCheckError::undefined_field(*field_name, ctx.source_file))?;
+                tc_expr_reverse(field, &TypeSet::from(&decl.ty), ctx)?;
             }
         }
         ExprEnum::Variable(name) => {

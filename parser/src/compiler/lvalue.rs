@@ -2,7 +2,7 @@
 
 use crate::{
     parser::{ExprEnum, Expression},
-    OpCode,
+    OpCode, Value,
 };
 
 use super::{
@@ -80,10 +80,11 @@ pub(super) fn emit_lvalue<'src, 'env, 'c>(
                     CompileError::new(*postfix, CEK::FieldNotFound(postfix.to_string()))
                 })?;
             let prefix = emit_lvalue(prefix, compiler)?;
+            let stk_field_idx = compiler.find_or_create_literal(&Value::I64(field_idx as i64));
             match prefix {
                 LValue::Variable(name) => Ok(LValue::ArrayRef(
                     compiler.find_local(&name, ex.span)?.stack_idx,
-                    field_idx,
+                    stk_field_idx,
                 )),
                 LValue::ArrayRef(arr, subidx) => {
                     let subidx_copy = compiler.target_stack.len();
@@ -99,7 +100,7 @@ pub(super) fn emit_lvalue<'src, 'env, 'c>(
                         .bytecode
                         .push_inst(OpCode::Get, arr as u8, subidx_copy as u16);
 
-                    Ok(LValue::ArrayRef(subidx_copy, field_idx))
+                    Ok(LValue::ArrayRef(subidx_copy, stk_field_idx))
                 }
             }
         }

@@ -165,8 +165,7 @@ where
         ExprEnum::StructLiteral { name, fields, .. } => {
             // TODO: work around clone for the borrow checker
             let st_ty = ctx
-                .typedefs
-                .get(**name)
+                .get_type(**name)
                 .ok_or_else(|| EvalError::NoStructFound(name.to_string()))?
                 .clone();
 
@@ -343,9 +342,8 @@ where
             let TypeDecl::TypeName(st_name) = st_ty else {
                 return Err(EvalError::TypeCheck("Type must be named".to_string()));
             };
-            let st_ty = ctx
-                .typedefs
-                .get(&st_name)
+            let st_ty = &ctx
+                .get_type(&st_name)
                 .ok_or_else(|| EvalError::NoStructFound(st_name.to_string()))?;
             let (idx, _) = st_ty
                 .fields
@@ -837,6 +835,12 @@ impl<'src, 'ast, 'native, 'ctx> EvalContext<'src, 'native, 'ctx> {
         } else {
             None
         }
+    }
+
+    fn get_type(&self, name: &str) -> Option<&StructDecl<'src>> {
+        self.typedefs
+            .get(name)
+            .or_else(|| self.super_context.and_then(|sc| sc.get_type(name)))
     }
 }
 

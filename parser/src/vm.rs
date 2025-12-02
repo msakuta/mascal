@@ -392,7 +392,7 @@ impl<'a> Vm<'a> {
                 self.set(inst.arg1, new_val);
             }
             OpCode::Set => {
-                let target_collection = &self.get(inst.arg0);
+                let target_collection = self.get(inst.arg0);
                 let value = self.get(inst.arg1);
                 let index = self.set_register;
                 target_collection.array_assign(index, value.clone())?;
