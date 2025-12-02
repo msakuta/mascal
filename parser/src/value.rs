@@ -396,6 +396,10 @@ impl StructInt {
             .ok_or_else(|| EvalError::ArrayOutOfBounds(self.fields.len(), idx))
             .cloned()
     }
+
+    pub fn fields(&self) -> &[Value] {
+        &self.fields
+    }
 }
 
 #[derive(Debug)]
