@@ -8,7 +8,7 @@ use std::{collections::HashMap, fmt::Display, rc::Rc};
 use crate::{
     format_ast::{format_expr, format_stmt},
     interpreter::{std_functions, FuncCode, RetType, TypeMapRc},
-    parser::{ExprEnum, Expression, Statement},
+    parser::{ExprEnum, Expression, Statement, StructDecl},
     type_decl::{ArraySize, TypeDecl},
     type_set::TypeSet,
     FuncDef, Span,
@@ -197,6 +197,12 @@ impl<'src, 'native, 'ctx> TypeCheckContext<'src, 'native, 'ctx> {
         } else {
             None
         }
+    }
+
+    fn get_type(&self, name: &str) -> Option<&Rc<StructDecl<'src>>> {
+        self.typedefs
+            .get(name)
+            .or_else(|| self.super_context.and_then(|sc| sc.get_type(name)))
     }
 
     fn push_stack(super_ctx: &'ctx Self) -> Self {
@@ -438,7 +444,7 @@ where
                 );
             };
 
-            let Some(st_ty) = ctx.typedefs.get(&tn) else {
+            let Some(st_ty) = ctx.get_type(&tn) else {
                 tc_bail!(format!("Type name {tn} not found"), prefix);
             };
 
@@ -496,8 +502,7 @@ where
         }
         ExprEnum::StructLiteral { name, fields, .. } => {
             let struct_decl = ctx
-                .typedefs
-                .get(**name)
+                .get_type(**name)
                 .ok_or_else(|| TypeCheckError::undefined_type(*name, e.span, ctx.source_file))?
                 .clone();
             for (field_name, ex) in fields {
@@ -569,8 +574,7 @@ where
 
             // TODO: work around clone() for the borrow checker
             let struct_decl = ctx
-                .typedefs
-                .get(**name)
+                .get_type(**name)
                 .ok_or_else(|| TypeCheckError::undefined_type(*name, span, ctx.source_file))?
                 .clone();
 
@@ -644,7 +648,8 @@ where
             }
         }
         ExprEnum::FieldAccess { prefix, def, .. } => {
-            tc_expr_reverse(prefix, ts, ctx)?;
+            tc_expr_reverse(prefix, &TypeSet::Any, ctx)?;
+
             let ty = tc_expr_forward(prefix, ctx)?
                 .determine()
                 .ok_or_else(|| TypeCheckError::indeterminant_type(prefix.span, ctx.source_file))?
@@ -659,8 +664,7 @@ where
 
             // TODO: work around clone() for the borrow checker
             let struct_decl = ctx
-                .typedefs
-                .get(&name)
+                .get_type(&name)
                 .ok_or_else(|| TypeCheckError::undefined_type(prefix.span, span, ctx.source_file))?
                 .clone();
 
@@ -805,7 +809,7 @@ fn forward_lvalue<'src, 'b, 'native>(
                         )
                     })?;
                 if let TypeDecl::TypeName(type_name) = ty {
-                    let st_ty = ctx.typedefs.get(&type_name).ok_or_else(|| {
+                    let st_ty = ctx.get_type(&type_name).ok_or_else(|| {
                         format!(
                             "TypeCheckError::struct not found({}, {:?})",
                             ex.span, ctx.source_file
@@ -1205,6 +1209,10 @@ where
                         ctx.source_file,
                     ));
                 }
+            }
+            Statement::Struct(st) => {
+                ctx.typedefs
+                    .insert(st.name.to_string(), Rc::new(st.clone()));
             }
             _ => {}
         }
