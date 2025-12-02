@@ -160,44 +160,64 @@ pub fn parse_ast(src: &str) -> Result<String, JsValue> {
 
 #[wasm_bindgen]
 pub fn compile(src: &str) -> Result<Vec<u8>, JsValue> {
-    let parse_result =
-        source(src).map_err(|e| JsValue::from_str(&format!("Parse error: {:?}", e)))?;
+    compile_impl(src).map_err(|e| JsValue::from_str(&e.to_string()))
+}
+
+fn compile_impl<'src>(src: &'src str) -> Result<Vec<u8>, Box<dyn std::error::Error + 'src>> {
+    let (_, mut parse_result) = source(src).map_err(|e| format!("Parse error: {:?}", e))?;
     let mut functions = HashMap::new();
     extra_functions(&mut |name, f| {
         functions.insert(name, f);
     });
-    let bytecode = mascal::compile(&parse_result.1, functions)
-        .map_err(|e| JsValue::from_str(&format!("Error: {}", e)))?;
+
+    let mut ctx = TypeCheckContext::new(None);
+    wasm_functions(|name, f| ctx.set_fn(name, f));
+    mascal::type_check(&mut parse_result, &mut ctx)?;
+
+    let bytecode = mascal::compile(&parse_result, functions)?;
     let mut bytes = vec![];
-    bytecode
-        .write(&mut bytes)
-        .map_err(|s| JsValue::from_str(&s.to_string()))?;
+    bytecode.write(&mut bytes)?;
     Ok(bytes)
 }
 
 #[wasm_bindgen]
 pub fn disasm(src: &str) -> Result<String, JsValue> {
-    let parse_result =
-        source(src).map_err(|e| JsValue::from_str(&format!("Parse error: {:?}", e)))?;
+    disasm_impl(src).map_err(|e| JsValue::from_str(&e.to_string()))
+}
+
+fn disasm_impl<'src>(src: &'src str) -> Result<String, Box<dyn std::error::Error + 'src>> {
+    let (_, mut parse_result) = source(src).map_err(|e| format!("Parse error: {:?}", e))?;
     let mut functions = HashMap::new();
+
     extra_functions(&mut |name, f| {
         functions.insert(name, f);
     });
-    let disasm_code = mascal::disasm(&parse_result.1, functions)
-        .map_err(|e| JsValue::from_str(&format!("Error: {}", e)))?;
+
+    let mut ctx = TypeCheckContext::new(None);
+    wasm_functions(|name, f| ctx.set_fn(name, f));
+    mascal::type_check(&mut parse_result, &mut ctx)?;
+
+    let disasm_code = mascal::disasm(&parse_result, functions)?;
     Ok(disasm_code)
 }
 
 #[wasm_bindgen]
 pub fn compile_and_run(src: &str) -> Result<(), JsValue> {
-    let parse_result =
-        source(src).map_err(|e| JsValue::from_str(&format!("Parse error: {:?}", e)))?;
+    compile_and_run_wrap(src).map_err(|e| JsValue::from_str(&e.to_string()))
+}
+
+fn compile_and_run_wrap<'src>(src: &'src str) -> Result<(), Box<dyn std::error::Error + 'src>> {
+    let (_, mut parse_result) = source(src).map_err(|e| format!("Parse error: {:?}", e))?;
     let mut functions = HashMap::new();
     extra_functions(&mut |name, f| {
         functions.insert(name, f);
     });
-    let mut bytecode = mascal::compile(&parse_result.1, functions)
-        .map_err(|e| JsValue::from_str(&format!("Error: {}", e)))?;
+
+    let mut ctx = TypeCheckContext::new(None);
+    wasm_functions(|name, f| ctx.set_fn(name, f));
+    mascal::type_check(&mut parse_result, &mut ctx)?;
+
+    let mut bytecode = mascal::compile(&parse_result, functions)?;
 
     // Give a sink because we don't care (can't care) where to put the output from standard functions.
     // Instead, we override the functions with Wasm aware versions.
@@ -206,7 +226,7 @@ pub fn compile_and_run(src: &str) -> Result<(), JsValue> {
     extra_functions(&mut |name, f| {
         bytecode.add_ext_fn(name, f);
     });
-    interpret(&bytecode).map_err(|e| JsValue::from_str(&e.to_string()))?;
+    interpret(&bytecode)?;
     Ok(())
 }
 

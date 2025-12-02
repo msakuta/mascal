@@ -34,6 +34,8 @@ impl<'src> Display for TypeCheckError<'src> {
     }
 }
 
+impl<'src> std::error::Error for TypeCheckError<'src> {}
+
 impl<'src> TypeCheckError<'src> {
     fn new(msg: impl Into<String>, span: Span<'src>, source_file: Option<&'src str>) -> Self {
         Self {

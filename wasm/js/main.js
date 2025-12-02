@@ -74,6 +74,7 @@ const samples = document.getElementById("samples");
     "typecheck.dragon", "cast.dragon", "cast_error.dragon",
     "pipe.dragon",
     "cmp.dragon",
+    "struct.dragon",
 ]
     .forEach(fileName => {
     const link = document.createElement("a");
