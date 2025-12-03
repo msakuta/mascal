@@ -11,7 +11,8 @@ var builtins = wordRE([
 var keywords = wordRE(["break","return",
                         "var", "fn", "if", "else",
                         "for", "in", "to", "while",
-                        "i32", "i64", "f32", "f64", "str" ]);
+                        "i32", "i64", "f32", "f64", "str",
+                        "struct" ]);
 
 var indentTokens = wordRE(["\\(", "{", "\\["]);
 var dedentTokens = wordRE(["\\)", "}", "\\]"]);
