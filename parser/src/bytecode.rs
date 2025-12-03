@@ -412,7 +412,7 @@ impl Bytecode {
 
 /// Add standard common functions, such as `print`, `len` and `push`, to this bytecode.
 pub fn std_functions(
-    out: Rc<RefCell<dyn Write>>,
+    _out: Rc<RefCell<dyn Write>>,
     f: &mut impl FnMut(String, Box<dyn Fn(&[Value]) -> Result<Value, EvalError>>),
 ) {
     std_functions_gen(&mut |name, code, _, _| {

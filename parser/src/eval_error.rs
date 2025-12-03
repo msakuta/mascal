@@ -1,4 +1,4 @@
-use crate::{value::ValueError, TypeDecl};
+use crate::{type_decl::ArraySizeAxis, value::ValueError, TypeDecl};
 
 /// Error type for the AST intepreter and bytecode interpreter.
 /// Note that it is shared among 2 kinds of interpreters, so some of them only happen in either kind.
@@ -33,7 +33,7 @@ pub enum EvalError {
     NoMainFound,
     NonNameFnRef(String),
     CallStackUndeflow,
-    IncompatibleArrayLength(usize, usize),
+    IncompatibleArrayLength(ArraySizeAxis, usize),
     AssignToLiteral(String),
     IndexNonNum,
     NonLValue(String),

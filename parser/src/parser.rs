@@ -668,8 +668,7 @@ pub(crate) fn tuple_index<'a>(
 }
 
 fn field_access_suffix(i: Span) -> IResult<Span, Vec<Span>> {
-    let (r, prim) = primary_expression(i)?;
-    let (r, indices) = many1(ws(preceded(tag("."), ident_space)))(r)?;
+    let (r, indices) = many1(ws(preceded(tag("."), ident_space)))(i)?;
     Ok((r, indices))
 }
 
@@ -717,7 +716,7 @@ fn postfix_expression(i: Span) -> IResult<Span, Expression> {
     }
 
     let (r, prim) = primary_expression(i)?;
-    let prim_span = prim.span;
+
     if let Ok((r, indices)) = array_index_suffix(r) {
         return array_index(prim, indices, i, r);
     }
@@ -864,7 +863,7 @@ pub(crate) fn expr(i: Span) -> IResult<Span, Expression> {
 fn cmp(i: Span) -> IResult<Span, Expression> {
     let (r, lhs) = expr(i)?;
 
-    let (r, (op, val)) = pair(
+    let (r, res) = opt(pair(
         ws(alt((
             tag("<="),
             tag(">="),
@@ -874,20 +873,25 @@ fn cmp(i: Span) -> IResult<Span, Expression> {
             tag("!="),
         ))),
         expr,
-    )(r)?;
-    let span = calc_offset(i, r);
-    Ok((
-        r,
-        match *op {
-            "<" => Expression::new(ExprEnum::LT(Box::new(lhs), Box::new(val)), span),
-            "<=" => Expression::new(ExprEnum::LE(Box::new(lhs), Box::new(val)), span),
-            ">" => Expression::new(ExprEnum::GT(Box::new(lhs), Box::new(val)), span),
-            ">=" => Expression::new(ExprEnum::GE(Box::new(lhs), Box::new(val)), span),
-            "==" => Expression::new(ExprEnum::EQ(Box::new(lhs), Box::new(val)), span),
-            "!=" => Expression::new(ExprEnum::NE(Box::new(lhs), Box::new(val)), span),
-            _ => unreachable!("Comparison operator should be <, >, <=, >=, == or !="),
-        },
-    ))
+    ))(r)?;
+
+    if let Some((op, val)) = res {
+        let span = calc_offset(i, r);
+        Ok((
+            r,
+            match *op {
+                "<" => Expression::new(ExprEnum::LT(Box::new(lhs), Box::new(val)), span),
+                "<=" => Expression::new(ExprEnum::LE(Box::new(lhs), Box::new(val)), span),
+                ">" => Expression::new(ExprEnum::GT(Box::new(lhs), Box::new(val)), span),
+                ">=" => Expression::new(ExprEnum::GE(Box::new(lhs), Box::new(val)), span),
+                "==" => Expression::new(ExprEnum::EQ(Box::new(lhs), Box::new(val)), span),
+                "!=" => Expression::new(ExprEnum::NE(Box::new(lhs), Box::new(val)), span),
+                _ => unreachable!("Comparison operator should be <, >, <=, >=, == or !="),
+            },
+        ))
+    } else {
+        Ok((r, lhs))
+    }
 }
 
 pub(crate) fn conditional(i: Span) -> IResult<Span, Expression> {
@@ -918,26 +922,7 @@ pub(crate) fn conditional(i: Span) -> IResult<Span, Expression> {
     ))
 }
 
-pub(crate) fn cmp_expr(i: Span) -> IResult<Span, Expression> {
-    let (r, lhs) = expr(i)?;
-
-    let (r, rhs) = opt(pair(alt((char('<'), char('>'))), expr))(r)?;
-    if let Some((op, val)) = rhs {
-        let span = calc_offset(i, r);
-        Ok((
-            r,
-            if op == '<' {
-                Expression::new(ExprEnum::LT(Box::new(lhs), Box::new(val)), span)
-            } else {
-                Expression::new(ExprEnum::GT(Box::new(lhs), Box::new(val)), span)
-            },
-        ))
-    } else {
-        Ok((r, lhs))
-    }
-}
-
-/// A functor to create a function for a binary operator
+/// A functor to create a function for a left-associative binary operator
 fn bin_op<'src>(
     t: &'static str,
     sub: impl Fn(Span<'src>) -> IResult<Span<'src>, Expression<'src>>,
@@ -963,7 +948,7 @@ fn bin_op<'src>(
 }
 
 fn bit_and(i: Span) -> IResult<Span, Expression> {
-    bin_op("&", cmp_expr, |lhs, rhs| ExprEnum::BitAnd(lhs, rhs))(i)
+    bin_op("&", cmp, |lhs, rhs| ExprEnum::BitAnd(lhs, rhs))(i)
 }
 
 fn bit_xor(i: Span) -> IResult<Span, Expression> {
@@ -983,16 +968,19 @@ fn or(i: Span) -> IResult<Span, Expression> {
 }
 
 pub(crate) fn assign_expr(i: Span) -> IResult<Span, Expression> {
-    let (r, (lhs, rhs)) = pair(or, opt(preceded(char('='), assign_expr)))(i)?;
-    if let Some(rhs) = rhs {
-        let span = calc_offset(i, r);
-        Ok((
+    let (r, lhs) = or(i)?;
+
+    if let Ok((r, rhs)) = preceded(ws(char('=')), assign_expr)(r) {
+        return Ok((
             r,
-            Expression::new(ExprEnum::VarAssign(Box::new(lhs), Box::new(rhs)), span),
-        ))
-    } else {
-        Ok((r, lhs))
+            Expression::new(
+                ExprEnum::VarAssign(Box::new(lhs), Box::new(rhs)),
+                i.subslice(0, i.offset(&r)),
+            ),
+        ));
     }
+
+    Ok((r, lhs))
 }
 
 pub(crate) fn conditional_expr(i: Span) -> IResult<Span, Expression> {
@@ -1078,7 +1066,7 @@ fn loop_stmt(input: Span) -> IResult<Span, Statement> {
 
 fn while_stmt(input: Span) -> IResult<Span, Statement> {
     let (r, _) = ws(tag("while"))(input)?;
-    let (r, cond) = cmp_expr(r)?;
+    let (r, cond) = cmp(r)?;
     let (r, stmts) = delimited(ws(char('{')), source, ws(char('}')))(r)?;
     Ok((r, Statement::While(cond, stmts)))
 }

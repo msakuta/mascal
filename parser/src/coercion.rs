@@ -2,7 +2,6 @@ use std::{cell::RefCell, rc::Rc};
 
 use crate::{
     interpreter::{EvalResult, TypeMap},
-    type_decl::{ArraySize, ArraySizeAxis},
     value::{ArrayInt, TupleEntry},
     EvalError, TypeDecl, Value,
 };
@@ -163,26 +162,24 @@ pub fn coerce_type(value: &Value, target: &TypeDecl) -> Result<Value, EvalError>
         TypeDecl::I32 => Value::I32(coerce_i64(value)? as i32),
         TypeDecl::Str => Value::Str(coerce_str(value)?),
         TypeDecl::Array(_, shape) => {
-            if let Value::Array(array) = value {
-                let array = array.borrow();
-                for len in &shape.0 {
-                    if let ArraySizeAxis::Fixed(len) = len {
-                        if *len != array.values.len() {
-                            return Err(EvalError::IncompatibleArrayLength(
-                                *len,
-                                array.values.len(),
-                            ));
-                        }
-                    }
-                }
-                // Type coercion should not alter the referenced value, i.e. array elements
-                return Ok(value.clone());
-            } else {
+            let Value::Array(array) = value else {
                 return Err(EvalError::CoerceError(
                     value.to_string(),
                     "array".to_string(),
                 ));
+            };
+
+            let array = array.borrow();
+            for (target_len, val_len) in shape.iter().zip(array.shape.iter()) {
+                if !target_len.contains(*val_len) {
+                    return Err(EvalError::IncompatibleArrayLength(
+                        target_len.clone(),
+                        array.values.len(),
+                    ));
+                }
             }
+            // Type coercion should not alter the referenced value, i.e. array elements
+            return Ok(value.clone());
         }
         TypeDecl::Tuple(_) => {
             if let Value::Tuple(_) = value {

@@ -10,7 +10,7 @@ use crate::{
     value::{ArrayInt, StructInt, TupleEntry},
     TypeDecl, Value,
 };
-use std::{cell::RefCell, collections::HashMap, io::Write, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum RunResult {

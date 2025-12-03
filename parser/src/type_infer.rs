@@ -549,10 +549,9 @@ where
                     ));
                 }
                 if size
-                    .0
                     .iter()
                     .zip(vec.iter())
-                    .any(|(s, v)| !s.contains(vec.len()))
+                    .any(|(s, v)| !s.contains(v.len()))
                 {
                     return Err(TypeCheckError::new(
                         format!(
