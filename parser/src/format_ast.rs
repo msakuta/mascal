@@ -12,6 +12,16 @@ pub fn format_expr(
     match &ex.expr {
         ExprEnum::NumLiteral(num, ts) => write!(f, "{num}{}", format_tsa(ts)),
         ExprEnum::StrLiteral(s) => write!(f, "\"{s}\""), // TODO: escape
+        ExprEnum::StructLiteral { name, fields, .. } => {
+            let indent = "  ".repeat(level);
+            writeln!(f, "{name} {{")?;
+            for field in fields {
+                write!(f, "{indent}  {}: ", field.0)?;
+                format_expr(&field.1, level, f)?;
+                writeln!(f, ",")?;
+            }
+            write!(f, "{indent}}}")
+        }
         ExprEnum::Variable(name) => write!(f, "{name}"),
         ExprEnum::VarAssign(lhs, rhs) => {
             format_expr(lhs, level, f)?;
@@ -115,6 +125,19 @@ pub fn format_expr(
         ExprEnum::TupleIndex(tup, idx) => {
             format_expr(tup, level, f)?;
             write!(f, ".{}", idx)?;
+            Ok(())
+        }
+        ExprEnum::FieldAccess {
+            prefix,
+            postfix,
+            def,
+        } => {
+            format_expr(prefix, level, f)?;
+            if let Some(def) = def.as_ref() {
+                write!(f, "({}).{}", def.name, postfix)?;
+            } else {
+                write!(f, ".{}", postfix)?;
+            }
             Ok(())
         }
         ExprEnum::Brace(stmts) => {
@@ -246,6 +269,14 @@ pub fn format_stmt(
             Ok(())
         }
         Statement::Break => write!(f, "{indent}break;"),
+        Statement::Struct(str) => {
+            writeln!(f, "struct {} {{", str.name)?;
+            for field in &str.fields {
+                writeln!(f, "{}: {}", field.name, field.ty)?;
+            }
+            writeln!(f, "}}")?;
+            Ok(())
+        }
     }
 }
 

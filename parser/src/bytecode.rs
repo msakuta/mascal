@@ -13,9 +13,8 @@ use std::{
 pub use self::debug_info::{DebugInfo, FunctionInfo, LineInfo};
 
 use crate::{
-    interpreter::{
-        s_hex_string, s_len, s_print, s_push, s_puts, s_resize, s_strlen, s_type, EvalError,
-    },
+    eval_error::EvalError,
+    interpreter::{s_hex_string, s_len, s_print, s_push, s_puts, s_resize, s_strlen, s_type},
     parser::ReadError,
     value::Value,
 };
@@ -51,8 +50,8 @@ pub enum OpCode {
     BitNot,
     /// Unary negation (-).
     Neg,
-    /// Get an element of an array (or a table in the future) at arg0 with the key at arg1, and make a copy at arg1.
-    /// Array elements are always Rc wrapped, so the user can assign into it.
+    /// Get an element of an array or a struct (or a table in the future) at arg0 with the key at arg1, and make a
+    /// copy at arg1.
     Get,
     Set,
     /// Set a value to the special register to use in later instructions.
@@ -79,6 +78,12 @@ pub enum OpCode {
     /// Casts a value at arg0 to a type indicated by arg1. I'm feeling this should be a standard library function
     /// rather than a opcode, but let's finish implementation compatible with AST interpreter first.
     Cast,
+    /// Make a tuple with arg0 arguments on the stack at index arg1. arg1 + 1 to arg1 + arg0 are the indices of the
+    /// values to read from.
+    MakeTuple,
+    /// Make a tuple with arg0 arguments on the stack at index arg1. arg1 + 1 to arg1 + arg0 are the indices of the
+    /// values to read from. arg1 shall contain the type name (struct name) before invocation.
+    MakeStruct,
 }
 
 macro_rules! impl_op_from {
@@ -137,7 +142,9 @@ impl_op_from!(
     Jf,
     Call,
     Ret,
-    Cast
+    Cast,
+    MakeTuple,
+    MakeStruct
 );
 
 /// A single instruction in a bytecode. OpCodes can have 0 to 2 arguments.

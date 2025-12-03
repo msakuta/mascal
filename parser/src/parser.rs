@@ -77,6 +77,18 @@ impl<'a> ArgDecl<'a> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructField<'src> {
+    pub(crate) name: Span<'src>,
+    pub(crate) ty: TypeDecl,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructDecl<'src> {
+    pub(crate) name: Span<'src>,
+    pub(crate) fields: Vec<StructField<'src>>,
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum Statement<'a> {
     Comment(&'a str),
@@ -106,6 +118,7 @@ pub enum Statement<'a> {
         stmts: Vec<Statement<'a>>,
     },
     Break,
+    Struct(StructDecl<'a>),
 }
 
 impl<'a> Statement<'a> {
@@ -126,12 +139,24 @@ pub(crate) enum ExprEnum<'a> {
     StrLiteral(String),
     ArrLiteral(Vec<Expression<'a>>),
     TupleLiteral(Vec<Expression<'a>>),
+    StructLiteral {
+        name: Span<'a>,
+        fields: Vec<(Span<'a>, Expression<'a>)>,
+        /// A reference to struct definition. It will be filled in type inference pass.
+        def: Option<Rc<StructDecl<'a>>>,
+    },
     Variable(&'a str),
     Cast(Box<Expression<'a>>, TypeDecl),
     VarAssign(Box<Expression<'a>>, Box<Expression<'a>>),
     FnInvoke(&'a str, Vec<FnArg<'a>>),
     ArrIndex(Box<Expression<'a>>, Vec<Expression<'a>>),
     TupleIndex(Box<Expression<'a>>, usize),
+    FieldAccess {
+        prefix: Box<Expression<'a>>,
+        postfix: Span<'a>,
+        /// A reference to struct definition. It will be filled in type inference pass.
+        def: Option<Rc<StructDecl<'a>>>,
+    },
     Not(Box<Expression<'a>>),
     BitNot(Box<Expression<'a>>),
     Neg(Box<Expression<'a>>),
@@ -229,7 +254,7 @@ fn ident_space(input: Span) -> IResult<Span, Span> {
     ws(identifier)(input)
 }
 
-pub(crate) fn var_ref(input: Span) -> IResult<Span, Expression> {
+pub(crate) fn _var_ref(input: Span) -> IResult<Span, Expression> {
     let (r, res) = ident_space(input)?;
     Ok((r, Expression::new(ExprEnum::Variable(res.fragment()), res)))
 }
@@ -308,8 +333,19 @@ fn type_tuple(i: Span) -> IResult<Span, TypeDecl> {
     Ok((r, TypeDecl::Tuple(val)))
 }
 
+fn type_name(i: Span) -> IResult<Span, TypeDecl> {
+    let (r, id) = identifier(i)?;
+    match *id {
+        "void" => Err(nom::Err::Failure(nom::error::Error::new(
+            id,
+            nom::error::ErrorKind::Tag,
+        ))),
+        _ => Ok((r, TypeDecl::TypeName(id.to_string()))),
+    }
+}
+
 pub(crate) fn type_decl(input: Span) -> IResult<Span, TypeDecl> {
-    alt((type_array, type_tuple, type_scalar))(input)
+    alt((type_array, type_tuple, type_scalar, type_name))(input)
 }
 
 fn cast(i: Span) -> IResult<Span, Expression> {
@@ -598,16 +634,80 @@ pub(crate) fn tuple_index(i: Span) -> IResult<Span, Expression> {
     ))
 }
 
+pub(crate) fn field_access(i: Span) -> IResult<Span, Expression> {
+    let (r, prim) = primary_expression(i)?;
+    let (r, indices) = many1(ws(preceded(tag("."), ident_space)))(r)?;
+    let prim_span = prim.span;
+    Ok((
+        r,
+        indices
+            .into_iter()
+            .fold(Ok(prim), |acc, field: Span| -> Result<_, _> {
+                Ok(Expression::new(
+                    ExprEnum::FieldAccess {
+                        prefix: Box::new(acc?),
+                        postfix: field,
+                        def: None,
+                    },
+                    i.subslice(i.offset(&prim_span), prim_span.offset(&r)),
+                ))
+            })?,
+    ))
+}
+
 pub(crate) fn primary_expression(i: Span) -> IResult<Span, Expression> {
     alt((
         numeric_literal_expression,
         str_literal,
         array_literal,
-        var_ref,
         parens,
         brace_expr,
         tuple_literal,
+        primary_with_ident,
     ))(i)
+}
+
+fn primary_with_ident(i: Span) -> IResult<Span, Expression> {
+    let (r, ident) = ident_space(i)?;
+
+    if let Ok(str_lit) = struct_literal(ident, r) {
+        return Ok(str_lit);
+    };
+
+    Ok((
+        r,
+        Expression::new(ExprEnum::Variable(ident.fragment()), ident),
+    ))
+}
+
+/// The difference from [`func_arg`] is that the type is not optional.
+fn struct_field_literal(i: Span) -> IResult<Span, (Span, Expression)> {
+    let (r, field_name) = ws(identifier)(i)?;
+    let (r, _) = tag(":")(r)?;
+    let (r, ex) = expr(r)?;
+    Ok((r, (field_name, ex)))
+}
+
+fn struct_literal<'a>(name: Span<'a>, i: Span<'a>) -> IResult<Span<'a>, Expression<'a>> {
+    let (r, _) = ws(tag("{"))(i)?;
+
+    let (r, fields) = terminated(
+        separated_list0(ws(tag(",")), struct_field_literal),
+        opt(ws(char(','))),
+    )(r)?;
+
+    let (r, _) = ws(tag("}"))(r)?;
+    return Ok((
+        r,
+        Expression::new(
+            ExprEnum::StructLiteral {
+                name,
+                fields,
+                def: None,
+            },
+            calc_offset(i, r),
+        ),
+    ));
 }
 
 fn postfix_expression(i: Span) -> IResult<Span, Expression> {
@@ -615,6 +715,7 @@ fn postfix_expression(i: Span) -> IResult<Span, Expression> {
         func_invoke,
         array_index,
         tuple_index,
+        field_access,
         cast,
         primary_expression,
     ))(i)
@@ -933,6 +1034,36 @@ fn break_stmt(input: Span) -> IResult<Span, Statement> {
     Ok((r, Statement::Break))
 }
 
+/// The difference from [`func_arg`] is that the type is not optional.
+fn struct_field(i: Span) -> IResult<Span, StructField> {
+    let (r, field_name) = ws(identifier)(i)?;
+    let (r, ty) = ws(type_spec)(r)?;
+    Ok((
+        r,
+        StructField {
+            name: field_name,
+            ty,
+        },
+    ))
+}
+
+fn struct_def(i: Span<'_>) -> IResult<Span<'_>, Statement<'_>> {
+    let (r, _) = tuple((multispace0, tag("struct"), multispace1))(i)?;
+
+    let (r, name) = identifier(r)?;
+
+    let (r, _) = ws(tag("{"))(r)?;
+
+    let (r, fields) = terminated(
+        separated_list0(ws(tag(",")), struct_field),
+        opt(ws(char(','))),
+    )(r)?;
+
+    let (r, _) = ws(tag("}"))(r)?;
+
+    Ok((r, Statement::Struct(StructDecl { name, fields })))
+}
+
 pub(crate) fn statement(input: Span) -> IResult<Span, Statement> {
     alt((
         var_decl,
@@ -941,6 +1072,7 @@ pub(crate) fn statement(input: Span) -> IResult<Span, Statement> {
         while_stmt,
         for_stmt,
         break_stmt,
+        struct_def,
         expression_statement,
         comment_stmt,
     ))(input)

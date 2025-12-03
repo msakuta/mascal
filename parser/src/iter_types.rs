@@ -66,7 +66,7 @@ pub fn iter_types(ast: &[Statement], f: &mut impl FnMut(TypeParams)) {
                 iter_types_expr(end, f);
                 iter_types(stmts, f);
             }
-            Statement::Break => (),
+            Statement::Break | Statement::Struct(_) => (),
         }
     }
 }
@@ -82,6 +82,19 @@ fn iter_types_expr(ex: &Expression, f: &mut impl FnMut(TypeParams)) {
                     literal: true,
                 });
             }
+        }
+        ExprEnum::StructLiteral { fields, .. } => {
+            for (_, field_ex) in fields {
+                iter_types_expr(field_ex, f);
+            }
+            // if let Some(RetType::Some(ty)) = fields.determine() {
+            //     f(TypeParams {
+            //         span: ex.span,
+            //         ty: &ty,
+            //         annotated: false,
+            //         literal: true,
+            //     });
+            // }
         }
         ExprEnum::StrLiteral(_)
         | ExprEnum::ArrLiteral(_)
@@ -101,6 +114,7 @@ fn iter_types_expr(ex: &Expression, f: &mut impl FnMut(TypeParams)) {
             }
         }
         ExprEnum::TupleIndex(ex, _)
+        | ExprEnum::FieldAccess { prefix: ex, .. }
         | ExprEnum::Not(ex)
         | ExprEnum::BitNot(ex)
         | ExprEnum::Neg(ex) => {

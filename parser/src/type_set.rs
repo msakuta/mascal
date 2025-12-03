@@ -53,6 +53,7 @@ pub struct TypeSetFlags {
     pub string: bool,
     pub array: Option<(Box<TypeSet>, ArraySize)>,
     pub tuple: Option<Vec<TypeSet>>,
+    pub type_name: Vec<String>,
 }
 
 impl TypeSetAnnotated {
@@ -160,6 +161,13 @@ impl TypeSet {
         })
     }
 
+    pub fn type_name(name: String) -> Self {
+        Self::Set(TypeSetFlags {
+            type_name: vec![name],
+            ..TypeSetFlags::default()
+        })
+    }
+
     pub fn void() -> Self {
         Self::Set(TypeSetFlags {
             void: true,
@@ -183,6 +191,7 @@ impl TypeSet {
                     && !set.void
                     && set.array.is_none()
                     && set.tuple.is_none()
+                    && set.type_name.is_empty()
             }
         }
     }
@@ -235,6 +244,8 @@ impl TypeSet {
                         .map(|a| a.determine().and_then(|d| d.as_opt().cloned()))
                         .collect::<Option<_>>()?;
                     return Some(RetType::Some(TypeDecl::Tuple(type_sets)));
+                } else if let Some(tn) = set.type_name.first().cloned() {
+                    return Some(RetType::Some(TypeDecl::TypeName(tn)));
                 }
             }
         }
@@ -305,6 +316,12 @@ impl std::ops::BitAnd for TypeSet {
             string: set.string & rhs.string,
             array,
             tuple,
+            type_name: set
+                .type_name
+                .iter()
+                .filter_map(|name| rhs.type_name.iter().find(|name2| name == *name2))
+                .cloned()
+                .collect(),
         })
     }
 }
@@ -366,6 +383,12 @@ impl TypeSet {
             string: set.string & rhs.string,
             array,
             tuple,
+            type_name: set
+                .type_name
+                .iter()
+                .filter_map(|name| rhs.type_name.iter().find(|name2| name == *name2))
+                .cloned()
+                .collect(),
         });
 
         if ret.is_none() {
@@ -397,6 +420,9 @@ impl From<&TypeDecl> for TypeSet {
             TypeDecl::Array(ty, size) => return TypeSet::array(ty.as_ref().into(), size.clone()),
             TypeDecl::Tuple(types) => {
                 return TypeSet::tuple(types.iter().map(|ty| ty.into()).collect())
+            }
+            TypeDecl::TypeName(name) => {
+                return TypeSet::type_name(name.clone());
             }
         }
         Self::Set(ret)
@@ -497,9 +523,9 @@ impl std::fmt::Display for TypeSetFlags {
             )?;
         }
 
-        // for st in &self.structs {
-        //     write_ty(true, st)?;
-        // }
+        for tn in &self.type_name {
+            write_ty(true, tn)?;
+        }
 
         if !written {
             write!(f, "(none)")?;

@@ -1,14 +1,14 @@
 //! Bytecode interpreter, aka a Virtual Machine.
 
-use std::{collections::HashMap, io::Write};
+use std::{cell::RefCell, collections::HashMap, io::Write, rc::Rc};
 
 use crate::{
     bytecode::{Bytecode, FnBytecode, FnProto, FnProtos, OpCode},
     coercion::{coerce_i64, coerce_type},
-    interpreter::{
-        binary_op, binary_op_int, binary_op_str, compare_op, truthy, EvalError, EvalResult,
-    },
+    eval_error::EvalError,
+    interpreter::{binary_op, binary_op_int, binary_op_str, compare_op, truthy, EvalResult},
     type_decl::TypeDecl,
+    value::{StructInt, TupleEntry},
     Value,
 };
 
@@ -382,15 +382,17 @@ impl<'a> Vm<'a> {
                 let target_collection = &self.get(inst.arg0);
                 let target_index = &self.get(inst.arg1);
                 let index = coerce_i64(target_index)? as u64;
-                let new_val = target_collection.array_get(index).or_else(|_| {
-                    target_collection.tuple_get(index)
-                }).map_err(|e| {
-                    format!("Get instruction failed with {target_collection:?} and {target_index:?}: {e:?}")
-                })?;
+                let new_val = target_collection
+                    .array_get(index)
+                    .or_else(|_| target_collection.tuple_get(index))
+                    .or_else(|_| target_collection.struct_field(index))
+                    .map_err(|e| {
+                        format!("Get instruction failed with {target_collection:?} and {target_index:?}: {e:?}")
+                    })?;
                 self.set(inst.arg1, new_val);
             }
             OpCode::Set => {
-                let target_collection = &self.get(inst.arg0);
+                let target_collection = self.get(inst.arg0);
                 let value = self.get(inst.arg1);
                 let index = self.set_register;
                 target_collection.array_assign(index, value.clone())?;
@@ -502,6 +504,37 @@ impl<'a> Vm<'a> {
                     .map_err(|e| format!("arg1 of Cast was not a TypeDecl: {e:?}"))?;
                 let new_val = coerce_type(target_var, &tt)?;
                 self.set(inst.arg0, new_val);
+            }
+            OpCode::MakeTuple => {
+                let values = (0..inst.arg0)
+                    .map(|i| {
+                        // +1 for the return slot
+                        let stk_val = i as usize + inst.arg1 as usize + 1;
+                        let value = self.get(stk_val);
+                        TupleEntry {
+                            decl: TypeDecl::from_value(value),
+                            value: value.clone(),
+                        }
+                    })
+                    .collect::<Vec<_>>();
+
+                let tuple = Value::Tuple(Rc::new(RefCell::new(values)));
+                self.set(inst.arg1, tuple);
+            }
+            OpCode::MakeStruct => {
+                let values = (0..inst.arg0)
+                    .map(|i| {
+                        // +1 for the name/return slot
+                        let stk_val = i as usize + inst.arg1 as usize + 1;
+                        self.get(stk_val).clone()
+                    })
+                    .collect::<Vec<_>>();
+
+                let st_value = Value::Struct(Rc::new(RefCell::new(StructInt {
+                    name: self.get(inst.arg1 as usize).to_string(),
+                    fields: values,
+                })));
+                self.set(inst.arg1, st_value);
             }
         }
 
