@@ -1,0 +1,12 @@
+var a: [i32; 2, 3] = [1, 2, 3; 4, 5, 6];
+var b: [i32; 2, 1] = reshape([7, 8], [-1, 1]);
+var c: [i32; 2, 4] = hstack(a, b);
+
+print(c, shape(c));
+
+var d: [i32; 2, 3, 2] = reshape([1, 2, 3; 4, 5, 6; 7, 8, 9; 10, 11, 12], [2, 3, 2]);
+print(d, shape(d));
+var e: [i32; 2, 1, 2] = reshape([13, 14; 15, 16], [2, 1, 2]);
+var f: [i32; 2, 4, 2] = hstack(d, e);
+
+print(f, shape(f));

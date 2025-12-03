@@ -14,6 +14,7 @@ mod format_ast;
 mod interpreter;
 mod iter_types;
 mod parser;
+mod std_fns;
 mod type_decl;
 mod type_infer;
 mod type_set;

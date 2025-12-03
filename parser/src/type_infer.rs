@@ -7,9 +7,10 @@ use std::{collections::HashMap, fmt::Display, rc::Rc};
 
 use crate::{
     format_ast::{format_expr, format_stmt},
-    interpreter::{std_functions, FuncCode, RetType, TypeMapRc},
+    interpreter::{FuncCode, RetType, TypeMapRc},
     parser::{ExprEnum, Expression, Statement, StructDecl},
-    type_decl::{ArraySize, TypeDecl},
+    std_fns::std_functions,
+    type_decl::{ArraySize, ArraySizeAxis, TypeDecl},
     type_set::TypeSet,
     FuncDef, Span,
 };
@@ -281,9 +282,9 @@ where
         ExprEnum::StrLiteral(_val) => TypeSet::str(),
         ExprEnum::ArrLiteral(val) => {
             if val.is_empty() {
-                return Ok(TypeSet::array(TypeSet::all(), ArraySize::Fixed(0)));
+                return Ok(TypeSet::array(TypeSet::all(), ArraySize::default()));
             }
-            for (ex1, ex2) in val[..val.len() - 1].iter().zip(val[1..].iter()) {
+            for (ex1, ex2) in val.iter().flatten().zip(val.iter().flatten().skip(1)) {
                 let el1 = tc_expr_forward(ex1, ctx)?;
                 let el2 = tc_expr_forward(ex2, ctx)?;
                 if el1 != el2 {
@@ -296,9 +297,10 @@ where
             }
             let ty = val
                 .first()
+                .and_then(|v| v.first())
                 .map(|e| tc_expr_forward(e, ctx))
                 .unwrap_or(Ok(TypeSet::all()))?;
-            TypeSet::array(ty, ArraySize::Fixed(val.len()))
+            TypeSet::array(ty, ArraySize(vec![ArraySizeAxis::Fixed(val.len())]))
         }
         ExprEnum::TupleLiteral(val) => {
             let type_sets = val
@@ -535,7 +537,22 @@ where
         ExprEnum::StrLiteral(_) => (), // String literals always of type string, so nothing to propagate
         ExprEnum::ArrLiteral(vec) => {
             if let Some((arr_ts, size)) = ts.and_then(|ts| ts.array.as_ref()) {
-                if !size.contains(vec.len()) {
+                if size.0.len() != vec.len() {
+                    return Err(TypeCheckError::new(
+                        format!(
+                            "Array dimension is not compatible: {} != {}",
+                            vec.len(),
+                            size.0.len()
+                        ),
+                        span,
+                        ctx.source_file,
+                    ));
+                }
+                if size
+                    .iter()
+                    .zip(vec.iter())
+                    .any(|(s, v)| !s.contains(v.len()))
+                {
                     return Err(TypeCheckError::new(
                         format!(
                             "Size is not compatible: {} is not contained in {}",
@@ -546,7 +563,7 @@ where
                         ctx.source_file,
                     ));
                 }
-                for elem in vec {
+                for elem in vec.iter_mut().flatten() {
                     tc_expr_reverse(elem, arr_ts, ctx)?;
                 }
             }
@@ -612,7 +629,7 @@ where
             }
         }
         ExprEnum::ArrIndex(ex, indices) => {
-            tc_expr_reverse(ex, &TypeSet::array(ts.clone(), ArraySize::Any), ctx)?;
+            tc_expr_reverse(ex, &TypeSet::array(ts.clone(), ArraySize::default()), ctx)?;
             for idx in indices {
                 // For now, array indices are always integers
                 tc_expr_reverse(idx, &TypeSet::int(), ctx)?;

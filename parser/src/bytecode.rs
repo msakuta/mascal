@@ -11,13 +11,7 @@ use std::{
 };
 
 pub use self::debug_info::{DebugInfo, FunctionInfo, LineInfo};
-
-use crate::{
-    eval_error::EvalError,
-    interpreter::{s_hex_string, s_len, s_print, s_push, s_puts, s_resize, s_strlen, s_type},
-    parser::ReadError,
-    value::Value,
-};
+use crate::{eval_error::EvalError, parser::ReadError, std_fns::std_functions_gen, value::Value};
 
 /// Operational codes for an instruction. Supposed to fit in an u8.
 #[derive(Debug, Clone, Copy)]
@@ -418,30 +412,12 @@ impl Bytecode {
 
 /// Add standard common functions, such as `print`, `len` and `push`, to this bytecode.
 pub fn std_functions(
-    out: Rc<RefCell<dyn Write>>,
+    _out: Rc<RefCell<dyn Write>>,
     f: &mut impl FnMut(String, Box<dyn Fn(&[Value]) -> Result<Value, EvalError>>),
 ) {
-    let out2 = out.clone();
-    f(
-        "print".to_string(),
-        Box::new(move |values| {
-            let mut borrow = out2.borrow_mut();
-            s_print(&mut *borrow, values)
-        }),
-    );
-    let out3 = out.clone();
-    f(
-        "puts".to_string(),
-        Box::new(move |values: &[Value]| -> Result<Value, EvalError> {
-            s_puts(&mut *out3.borrow_mut(), values)
-        }),
-    );
-    f("type".to_string(), Box::new(&s_type));
-    f("strlen".to_string(), Box::new(s_strlen));
-    f("len".to_string(), Box::new(s_len));
-    f("push".to_string(), Box::new(s_push));
-    f("resize".to_string(), Box::new(s_resize));
-    f("hex_string".to_string(), Box::new(s_hex_string));
+    std_functions_gen(&mut |name, code, _, _| {
+        f(name.to_string(), Box::new(code));
+    });
 }
 
 #[derive(Debug, Clone)]

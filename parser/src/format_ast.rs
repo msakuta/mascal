@@ -92,14 +92,16 @@ pub fn format_expr(
             Ok(())
         }
         ExprEnum::ArrLiteral(vec) => {
-            write!(f, "[")?;
-            for (i, elem) in vec.iter().enumerate() {
-                if i != 0 {
-                    write!(f, ", ")?;
+            for vec2 in vec {
+                write!(f, "[")?;
+                for (i, elem) in vec2.iter().enumerate() {
+                    if i != 0 {
+                        write!(f, ", ")?;
+                    }
+                    format_expr(elem, level + 1, f)?;
                 }
-                format_expr(elem, level + 1, f)?;
+                write!(f, "]")?;
             }
-            write!(f, "]")?;
             Ok(())
         }
         ExprEnum::TupleLiteral(vec) => {

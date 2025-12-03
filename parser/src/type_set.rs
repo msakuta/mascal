@@ -1,4 +1,8 @@
-use crate::{interpreter::RetType, type_decl::ArraySize, TypeDecl};
+use crate::{
+    interpreter::RetType,
+    type_decl::{ArraySize, ArraySizeAxis},
+    TypeDecl,
+};
 
 /// TypeSet with a flag whether it was annotated in the original source code.
 /// It can keep track of existence of type annotation even after type inference
@@ -288,7 +292,7 @@ impl std::ops::BitAnd for TypeSet {
                 if set.0 != rhs.0 {
                     return None;
                 }
-                let size = set.1.try_and(&rhs.1)?;
+                let size = set.1.try_and(&rhs.1);
                 Some((std::mem::take(&mut set.0), size))
             });
         let tuple = set
@@ -343,8 +347,9 @@ impl TypeSet {
         let array = if let Some((set, rhs)) = pair {
             // The element type of the array has to be "Any" or determined, not a mix of 2 types
             let ty = set.0.as_ref().try_intersect(&rhs.0)?;
-            if let Some(size) = set.1.try_and(&rhs.1) {
-                let res = (Box::new(ty), size);
+            let intersection = set.1.try_and(&rhs.1);
+            if intersection.iter().all(|a| !a.is_empty()) {
+                let res = (Box::new(ty), intersection);
                 Some(res)
             } else {
                 return Err(format!(
@@ -535,57 +540,63 @@ impl std::fmt::Display for TypeSetFlags {
 }
 
 fn array_size_to_string(this: &(Box<TypeSet>, ArraySize)) -> String {
-    match &this.1 {
-        ArraySize::Fixed(size) => format!("[{}; {}]", this.0, size),
-        ArraySize::Range(range) => format!("[{}; {:?}]", this.0, range),
-        _ => format!("[{}]", this.0),
-    }
+    let shape = this.1.iter().fold("".to_string(), |mut acc, cur| {
+        if !acc.is_empty() {
+            acc += ", ";
+        }
+        match cur {
+            ArraySizeAxis::Fixed(size) => acc + &size.to_string(),
+            ArraySizeAxis::Range(range) => acc + &format!("{:?}", range),
+            _ => acc + "..",
+        }
+    });
+    format!("[{}; {}]", this.0, shape)
 }
 
-fn _tc_array_size(value: &ArraySize, target: &ArraySize) -> Result<(), String> {
-    match (value, target) {
-        (_, ArraySize::Any) => {}
-        (ArraySize::Fixed(v_len), ArraySize::Fixed(t_len)) => {
-            if v_len != t_len {
-                return Err(format!(
-                    "Array size is not compatible: {v_len} cannot assign to {t_len}"
-                ));
-            }
-        }
-        (ArraySize::Range(v_range), ArraySize::Range(t_range)) => {
-            _array_range_verify(v_range)?;
-            _array_range_verify(t_range)?;
-            if t_range.end < v_range.end || v_range.start < t_range.start {
-                return Err(format!(
-                    "Array range is not compatible: {value} cannot assign to {target}"
-                ));
-            }
-        }
-        (ArraySize::Fixed(v_len), ArraySize::Range(t_range)) => {
-            _array_range_verify(t_range)?;
-            if *v_len < t_range.start || t_range.end < *v_len {
-                return Err(format!(
-                    "Array range is not compatible: {v_len} cannot assign to {target}"
-                ));
-            }
-        }
-        (ArraySize::Any, ArraySize::Range(t_range)) => {
-            _array_range_verify(t_range)?;
-        }
-        _ => {
-            return Err(format!(
-                "Array size constraint is not compatible between {value:?} and {target:?}"
-            ));
-        }
-    }
-    Ok(())
-}
+// fn _tc_array_size(value: &ArraySize, target: &ArraySize) -> Result<(), String> {
+//     match (value, target) {
+//         (_, ArraySize::Any) => {}
+//         (ArraySize::Fixed(v_len), ArraySize::Fixed(t_len)) => {
+//             if v_len != t_len {
+//                 return Err(format!(
+//                     "Array size is not compatible: {v_len} cannot assign to {t_len}"
+//                 ));
+//             }
+//         }
+//         (ArraySize::Range(v_range), ArraySize::Range(t_range)) => {
+//             _array_range_verify(v_range)?;
+//             _array_range_verify(t_range)?;
+//             if t_range.end < v_range.end || v_range.start < t_range.start {
+//                 return Err(format!(
+//                     "Array range is not compatible: {value} cannot assign to {target}"
+//                 ));
+//             }
+//         }
+//         (ArraySize::Fixed(v_len), ArraySize::Range(t_range)) => {
+//             _array_range_verify(t_range)?;
+//             if *v_len < t_range.start || t_range.end < *v_len {
+//                 return Err(format!(
+//                     "Array range is not compatible: {v_len} cannot assign to {target}"
+//                 ));
+//             }
+//         }
+//         (ArraySize::Any, ArraySize::Range(t_range)) => {
+//             _array_range_verify(t_range)?;
+//         }
+//         _ => {
+//             return Err(format!(
+//                 "Array size constraint is not compatible between {value:?} and {target:?}"
+//             ));
+//         }
+//     }
+//     Ok(())
+// }
 
-fn _array_range_verify(range: &std::ops::Range<usize>) -> Result<(), String> {
-    if range.end < range.start {
-        return Err(format!(
-            "Array size has invalid range: {range:?}; start should be less than end"
-        ));
-    }
-    Ok(())
-}
+// fn _array_range_verify(range: &std::ops::Range<usize>) -> Result<(), String> {
+//     if range.end < range.start {
+//         return Err(format!(
+//             "Array size has invalid range: {range:?}; start should be less than end"
+//         ));
+//     }
+//     Ok(())
+// }

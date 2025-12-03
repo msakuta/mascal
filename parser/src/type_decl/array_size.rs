@@ -2,8 +2,54 @@ use std::io::{Read, Write};
 
 use crate::ReadError;
 
+/// Array size that possibly define the shape of multi-dimensional arrays.
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub enum ArraySize {
+pub struct ArraySize(pub Vec<ArraySizeAxis>);
+
+impl Default for ArraySize {
+    fn default() -> Self {
+        Self(vec![ArraySizeAxis::Any])
+    }
+}
+
+impl std::ops::Deref for ArraySize {
+    type Target = Vec<ArraySizeAxis>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl ArraySize {
+    /// Returns a 1-dimensional array with unbounded size.
+    pub fn all_dyn() -> Self {
+        Self(vec![ArraySizeAxis::Range(0..usize::MAX)])
+    }
+
+    pub fn try_and(&self, other: &Self) -> Self {
+        Self(
+            self.iter()
+                .zip(other.iter())
+                .map(|(s, r)| s.try_and(&r).unwrap_or(ArraySizeAxis::Fixed(0)))
+                .collect::<Vec<_>>(),
+        )
+    }
+}
+
+impl std::fmt::Display for ArraySize {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (i, a) in self.0.iter().enumerate() {
+            if i != 0 {
+                write!(f, ", {}", a)?;
+            } else {
+                write!(f, "{}", a)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum ArraySizeAxis {
     /// Either dynamic or fixed array
     Any,
     /// Fixed array with a length
@@ -12,7 +58,7 @@ pub enum ArraySize {
     Range(std::ops::Range<usize>),
 }
 
-impl ArraySize {
+impl ArraySizeAxis {
     fn tag(&self) -> u8 {
         match self {
             Self::Any => 0,
@@ -91,9 +137,16 @@ impl ArraySize {
             Self::Range(range) => range.contains(&size),
         }
     }
+
+    pub fn is_empty(&self) -> bool {
+        match self {
+            Self::Fixed(0) => true,
+            _ => false,
+        }
+    }
 }
 
-impl std::fmt::Display for ArraySize {
+impl std::fmt::Display for ArraySizeAxis {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Any => write!(f, "_"),
@@ -109,10 +162,21 @@ impl std::fmt::Display for ArraySize {
 }
 
 pub(super) fn write_array_size(value: &ArraySize, writer: &mut impl Write) -> std::io::Result<()> {
+    writer.write_all(&(value.0.len() as u64).to_le_bytes())?;
+    for v in &value.0 {
+        write_array_size_axis(v, writer)?;
+    }
+    Ok(())
+}
+
+pub(super) fn write_array_size_axis(
+    value: &ArraySizeAxis,
+    writer: &mut impl Write,
+) -> std::io::Result<()> {
     writer.write_all(&mut [value.tag()])?;
     match value {
-        ArraySize::Fixed(value) => writer.write_all(&(*value as u64).to_le_bytes())?,
-        ArraySize::Range(range) => {
+        ArraySizeAxis::Fixed(value) => writer.write_all(&(*value as u64).to_le_bytes())?,
+        ArraySizeAxis::Range(range) => {
             writer.write_all(&(range.start as u64).to_le_bytes())?;
             writer.write_all(&(range.end as u64).to_le_bytes())?;
         }
@@ -122,14 +186,24 @@ pub(super) fn write_array_size(value: &ArraySize, writer: &mut impl Write) -> st
 }
 
 pub(super) fn read_array_size(reader: &mut impl Read) -> Result<ArraySize, ReadError> {
+    let mut buf = [0u8; std::mem::size_of::<u64>()];
+    reader.read_exact(&mut buf)?;
+    let size = u64::from_le_bytes(buf) as usize;
+    let values = (0..size)
+        .map(|_| read_array_size_axis(reader))
+        .collect::<Result<_, _>>()?;
+    Ok(ArraySize(values))
+}
+
+pub(super) fn read_array_size_axis(reader: &mut impl Read) -> Result<ArraySizeAxis, ReadError> {
     let mut tag = [0u8; 1];
     reader.read_exact(&mut tag)?;
     Ok(match tag[0] {
-        0 => ArraySize::Any,
+        0 => ArraySizeAxis::Any,
         1 => {
             let mut buf = [0u8; std::mem::size_of::<u64>()];
             reader.read_exact(&mut buf)?;
-            ArraySize::Fixed(u64::from_le_bytes(buf) as usize)
+            ArraySizeAxis::Fixed(u64::from_le_bytes(buf) as usize)
         }
         2 => {
             let mut buf = [0u8; std::mem::size_of::<u64>()];
@@ -137,7 +211,7 @@ pub(super) fn read_array_size(reader: &mut impl Read) -> Result<ArraySize, ReadE
             let start = u64::from_le_bytes(buf) as usize;
             reader.read_exact(&mut buf)?;
             let end = u64::from_le_bytes(buf) as usize;
-            ArraySize::Range(start..end)
+            ArraySizeAxis::Range(start..end)
         }
         _ => return Err(ReadError::UndefinedOpCode(tag[0])),
     })

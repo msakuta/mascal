@@ -415,7 +415,7 @@ fn test_variable() {
 fn test_cmp_vars() {
     let span = Span::new("a < b");
     assert_eq!(
-        cmp(span).finish().unwrap().1,
+        cmp_expr(span).finish().unwrap().1,
         Expression::new(
             LT(
                 Box::new(Expression::new(Variable("a"), span.take(1))),
@@ -429,7 +429,7 @@ fn test_cmp_vars() {
 fn test_cmp_literal() {
     let span = Span::new("a < 100");
     assert_eq!(
-        cmp(span).finish().unwrap().1,
+        cmp_expr(span).finish().unwrap().1,
         Expression::new(
             LT(
                 Box::new(Expression::new(Variable("a"), span.take(1))),
@@ -763,7 +763,7 @@ fn test_array_decl() {
         statement(span).finish().unwrap().1,
         Statement::VarDecl {
             name: span.subslice(4, 1),
-            ty: TypeDecl::Array(Box::new(TypeDecl::I32), ArraySize::Any),
+            ty: TypeDecl::Array(Box::new(TypeDecl::I32), ArraySize::default()),
             ty_annotated: true,
             init: Some(Expression::new(
                 ArrLiteral(vec![
@@ -783,7 +783,10 @@ fn test_fixed_sz_array() {
         statement(span).finish().unwrap().1,
         Statement::VarDecl {
             name: span.subslice(4, 1),
-            ty: TypeDecl::Array(Box::new(TypeDecl::I32), ArraySize::Fixed(3)),
+            ty: TypeDecl::Array(
+                Box::new(TypeDecl::I32),
+                ArraySize(vec![ArraySizeAxis::Fixed(3)])
+            ),
             ty_annotated: true,
             init: Some(Expression::new(
                 ArrLiteral(vec![
@@ -804,7 +807,10 @@ fn test_range_sz_array() {
         statement(span).finish().unwrap().1,
         Statement::VarDecl {
             name: span.subslice(4, 1),
-            ty: TypeDecl::Array(Box::new(TypeDecl::I32), ArraySize::Range(0..usize::MAX)),
+            ty: TypeDecl::Array(
+                Box::new(TypeDecl::I32),
+                ArraySize(vec![ArraySizeAxis::Range(0..usize::MAX)])
+            ),
             ty_annotated: true,
             init: None
         }
@@ -815,7 +821,10 @@ fn test_range_sz_array() {
         statement(span).finish().unwrap().1,
         Statement::VarDecl {
             name: span.subslice(4, 1),
-            ty: TypeDecl::Array(Box::new(TypeDecl::I32), ArraySize::Range(3..usize::MAX)),
+            ty: TypeDecl::Array(
+                Box::new(TypeDecl::I32),
+                ArraySize(vec![ArraySizeAxis::Range(3..usize::MAX)])
+            ),
             ty_annotated: true,
             init: None
         }
@@ -826,12 +835,16 @@ fn test_range_sz_array() {
         statement(span).finish().unwrap().1,
         Statement::VarDecl {
             name: span.subslice(4, 1),
-            ty: TypeDecl::Array(Box::new(TypeDecl::I32), ArraySize::Range(0..10)),
+            ty: TypeDecl::Array(
+                Box::new(TypeDecl::I32),
+                ArraySize(vec![ArraySizeAxis::Range(0..10)])
+            ),
             ty_annotated: true,
             init: None
         }
     );
 }
+
 #[test]
 fn test_void_fn() {
     let span = Span::new("fn returns_void() -> void { print(\"Hello\")}");
@@ -925,12 +938,68 @@ fn test_struct() {
     let (r, stmt) = statement(src).finish().unwrap();
     assert!(r.is_empty());
     assert_eq!(
-        stmt,
-        Statement::VarDecl {
-            name: src.subslice(4, 1),
-            ty: TypeDecl::TypeName(src.subslice(7, 1).to_string()),
-            ty_annotated: true,
-            init: None
-        }
+            stmt,
+            Statement::VarDecl {
+                name: src.subslice(4, 1),
+                ty: TypeDecl::TypeName(src.subslice(7, 1).to_string()),
+                ty_annotated: true,
+                init: None
+            }
+    >>>>>>> master
+        );
+}
+
+#[test]
+fn test_muldim_array() {
+    let span = Span::new("var a: [i32; 2, 3];");
+    assert_eq!(
+        statement(span).finish().unwrap().1,
+        Statement::VarDecl(
+            span.subslice(4, 1),
+            TypeDecl::Array(
+                Box::new(TypeDecl::I32),
+                ArraySize(vec![ArraySizeAxis::Fixed(2), ArraySizeAxis::Fixed(3)])
+            ),
+            None
+        )
+    );
+}
+
+#[test]
+fn test_multiline_array() {
+    let span = Span::new("var a: [[i32; 3]; 2] = [\r\n[1, 2, 3], [4, 5, 6]\r\n];");
+    assert_eq!(
+        statement(span).finish().unwrap().1,
+        Statement::VarDecl(
+            span.subslice(4, 1),
+            TypeDecl::Array(
+                Box::new(TypeDecl::Array(
+                    Box::new(TypeDecl::I32),
+                    ArraySize(vec![ArraySizeAxis::Fixed(3)])
+                )),
+                ArraySize(vec![ArraySizeAxis::Fixed(2)])
+            ),
+            Some(Expression::new(
+                ArrLiteral(vec![vec![
+                    Expression::new(
+                        ArrLiteral(vec![vec![
+                            Expression::new(NumLiteral(Value::I64(1)), span.subslice(27, 1)),
+                            Expression::new(NumLiteral(Value::I64(2)), span.subslice(30, 1)),
+                            Expression::new(NumLiteral(Value::I64(3)), span.subslice(33, 1)),
+                        ]]),
+                        span.subslice(26, 9)
+                    ),
+                    Expression::new(
+                        ArrLiteral(vec![vec![
+                            Expression::new(NumLiteral(Value::I64(4)), span.subslice(38, 1)),
+                            Expression::new(NumLiteral(Value::I64(5)), span.subslice(41, 1)),
+                            Expression::new(NumLiteral(Value::I64(6)), span.subslice(44, 1)),
+                        ]]),
+                        span.subslice(37, 9)
+                    ),
+                ]]),
+                span.subslice(23, 26)
+            ))
+        )
     );
 }
