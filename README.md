@@ -50,6 +50,18 @@ If you have a pre-compiled bytecode file, you can just run it without compiling 
     cargo run --release -- -b <bytecode>.cdragon
 
 
+## Interactive debugger
+
+The command line interpreter has an interactive debugger, in which you can run a script by steps.
+
+![](images/screenshot00.png)
+
+You can enter this interactive debugger mode by specifying `-D` flag to the CLI.
+
+    cd cli
+    cargo run --release -- -bD <bytecode>.cdragon
+
+
 ## WebAssembly browser application
 
 You can also build a wasm package and run the interpreter on the browser.
@@ -85,11 +97,15 @@ In ascending order of difficulty.
 * [x] Static type checking (instead of runtime coercion)
 * [x] Type cast operator `as`
 * [x] Line and block comments (`/*`, `*/`, `//`)
+* [x] Comparison operators (`<`, `>`, `<=`, `>=`, `==`, `!=`)
+* [x] Pipe operator (`|>`), which chains functions with arity 1. Note that there is no currying.
 * [x] [Named arguments in function calls](https://github.com/msakuta/mascal/wiki/Function-signature#named-argument-in-function-call)
 * [x] [Default argument](https://github.com/msakuta/mascal/wiki/Function-signature#default-argument)
 * [x] Type casting in bytecode
 * [x] Proper error handling
 * [x] Tuple types
+* [x] Type inference
+* [x] Structs (memory-packed container with named fields)
 * [ ] Multi-dimensional arrays
 * [ ] Function types (first class function variables)
 * [ ] Lambda expressions

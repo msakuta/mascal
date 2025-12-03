@@ -3,13 +3,14 @@ mod lvalue;
 use self::lvalue::{eval_lvalue, LValue};
 
 use crate::{
+    coercion::{coerce_f64, coerce_i64, coerce_type},
+    eval_error::EvalError,
     parser::*,
     std_fns::std_functions,
-    type_decl::ArraySizeAxis,
-    value::{ArrayInt, TupleEntry},
+    value::{ArrayInt, StructInt, TupleEntry},
     TypeDecl, Value,
 };
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, io::Write, rc::Rc};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum RunResult {
@@ -18,123 +19,6 @@ pub enum RunResult {
 }
 
 pub type EvalResult<T> = Result<T, EvalError>;
-
-/// Error type for the AST intepreter and bytecode interpreter.
-/// Note that it is shared among 2 kinds of interpreters, so some of them only happen in either kind.
-/// Also note that it is supposed to be displayed with Display or "{}" format, not with Debug or "{:?}".
-///
-/// It owns the value so it is not bounded by a lifetime.
-/// The information about the error shold be converted to a string (by `format!("{:?}")`) before wrapping it
-/// into `EvalError`.
-#[non_exhaustive]
-#[derive(Debug, PartialEq, Eq)]
-pub enum EvalError {
-    Other(String),
-    CoerceError(String, String),
-    OpError(String, String),
-    CmpError(String, String),
-    FloatOpError(String, String),
-    StrOpError(String, String),
-    DisallowedBreak,
-    VarNotFound(String),
-    FnNotFound(String),
-    ArrayOutOfBounds(usize, usize),
-    NonRectangularArray,
-    TupleOutOfBounds(usize, usize),
-    IndexNonArray,
-    NeedRef(String),
-    NoMatchingArg(String, String),
-    MissingArg(String),
-    BreakInToplevel,
-    BreakInFnArg,
-    NonIntegerIndex,
-    NonIntegerBitwise(String),
-    NoMainFound,
-    NonNameFnRef(String),
-    CallStackUndeflow,
-    IncompatibleArrayLength(usize, usize),
-    AssignToLiteral(String),
-    IndexNonNum,
-    NonLValue(String),
-    /// Some other error that happened in a library code.
-    RuntimeError(String),
-}
-
-impl std::error::Error for EvalError {}
-
-impl std::fmt::Display for EvalError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Other(e) => write!(f, "Unknown error: {e}"),
-            Self::CoerceError(from, to) => {
-                write!(f, "Coercing from {from:?} to {to:?} is disallowed")
-            }
-            Self::OpError(lhs, rhs) => {
-                write!(f, "Unsupported operation between {lhs:?} and {rhs:?}")
-            }
-            Self::CmpError(lhs, rhs) => {
-                write!(f, "Unsupported comparison between {lhs:?} and {rhs:?}",)
-            }
-            Self::FloatOpError(lhs, rhs) => {
-                write!(f, "Unsupported float operation between {lhs:?} and {rhs:?}")
-            }
-            Self::StrOpError(lhs, rhs) => write!(
-                f,
-                "Unsupported string operation between {lhs:?} and {rhs:?}"
-            ),
-            Self::DisallowedBreak => write!(f, "Break in array literal not supported"),
-            Self::VarNotFound(name) => write!(f, "Variable {name} not found in scope"),
-            Self::FnNotFound(name) => write!(f, "Function {name} not found in scope"),
-            Self::ArrayOutOfBounds(idx, len) => write!(
-                f,
-                "ArrayRef index out of range: {idx} is larger than array length {len}"
-            ),
-            Self::NonRectangularArray => {
-                write!(f, "The array has different number of columns among rows")
-            }
-            Self::TupleOutOfBounds(idx, len) => write!(
-                f,
-                "Tuple index out of range: {idx} is larger than tuple length {len}"
-            ),
-            Self::IndexNonArray => write!(f, "array index must be called for an array"),
-            Self::NeedRef(name) => write!(
-                f,
-                "We need variable reference on lhs to assign. Actually we got {name:?}"
-            ),
-            Self::NoMatchingArg(arg, fun) => write!(
-                f,
-                "No matching named parameter \"{arg}\" is found in function \"{fun}\""
-            ),
-            Self::MissingArg(arg) => write!(f, "No argument is given to \"{arg}\""),
-            Self::BreakInToplevel => write!(f, "break in function toplevel"),
-            Self::BreakInFnArg => write!(f, "Break in function argument is not supported yet!"),
-            Self::NonIntegerIndex => write!(f, "Subscript type should be integer types"),
-            Self::NonIntegerBitwise(val) => {
-                write!(f, "Bitwise operation is not supported for {val}")
-            }
-            Self::NoMainFound => write!(f, "No main function found"),
-            Self::NonNameFnRef(val) => write!(
-                f,
-                "Function can be only specified by a name (yet), but got {val}"
-            ),
-            Self::CallStackUndeflow => write!(f, "Call stack underflow!"),
-            Self::IncompatibleArrayLength(dst, src) => write!(
-                f,
-                "Array length is incompatible; tried to assign {src} to {dst}"
-            ),
-            Self::AssignToLiteral(name) => write!(f, "Cannot assign to a literal: {}", name),
-            Self::IndexNonNum => write!(f, "Indexed an array with a non-number"),
-            Self::NonLValue(ex) => write!(f, "Expression {} is not an lvalue.", ex),
-            Self::RuntimeError(e) => write!(f, "Runtime error: {e}"),
-        }
-    }
-}
-
-impl From<String> for EvalError {
-    fn from(value: String) -> Self {
-        Self::Other(value)
-    }
-}
 
 /// An extension trait for `Vec` to write a shorthand for
 /// `values.get(idx).ok_or_else(|| EvalError::ArrayOutOfBounds(idx, values.len()))`, because
@@ -211,6 +95,27 @@ pub(crate) fn binary_op(
     )
 }
 
+pub(crate) fn compare_op(
+    lhs: &Value,
+    rhs: &Value,
+    d: impl Fn(&f64, &f64) -> bool,
+    i: impl Fn(&i64, &i64) -> bool,
+) -> Result<Value, EvalError> {
+    let d = |lhs, rhs| d(&lhs, &rhs);
+    let i = |lhs, rhs| i(&lhs, &rhs);
+    Ok(Value::I32(match (lhs.clone(), rhs.clone()) {
+        (Value::F64(lhs), rhs) => d(lhs, coerce_f64(&rhs)?),
+        (lhs, Value::F64(rhs)) => d(coerce_f64(&lhs)?, rhs),
+        (Value::F32(lhs), rhs) => d(lhs as f64, coerce_f64(&rhs)?),
+        (lhs, Value::F32(rhs)) => d(coerce_f64(&lhs)?, rhs as f64),
+        (Value::I64(lhs), Value::I64(rhs)) => i(lhs, rhs),
+        (Value::I64(lhs), Value::I32(rhs)) => i(lhs, rhs as i64),
+        (Value::I32(lhs), Value::I64(rhs)) => i(lhs as i64, rhs),
+        (Value::I32(lhs), Value::I32(rhs)) => i(lhs as i64, rhs as i64),
+        _ => return Err(EvalError::OpError(lhs.to_string(), rhs.to_string())),
+    } as i32))
+}
+
 pub(crate) fn binary_op_int(
     lhs: &Value,
     rhs: &Value,
@@ -233,182 +138,6 @@ pub(crate) fn truthy(a: &Value) -> bool {
         Value::I32(v) => *v != 0,
         _ => false,
     }
-}
-
-pub(crate) fn coerce_f64(a: &Value) -> EvalResult<f64> {
-    Ok(match a {
-        Value::F64(v) => *v as f64,
-        Value::F32(v) => *v as f64,
-        Value::I64(v) => *v as f64,
-        Value::I32(v) => *v as f64,
-        _ => 0.,
-    })
-}
-
-pub(crate) fn coerce_i64(a: &Value) -> EvalResult<i64> {
-    Ok(match a {
-        Value::F64(v) => *v as i64,
-        Value::F32(v) => *v as i64,
-        Value::I64(v) => *v as i64,
-        Value::I32(v) => *v as i64,
-        _ => 0,
-    })
-}
-
-fn coerce_str(a: &Value) -> EvalResult<String> {
-    Ok(match a {
-        Value::F64(v) => v.to_string(),
-        Value::F32(v) => v.to_string(),
-        Value::I64(v) => v.to_string(),
-        Value::I32(v) => v.to_string(),
-        Value::Str(v) => v.clone(),
-        _ => {
-            return Err(EvalError::CoerceError(
-                TypeDecl::from_value(a).to_string(),
-                "str".to_string(),
-            ))
-        }
-    })
-}
-
-fn _coerce_var(value: &Value, target: &Value) -> Result<Value, EvalError> {
-    Ok(match target {
-        Value::F64(_) => Value::F64(coerce_f64(value)?),
-        Value::F32(_) => Value::F32(coerce_f64(value)? as f32),
-        Value::I64(_) => Value::I64(coerce_i64(value)?),
-        Value::I32(_) => Value::I32(coerce_i64(value)? as i32),
-        Value::Str(_) => Value::Str(coerce_str(value)?),
-        Value::Array(array) => {
-            let ArrayInt {
-                type_decl: inner_type,
-                shape,
-                values: inner,
-            } = &array.borrow() as &ArrayInt;
-            if inner.len() == 0 {
-                if let Value::Array(array) = value {
-                    if array.borrow().values.len() == 0 {
-                        return Ok(value.clone());
-                    }
-                }
-                return Err(EvalError::CoerceError(
-                    "array".to_string(),
-                    "empty array".to_string(),
-                ));
-            } else {
-                if let Value::Array(array) = value {
-                    Value::Array(ArrayInt::new(
-                        inner_type.clone(),
-                        shape.clone(),
-                        array
-                            .borrow()
-                            .values
-                            .iter()
-                            .map(|val| -> EvalResult<_> { Ok(coerce_type(val, inner_type)?) })
-                            .collect::<Result<_, _>>()?,
-                    ))
-                } else {
-                    return Err(EvalError::CoerceError(
-                        "scalar".to_string(),
-                        "array".to_string(),
-                    ));
-                }
-            }
-        }
-        Value::Tuple(tuple) => {
-            let target_elems = tuple.borrow();
-            if target_elems.len() == 0 {
-                if let Value::Tuple(value_elems) = value {
-                    if value_elems.borrow().len() == 0 {
-                        return Ok(value.clone());
-                    }
-                }
-                return Err(EvalError::CoerceError(
-                    "array".to_string(),
-                    "empty array".to_string(),
-                ));
-            } else {
-                if let Value::Tuple(value_elems) = value {
-                    Value::Tuple(Rc::new(RefCell::new(
-                        value_elems
-                            .borrow()
-                            .iter()
-                            .zip(target_elems.iter())
-                            .map(|(val, tgt)| -> EvalResult<_> {
-                                Ok(TupleEntry {
-                                    decl: tgt.decl.clone(),
-                                    value: coerce_type(&val.value, &tgt.decl)?,
-                                })
-                            })
-                            .collect::<Result<_, _>>()?,
-                    )))
-                } else {
-                    return Err(EvalError::CoerceError(
-                        "scalar".to_string(),
-                        "array".to_string(),
-                    ));
-                }
-            }
-        }
-    })
-}
-
-pub fn coerce_type(value: &Value, target: &TypeDecl) -> Result<Value, EvalError> {
-    Ok(match target {
-        TypeDecl::Any => value.clone(),
-        TypeDecl::F64 => Value::F64(coerce_f64(value)?),
-        TypeDecl::F32 => Value::F32(coerce_f64(value)? as f32),
-        TypeDecl::I64 => Value::I64(coerce_i64(value)?),
-        TypeDecl::I32 => Value::I32(coerce_i64(value)? as i32),
-        TypeDecl::Str => Value::Str(coerce_str(value)?),
-        TypeDecl::Array(_, len) => {
-            if let Value::Array(array) = value {
-                let array = array.borrow();
-                for (v_axis, t_axis) in array.shape.iter().zip(len.0.iter()) {
-                    match t_axis {
-                        ArraySizeAxis::Fixed(len) => {
-                            if *len != *v_axis {
-                                return Err(EvalError::IncompatibleArrayLength(
-                                    *len,
-                                    array.values.len(),
-                                ));
-                            }
-                        }
-                        ArraySizeAxis::Range(range) => {
-                            if *v_axis < range.start {
-                                return Err(EvalError::IncompatibleArrayLength(
-                                    range.start,
-                                    *v_axis,
-                                ));
-                            }
-                            if range.end < *v_axis {
-                                return Err(EvalError::IncompatibleArrayLength(range.end, *v_axis));
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                // Type coercion should not alter the referenced value, i.e. array elements
-                return Ok(value.clone());
-            } else {
-                return Err(EvalError::CoerceError(
-                    value.to_string(),
-                    "array".to_string(),
-                ));
-            }
-        }
-        TypeDecl::Float => Value::F64(coerce_f64(value)?),
-        TypeDecl::Integer => Value::I64(coerce_i64(value)?),
-        TypeDecl::Tuple(_) => {
-            if let Value::Tuple(_) = value {
-                return Ok(value.clone());
-            } else {
-                return Err(EvalError::CoerceError(
-                    value.to_string(),
-                    "tuple".to_string(),
-                ));
-            }
-        }
-    })
 }
 
 fn eval_array_literal<'src, 'native>(
@@ -465,7 +194,7 @@ where
     'native: 'src,
 {
     Ok(match &e.expr {
-        ExprEnum::NumLiteral(val) => RunResult::Yield(val.clone()),
+        ExprEnum::NumLiteral(val, _) => RunResult::Yield(val.clone()),
         ExprEnum::StrLiteral(val) => RunResult::Yield(Value::Str(val.clone())),
         ExprEnum::ArrLiteral(val) => eval_array_literal(val, ctx)?,
         ExprEnum::TupleLiteral(val) => RunResult::Yield(Value::Tuple(Rc::new(RefCell::new(
@@ -482,6 +211,33 @@ where
                 })
                 .collect::<Result<Vec<_>, _>>()?,
         )))),
+        ExprEnum::StructLiteral { name, fields, .. } => {
+            // TODO: work around clone for the borrow checker
+            let st_ty = ctx
+                .get_type(**name)
+                .ok_or_else(|| EvalError::NoStructFound(name.to_string()))?
+                .clone();
+
+            RunResult::Yield(Value::Struct(Rc::new(RefCell::new(StructInt {
+                name: name.to_string(),
+                fields: st_ty
+                    .fields
+                    .iter()
+                    .map(|field_ty| {
+                        let (_, ex) = fields
+                            .iter()
+                            .find(|field| *field.0 == *field_ty.name)
+                            .ok_or_else(|| EvalError::NoFieldFound(field_ty.name.to_string()))?;
+
+                        if let RunResult::Yield(y) = unwrap_deref(eval(ex, ctx)?)? {
+                            Ok(y)
+                        } else {
+                            Err(EvalError::DisallowedBreak)
+                        }
+                    })
+                    .collect::<Result<Vec<_>, _>>()?,
+            }))))
+        }
         ExprEnum::Variable(str) => RunResult::Yield(
             ctx.get_var(str)
                 .ok_or_else(|| EvalError::VarNotFound(str.to_string()))?,
@@ -499,6 +255,7 @@ where
                     }
                 }
                 LValue::ArrayRef(arr, idx) => arr.borrow_mut().values[idx] = rhs_value.clone(),
+                LValue::StructRef(st, idx) => st.borrow_mut().fields[idx] = rhs_value.clone(),
             }
             RunResult::Yield(rhs_value)
         }
@@ -524,7 +281,7 @@ where
                     if let Some(eval_arg) = fn_args
                         .iter()
                         .enumerate()
-                        .find(|f| f.1.name == *name)
+                        .find(|f| *f.1.name == *name)
                         .and_then(|(i, _)| eval_args.get_mut(i))
                     {
                         *eval_arg = Some(eval(&arg.expr, ctx)?);
@@ -557,7 +314,7 @@ where
                     for (k, v) in func.args.iter().zip(&eval_args) {
                         if let Some(v) = v {
                             subctx.variables.borrow_mut().insert(
-                                k.name,
+                                *k.name,
                                 Rc::new(RefCell::new(coerce_type(&unwrap_run!(v.clone()), &k.ty)?)),
                             );
                         } else {
@@ -567,8 +324,8 @@ where
                     let run_result = run(&func.stmts, &mut subctx)?;
                     match unwrap_deref(run_result)? {
                         RunResult::Yield(v) => match &func.ret_type {
-                            Some(ty) => RunResult::Yield(coerce_type(&v, ty)?),
-                            None => RunResult::Yield(v),
+                            RetType::Some(ty) => RunResult::Yield(coerce_type(&v, ty)?),
+                            RetType::Void => RunResult::Yield(v),
                         },
                         RunResult::Break => return Err(EvalError::BreakInToplevel),
                     }
@@ -609,6 +366,29 @@ where
             let result = unwrap_run!(eval(ex, ctx)?);
             RunResult::Yield(result.tuple_get(*index as u64)?)
         }
+        ExprEnum::FieldAccess {
+            prefix: ex,
+            postfix: field_name,
+            ..
+        } => {
+            let result = unwrap_run!(eval(ex, ctx)?);
+
+            let st_ty = TypeDecl::from_value(&result);
+            let TypeDecl::TypeName(st_name) = st_ty else {
+                return Err(EvalError::TypeCheck("Type must be named".to_string()));
+            };
+            let st_ty = &ctx
+                .get_type(&st_name)
+                .ok_or_else(|| EvalError::NoStructFound(st_name.to_string()))?;
+            let (idx, _) = st_ty
+                .fields
+                .iter()
+                .enumerate()
+                .find(|(_, field)| *field.name == **field_name)
+                .ok_or_else(|| EvalError::NoFieldFound(field_name.to_string()))?;
+
+            RunResult::Yield(result.struct_field(idx as u64)?)
+        }
         ExprEnum::Not(val) => {
             RunResult::Yield(Value::I32(if truthy(&unwrap_run!(eval(val, ctx)?)) {
                 0
@@ -621,6 +401,16 @@ where
             RunResult::Yield(match val {
                 Value::I32(i) => Value::I32(!i),
                 Value::I64(i) => Value::I64(!i),
+                _ => return Err(EvalError::NonIntegerBitwise(format!("{val:?}"))),
+            })
+        }
+        ExprEnum::Neg(val) => {
+            let val = unwrap_run!(eval(val, ctx)?);
+            RunResult::Yield(match val {
+                Value::I32(i) => Value::I32(-i),
+                Value::I64(i) => Value::I64(-i),
+                Value::F32(i) => Value::F32(-i),
+                Value::F64(i) => Value::F64(-i),
                 _ => return Err(EvalError::NonIntegerBitwise(format!("{val:?}"))),
             })
         }
@@ -652,17 +442,41 @@ where
             |lhs, rhs| lhs / rhs,
             |lhs, rhs| lhs / rhs,
         )?),
-        ExprEnum::LT(lhs, rhs) => RunResult::Yield(binary_op(
+        ExprEnum::LT(lhs, rhs) => RunResult::Yield(compare_op(
             &unwrap_run!(eval(lhs, ctx)?),
             &unwrap_run!(eval(rhs, ctx)?),
-            |lhs, rhs| if lhs < rhs { 1. } else { 0. },
-            |lhs, rhs| if lhs < rhs { 1 } else { 0 },
+            f64::lt,
+            i64::lt,
         )?),
-        ExprEnum::GT(lhs, rhs) => RunResult::Yield(binary_op(
+        ExprEnum::LE(lhs, rhs) => RunResult::Yield(compare_op(
             &unwrap_run!(eval(lhs, ctx)?),
             &unwrap_run!(eval(rhs, ctx)?),
-            |lhs, rhs| if lhs > rhs { 1. } else { 0. },
-            |lhs, rhs| if lhs > rhs { 1 } else { 0 },
+            f64::le,
+            i64::le,
+        )?),
+        ExprEnum::GT(lhs, rhs) => RunResult::Yield(compare_op(
+            &unwrap_run!(eval(lhs, ctx)?),
+            &unwrap_run!(eval(rhs, ctx)?),
+            f64::gt,
+            i64::gt,
+        )?),
+        ExprEnum::GE(lhs, rhs) => RunResult::Yield(compare_op(
+            &unwrap_run!(eval(lhs, ctx)?),
+            &unwrap_run!(eval(rhs, ctx)?),
+            f64::ge,
+            i64::ge,
+        )?),
+        ExprEnum::EQ(lhs, rhs) => RunResult::Yield(compare_op(
+            &unwrap_run!(eval(lhs, ctx)?),
+            &unwrap_run!(eval(rhs, ctx)?),
+            f64::eq,
+            i64::eq,
+        )?),
+        ExprEnum::NE(lhs, rhs) => RunResult::Yield(compare_op(
+            &unwrap_run!(eval(lhs, ctx)?),
+            &unwrap_run!(eval(rhs, ctx)?),
+            f64::ne,
+            i64::ne,
         )?),
         ExprEnum::BitAnd(lhs, rhs) => RunResult::Yield(binary_op_int(
             &unwrap_run!(eval(lhs, ctx)?),
@@ -712,7 +526,7 @@ where
 #[derive(Clone)]
 pub struct FuncCode<'src> {
     args: Vec<ArgDecl<'src>>,
-    pub(crate) ret_type: Option<TypeDecl>,
+    pub(crate) ret_type: RetType,
     /// Owning a clone of AST of statements is not quite efficient, but we could not get
     /// around the borrow checker.
     stmts: Rc<Vec<Statement<'src>>>,
@@ -722,12 +536,58 @@ impl<'src> FuncCode<'src> {
     pub(crate) fn new(
         stmts: Rc<Vec<Statement<'src>>>,
         args: Vec<ArgDecl<'src>>,
-        ret_type: Option<TypeDecl>,
+        ret_type: RetType,
     ) -> Self {
         Self {
             args,
             ret_type,
             stmts,
+        }
+    }
+}
+
+/// A type for function return types. It has one extra state to usual TypeDef,
+/// which is Void. It merely wraps TypeDecl and Void in an enum.
+/// It is almost equivalent to std::option::Option, except it has intention to
+/// indicate Void-able type.
+#[derive(Debug, PartialEq, Clone)]
+pub enum RetType {
+    Void,
+    Some(TypeDecl),
+}
+
+impl RetType {
+    pub fn unwrap_or(&self, default: TypeDecl) -> TypeDecl {
+        match self {
+            Self::Void => default,
+            Self::Some(val) => val.clone(),
+        }
+    }
+
+    pub fn unwrap_or_any(&self) -> TypeDecl {
+        self.unwrap_or(TypeDecl::Any)
+    }
+
+    pub fn ok_or_else<E>(&self, f: impl FnOnce() -> E) -> Result<TypeDecl, E> {
+        match self {
+            Self::Void => Err(f()),
+            Self::Some(val) => Ok(val.clone()),
+        }
+    }
+
+    pub fn as_opt(&self) -> Option<&TypeDecl> {
+        match self {
+            Self::Void => None,
+            Self::Some(val) => Some(val),
+        }
+    }
+}
+
+impl std::fmt::Display for RetType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Some(v) => v.fmt(f),
+            _ => write!(f, "void"),
         }
     }
 }
@@ -779,6 +639,9 @@ impl<'src, 'native> FuncDef<'src, 'native> {
     }
 }
 
+pub(crate) type TypeMap<'src> = HashMap<String, StructDecl<'src>>;
+pub(crate) type TypeMapRc<'src> = HashMap<String, Rc<StructDecl<'src>>>;
+
 /// A context stat for evaluating a script.
 ///
 /// It has 3 lifetime arguments:
@@ -797,6 +660,7 @@ pub struct EvalContext<'src, 'native, 'ctx> {
     /// Unlike variables, functions cannot be overwritten in the outer scope, so it does not
     /// need to be wrapped in a RefCell.
     functions: HashMap<String, FuncDef<'src, 'native>>,
+    typedefs: TypeMap<'src>,
     super_context: Option<&'ctx EvalContext<'src, 'native, 'ctx>>,
 }
 
@@ -805,6 +669,7 @@ impl<'src, 'ast, 'native, 'ctx> EvalContext<'src, 'native, 'ctx> {
         Self {
             variables: RefCell::new(HashMap::new()),
             functions: std_functions(),
+            typedefs: HashMap::new(),
             super_context: None,
         }
     }
@@ -817,6 +682,7 @@ impl<'src, 'ast, 'native, 'ctx> EvalContext<'src, 'native, 'ctx> {
         Self {
             variables: RefCell::new(HashMap::new()),
             functions: HashMap::new(),
+            typedefs: HashMap::new(),
             super_context: Some(super_ctx),
         }
     }
@@ -850,11 +716,17 @@ impl<'src, 'ast, 'native, 'ctx> EvalContext<'src, 'native, 'ctx> {
             None
         }
     }
+
+    fn get_type(&self, name: &str) -> Option<&StructDecl<'src>> {
+        self.typedefs
+            .get(name)
+            .or_else(|| self.super_context.and_then(|sc| sc.get_type(name)))
+    }
 }
 
 macro_rules! unwrap_break {
     ($e:expr) => {
-        match unwrap_deref($e)? {
+        match $e {
             RunResult::Yield(v) => v,
             RunResult::Break => break,
         }
@@ -871,13 +743,18 @@ where
     let mut res = RunResult::Yield(Value::I32(0));
     for stmt in stmts {
         match stmt {
-            Statement::VarDecl(var, type_, initializer) => {
-                let init_val = if let Some(init_expr) = initializer {
+            Statement::VarDecl {
+                name: var,
+                ty,
+                init,
+                ..
+            } => {
+                let init_val = if let Some(init_expr) = init {
                     unwrap_break!(eval(init_expr, ctx)?)
                 } else {
                     Value::I32(0)
                 };
-                let init_val = coerce_type(&init_val, type_)?;
+                let init_val = coerce_type(&init_val, ty)?;
                 ctx.variables
                     .borrow_mut()
                     .insert(**var, Rc::new(RefCell::new(init_val)));
@@ -893,10 +770,17 @@ where
                     FuncDef::Code(FuncCode::new(stmts.clone(), args.clone(), ret_type.clone())),
                 );
             }
-            Statement::Expression(e) => {
-                res = eval(&e, ctx)?;
-                if let RunResult::Break = res {
-                    return Ok(res);
+            Statement::Expression { ex, semicolon } => {
+                let ex_res = eval(&ex, ctx)?;
+                match ex_res {
+                    RunResult::Yield(ex_res) => {
+                        if *semicolon {
+                            res = RunResult::Yield(ex_res);
+                        } else {
+                            res = RunResult::Yield(ex_res);
+                        }
+                    }
+                    RunResult::Break => return Ok(ex_res),
                 }
                 // println!("Expression evaluates to: {:?}", res);
             }
@@ -917,18 +801,27 @@ where
                     RunResult::Break => break,
                 };
             },
-            Statement::For(iter, from, to, e) => {
-                let from_res = coerce_i64(&unwrap_break!(eval(from, ctx)?))? as i64;
-                let to_res = coerce_i64(&unwrap_break!(eval(to, ctx)?))? as i64;
+            Statement::For {
+                var,
+                start,
+                end,
+                stmts,
+                ..
+            } => {
+                let from_res = coerce_i64(&unwrap_break!(eval(start, ctx)?))? as i64;
+                let to_res = coerce_i64(&unwrap_break!(eval(end, ctx)?))? as i64;
                 for i in from_res..to_res {
                     ctx.variables
                         .borrow_mut()
-                        .insert(iter, Rc::new(RefCell::new(Value::I64(i))));
-                    res = RunResult::Yield(unwrap_break!(run(e, ctx)?));
+                        .insert(var, Rc::new(RefCell::new(Value::I64(i))));
+                    res = RunResult::Yield(unwrap_break!(run(stmts, ctx)?));
                 }
             }
             Statement::Break => {
                 return Ok(RunResult::Break);
+            }
+            Statement::Struct(str) => {
+                ctx.typedefs.insert(str.name.to_string(), str.clone());
             }
             _ => {}
         }

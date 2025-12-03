@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     interpreter::{EGetExt, EvalResult},
-    type_decl::TypeDecl,
+    type_decl::{ArraySize, TypeDecl},
     type_tags::*,
     EvalError, ReadError,
 };
@@ -54,6 +54,7 @@ pub enum Value {
     Str(String),
     Array(Rc<RefCell<ArrayInt>>),
     Tuple(Rc<RefCell<TupleInt>>),
+    Struct(Rc<RefCell<StructInt>>),
 }
 
 impl Default for Value {
@@ -85,6 +86,21 @@ impl std::fmt::Display for Value {
                     }
                 })
             ),
+            Self::Struct(v) => {
+                let borrow = v.borrow();
+                write!(
+                    f,
+                    "{}({})",
+                    borrow.name,
+                    &borrow.fields.iter().fold("".to_string(), |acc, cur| {
+                        if acc.is_empty() {
+                            cur.to_string()
+                        } else {
+                            acc + ", " + &cur.to_string()
+                        }
+                    })
+                )
+            }
         }
     }
 }
@@ -180,6 +196,17 @@ impl Value {
                 }
                 Ok(())
             }
+            Self::Struct(rc) => {
+                let values = rc.borrow();
+                writer.write_all(&STRUCT_TAG.to_le_bytes())?;
+                writer.write_all(&(values.name.len() as u32).to_le_bytes())?;
+                writer.write_all(values.name.as_bytes())?;
+                writer.write_all(&values.fields.len().to_le_bytes())?;
+                for value in values.fields.iter() {
+                    value.serialize(writer)?;
+                }
+                Ok(())
+            }
         }
     }
 
@@ -227,14 +254,28 @@ impl Value {
                     .collect::<Result<_, _>>()?;
                 Self::Tuple(Rc::new(RefCell::new(values)))
             }
-            _ => todo!(),
+            tag_byte => return Err(ReadError::UnknownTypeTag(tag_byte)),
         })
+    }
+
+    pub fn str_len(&self) -> EvalResult<usize> {
+        if let Self::Str(str) = self {
+            Ok(str.len())
+        } else {
+            Err(EvalError::WrongArgType(
+                "str".to_string(),
+                "str".to_string(),
+            ))
+        }
     }
 
     pub fn array_assign(&self, idx: usize, value: Value) -> EvalResult<()> {
         match self {
             Value::Array(array) => {
-                array.borrow_mut().values[idx] = value;
+                *array.borrow_mut().values.eget_mut(idx)? = value;
+            }
+            Value::Struct(st) => {
+                *st.borrow_mut().fields.eget_mut(idx)? = value;
             }
             _ => return Err(EvalError::IndexNonArray),
         }
@@ -244,6 +285,7 @@ impl Value {
     pub fn array_get(&self, idx: u64) -> EvalResult<Value> {
         match self {
             Value::Array(array) => Ok(array.borrow_mut().values.eget(idx as usize)?.clone()),
+            Value::Struct(st) => Ok(st.borrow_mut().fields.eget(idx as usize)?.clone()),
             _ => Err(EvalError::IndexNonArray),
         }
     }
@@ -271,6 +313,16 @@ impl Value {
         }
     }
 
+    pub fn array_resize(&self, new_len: usize, val: &Value) -> EvalResult<()> {
+        match self {
+            Value::Array(array) => {
+                array.borrow_mut().values.resize(new_len, val.clone());
+                Ok(())
+            }
+            _ => Err("len() must be called for an array".to_string().into()),
+        }
+    }
+
     pub fn tuple_get(&self, idx: u64) -> Result<Value, EvalError> {
         Ok(match self {
             Value::Tuple(tuple) => {
@@ -283,6 +335,93 @@ impl Value {
             }
             _ => return Err(EvalError::IndexNonArray),
         })
+    }
+
+    pub fn struct_field(&self, field_idx: u64) -> Result<Value, EvalError> {
+        Ok(match self {
+            Value::Struct(str) => {
+                let str = str.borrow();
+                str.fields
+                    .get(field_idx as usize)
+                    .ok_or_else(|| {
+                        EvalError::TupleOutOfBounds(field_idx as usize, str.fields.len())
+                    })?
+                    .clone()
+            }
+            _ => return Err(EvalError::ExpectStruct(TypeDecl::from_value(self))),
+        })
+    }
+
+    pub fn deepclone(&self) -> Self {
+        match self {
+            Self::Array(a) => {
+                let a = a.borrow();
+                let values = a.values.iter().map(|v| v.deepclone()).collect();
+                Self::Array(Rc::new(RefCell::new(ArrayInt {
+                    type_decl: a.type_decl.clone(),
+                    shape: a.shape.clone(),
+                    values,
+                })))
+            }
+            Self::Tuple(a) => {
+                let a = a.borrow();
+                let values = a
+                    .iter()
+                    .map(|v| TupleEntry {
+                        decl: v.decl.clone(),
+                        value: v.value.deepclone(),
+                    })
+                    .collect();
+                Self::Tuple(Rc::new(RefCell::new(values)))
+            }
+            _ => self.clone(),
+        }
+    }
+}
+
+impl std::convert::TryFrom<&Value> for usize {
+    type Error = ValueError;
+    fn try_from(value: &Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::F64(val) => {
+                if *val < 0. {
+                    Err(ValueError::Domain)
+                } else {
+                    Ok(*val as usize)
+                }
+            }
+            Value::F32(val) => {
+                if *val < 0. {
+                    Err(ValueError::Domain)
+                } else {
+                    Ok(*val as usize)
+                }
+            }
+            Value::I64(val) => Ok(*val as usize),
+            Value::I32(val) => Ok(*val as usize),
+            Value::Str(_) => Err(ValueError::Invalid(TypeDecl::Str, TypeDecl::I64)),
+            Value::Array(rc) => {
+                let arr = rc.borrow();
+                Err(ValueError::Invalid(
+                    TypeDecl::Array(Box::new(arr.type_decl.clone()), ArraySize::default()),
+                    TypeDecl::I64,
+                ))
+            }
+            Value::Tuple(rc) => {
+                let tup = rc.borrow();
+                Err(ValueError::Invalid(
+                    TypeDecl::Tuple(tup.iter().map(|val| val.decl.clone()).collect()),
+                    TypeDecl::I64,
+                ))
+            }
+            Value::Struct(rc) => {
+                let str = rc.borrow();
+                Err(ValueError::Invalid(
+                    TypeDecl::TypeName(str.name.clone()),
+                    TypeDecl::I64,
+                ))
+            }
+        }
     }
 }
 
@@ -321,3 +460,57 @@ impl TupleEntry {
         &self.value
     }
 }
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct StructInt {
+    /// Type name of the struct
+    pub(crate) name: String,
+    pub(crate) fields: Vec<Value>,
+}
+
+impl StructInt {
+    pub fn get(&self, idx: usize) -> EvalResult<Value> {
+        self.fields
+            .get(idx)
+            .ok_or_else(|| EvalError::ArrayOutOfBounds(self.fields.len(), idx))
+            .cloned()
+    }
+
+    pub fn fields(&self) -> &[Value] {
+        &self.fields
+    }
+}
+
+impl std::fmt::Display for StructInt {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} (", self.name)?;
+        for (i, val) in self.fields.iter().enumerate() {
+            if i != 0 {
+                write!(f, ", ")?;
+            }
+            val.fmt(f)?;
+        }
+        write!(f, ")")?;
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub enum ValueError {
+    Domain,
+    Invalid(TypeDecl, TypeDecl),
+}
+
+impl std::fmt::Display for ValueError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Domain => write!(f, "Domain error"),
+            Self::Invalid(from, to) => write!(
+                f,
+                "Invalid conversion between types error from {from} to {to}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ValueError {}

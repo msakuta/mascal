@@ -1,14 +1,15 @@
 use super::*;
 use crate::{
     compile,
-    parser::{expr, span_source, Statement},
+    compiler::CompileError,
+    parser::{expr, span_source, test::expr_nosemi},
     value::ArrayInt,
     Span, TypeDecl,
 };
 
 fn compile_expr(s: &str) -> Bytecode {
     let bytecode = compile(
-        &[Statement::Expression(expr(Span::new(s)).unwrap().1)],
+        &[expr_nosemi(expr(Span::new(s)).unwrap().1)],
         HashMap::new(),
     )
     .unwrap();
@@ -17,110 +18,121 @@ fn compile_expr(s: &str) -> Bytecode {
 
 #[test]
 fn eval_test() {
-    assert_eq!(interpret(&compile_expr(" 1 +  2 ")), Ok(Value::I64(3)));
+    assert_eq!(interpret(&compile_expr(" 1 +  2 ")).unwrap(), Value::I64(3));
     assert_eq!(
-        interpret(&compile_expr(" 12 + 6 - 4+  3")),
-        Ok(Value::I64(17))
+        interpret(&compile_expr(" 12 + 6 - 4+  3")).unwrap(),
+        Value::I64(17)
     );
-    assert_eq!(interpret(&compile_expr(" 1 + 2*3 + 4")), Ok(Value::I64(11)));
-    assert_eq!(interpret(&compile_expr(" 1 +  2.5 ")), Ok(Value::F64(3.5)));
+    assert_eq!(
+        interpret(&compile_expr(" 1 + 2*3 + 4")).unwrap(),
+        Value::I64(11)
+    );
+    assert_eq!(
+        interpret(&compile_expr(" 1 +  2.5 ")).unwrap(),
+        Value::F64(3.5)
+    );
 }
 
 #[test]
 fn parens_eval_test() {
-    assert_eq!(interpret(&compile_expr(" (  2 )")), Ok(Value::I64(2)));
+    assert_eq!(interpret(&compile_expr(" (  2 )")).unwrap(), Value::I64(2));
     assert_eq!(
-        interpret(&compile_expr(" 2* (  3 + 4 ) ")),
-        Ok(Value::I64(14))
+        interpret(&compile_expr(" 2* (  3 + 4 ) ")).unwrap(),
+        Value::I64(14)
     );
     assert_eq!(
-        interpret(&compile_expr("  2*2 / ( 5 - 1) + 3")),
-        Ok(Value::I64(4))
+        interpret(&compile_expr("  2*2 / ( 5 - 1) + 3")).unwrap(),
+        Value::I64(4)
     );
 }
 
-fn compile_and_run(src: &str) -> Result<Value, EvalError> {
-    interpret(&compile(&span_source(src).unwrap().1, HashMap::new()).unwrap())
+fn compile_and_run(src: &str) -> Result<Value, CompileError<'_>> {
+    Ok(interpret(
+        &compile(&span_source(src).unwrap().1, HashMap::new()).unwrap(),
+    )?)
 }
 
 #[test]
 fn var_test() {
     assert_eq!(
-        compile_and_run("var x = 42.; x +  2; "),
-        Ok(Value::F64(44.))
+        compile_and_run("var x = 42.; x +  2 ").unwrap(),
+        Value::F64(44.)
     );
 }
 
 #[test]
 fn var_assign_test() {
-    assert_eq!(compile_and_run("var x = 42.; x=12"), Ok(Value::I64(12)));
+    assert_eq!(
+        compile_and_run("var x = 42.; x=12").unwrap(),
+        Value::I64(12)
+    );
 }
 
 #[test]
 fn cond_test() {
-    assert_eq!(compile_and_run("if 0 { 1; }"), Ok(Value::I64(0)));
+    assert_eq!(compile_and_run("if 0 { 1; }").unwrap(), Value::I64(0));
     assert_eq!(
-        compile_and_run("if (1) { 2; } else { 3; }"),
-        Ok(Value::I64(2))
+        compile_and_run("if (1) { 2 } else { 3 }").unwrap(),
+        Value::I64(2)
     );
     assert_eq!(
-        compile_and_run("if 1 && 2 { 2; } else { 3; }"),
-        Ok(Value::I64(2))
+        compile_and_run("if 1 && 2 { 2 } else { 3 }").unwrap(),
+        Value::I64(2)
     );
 }
 
 #[test]
 fn cmp_eval_test() {
-    assert_eq!(compile_and_run(" 1 <  2 "), Ok(Value::I64(1)));
-    assert_eq!(compile_and_run(" 1 > 2"), Ok(Value::I64(0)));
-    assert_eq!(compile_and_run(" 2 < 1"), Ok(Value::I64(0)));
-    assert_eq!(compile_and_run(" 2 > 1"), Ok(Value::I64(1)));
+    assert_eq!(compile_and_run(" 1 <  2 ").unwrap(), Value::I32(1));
+    assert_eq!(compile_and_run(" 1 > 2").unwrap(), Value::I32(0));
+    assert_eq!(compile_and_run(" 2 < 1").unwrap(), Value::I32(0));
+    assert_eq!(compile_and_run(" 2 > 1").unwrap(), Value::I32(1));
 }
 
 #[test]
 fn bit_op_test() {
-    assert_eq!(compile_and_run(" 0 & 1 "), Ok(Value::I64(0)));
-    assert_eq!(compile_and_run(" 0 | 1 "), Ok(Value::I64(1)));
-    assert_eq!(compile_and_run(" 1 & 0 | 1 "), Ok(Value::I64(1)));
-    assert_eq!(compile_and_run(" 1 & 0 | 0 "), Ok(Value::I64(0)));
-    assert_eq!(compile_and_run(" 1 & !0 "), Ok(Value::I64(1)));
-    assert_eq!(compile_and_run(" 1 ^ 2 "), Ok(Value::I64(3)));
-    assert_eq!(compile_and_run(" 3 ^ 2 "), Ok(Value::I64(1)));
+    assert_eq!(compile_and_run(" 0 & 1 ").unwrap(), Value::I64(0));
+    assert_eq!(compile_and_run(" 0 | 1 ").unwrap(), Value::I64(1));
+    assert_eq!(compile_and_run(" 1 & 0 | 1 ").unwrap(), Value::I64(1));
+    assert_eq!(compile_and_run(" 1 & 0 | 0 ").unwrap(), Value::I64(0));
+    assert_eq!(compile_and_run(" 1 & !0 ").unwrap(), Value::I64(1));
+    assert_eq!(compile_and_run(" 1 ^ 2 ").unwrap(), Value::I64(3));
+    assert_eq!(compile_and_run(" 3 ^ 2 ").unwrap(), Value::I64(1));
 }
 
 #[test]
 fn logic_eval_test() {
-    assert_eq!(compile_and_run(" 0 && 1 "), Ok(Value::I32(0)));
-    assert_eq!(compile_and_run(" 0 || 1 "), Ok(Value::I32(1)));
-    assert_eq!(compile_and_run(" 1 && 0 || 1 "), Ok(Value::I32(1)));
-    assert_eq!(compile_and_run(" 1 && 0 || 0 "), Ok(Value::I32(0)));
-    assert_eq!(compile_and_run(" 1 && !0 "), Ok(Value::I32(1)));
+    assert_eq!(compile_and_run(" 0 && 1 ").unwrap(), Value::I32(0));
+    assert_eq!(compile_and_run(" 0 || 1 ").unwrap(), Value::I32(1));
+    assert_eq!(compile_and_run(" 1 && 0 || 1 ").unwrap(), Value::I32(1));
+    assert_eq!(compile_and_run(" 1 && 0 || 0 ").unwrap(), Value::I32(0));
+    assert_eq!(compile_and_run(" 1 && !0 ").unwrap(), Value::I32(1));
 }
 
 #[test]
 fn brace_expr_eval_test() {
-    assert_eq!(compile_and_run(" { 1; } "), Ok(Value::I64(1)));
-    assert_eq!(compile_and_run(" { 1; 2 }"), Ok(Value::I64(2)));
-    assert_eq!(compile_and_run(" {1; 2;} "), Ok(Value::I64(2)));
+    assert_eq!(compile_and_run(" { 1; } ").unwrap(), Value::I64(0));
+    assert_eq!(compile_and_run(" { 1; 2 }").unwrap(), Value::I64(2));
+    assert_eq!(compile_and_run(" {1; 2;} ").unwrap(), Value::I64(0));
     assert_eq!(
-        compile_and_run("  { var x: i64 = 10; x = 20; x } "),
-        Ok(Value::I64(20))
+        compile_and_run("  { var x: i64 = 10; x = 20; x } ").unwrap(),
+        Value::I64(20)
     );
 }
 
 #[test]
 fn brace_shadowing_test() {
     assert_eq!(
-        compile_and_run(" var x = 0; { var x = 1; }; x;"),
-        Ok(Value::I64(0))
+        compile_and_run(" var x = 0; { var x = 1; }; x").unwrap(),
+        Value::I64(0)
     );
     assert_eq!(
-        compile_and_run(" var x = 0; { var x = 1; x; };"),
-        Ok(Value::I64(1))
+        compile_and_run(" var x = 0; { var x = 1; x }").unwrap(),
+        Value::I64(1)
     );
     assert_eq!(
-        compile_and_run(" var x = 0; { var x = 1; x = 2; }; x;"),
-        Ok(Value::I64(0))
+        compile_and_run(" var x = 0; { var x = 1; x = 2; }; x").unwrap(),
+        Value::I64(0)
     );
 }
 
@@ -155,7 +167,7 @@ fn define_func() {
         x * y;
     }
 
-    print(f(5, 5));
+    f(5, 5)
     "#,
         |vals| {
             assert_eq!(vals[0], Value::I64(25));
@@ -169,15 +181,15 @@ fn define_func() {
 fn factorial() {
     let res = compile_and_run_with(
         r#"
-fn fact(n) {
+fn fact(n: i64) -> i64 {
     if n < 1 {
         1
     } else {
         n * fact(n - 1)
-    };
+    }
 }
 
-print(fact(10));
+fact(10)
 "#,
         |vals| assert_eq!(vals[0], Value::I64(3628800)),
     );
@@ -282,4 +294,19 @@ print(a.1.1);"#,
         |vals| assert_eq!(vals[0], Value::I64(3)),
     );
     assert!(res.is_ok());
+}
+
+#[test]
+fn cmp() {
+    for (op, expected) in [
+        ("<=", 1),
+        ("<", 0),
+        (">=", 1),
+        (">", 0),
+        ("==", 1),
+        ("!=", 0),
+    ] {
+        let s = format!("print(1 {} 1)", op);
+        compile_and_run_with(&s, move |vals| assert_eq!(vals[0], Value::I32(expected))).unwrap();
+    }
 }

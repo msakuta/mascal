@@ -1,5 +1,9 @@
 import { type_check, run_script, parse_ast, compile, disasm, compile_and_run } from "../pkg/index.js";
 
+import { Parser } from "./parser";
+import { StreamLanguage } from "@codemirror/language"
+import { EditorState } from "@codemirror/state"
+import { EditorView, basicSetup } from "codemirror"
 
 async function runCommon(process) {
     // Clear output
@@ -9,7 +13,7 @@ async function runCommon(process) {
     const canvasRect = canvas.getBoundingClientRect();
     canvas.getContext("2d").clearRect(0, 0, canvasRect.width, canvasRect.height);
 
-    const source = document.getElementById("input").value;
+    const source = view.state.doc.toString();
     const start = performance.now();
     try{
         process(source);
@@ -47,8 +51,8 @@ document.getElementById("clearCanvas").addEventListener("click", () => {
     canvas.getContext("2d").clearRect(0, 0, canvasRect.width, canvasRect.height);
 });
 
-document.getElementById("input").value = `
-fn fact(n) {
+const initalSrc = `
+fn fact(n: i64) -> i64 {
     if n < 1 {
         1
     } else {
@@ -56,7 +60,7 @@ fn fact(n) {
     }
 }
 
-print(fact(10));
+print(fact(5));
 `;
 
 const samples = document.getElementById("samples");
@@ -64,21 +68,49 @@ const samples = document.getElementById("samples");
 [
     "expr.dragon", "factorial.dragon", "fibonacci.dragon", "recurse.dragon", "mandel.dragon",
     "mandel_canvas.dragon", "str.dragon", "type.dragon", "sieve.dragon",
-    "if.dragon", "for.dragon", "fn.dragon",
+    "if.dragon", "for.dragon", "fn.dragon", "array.dragon", "array_reverse.dragon", "array_range_sized.dragon",
     "array.dragon", "array_reverse.dragon", "array_range_sized.dragon", "array_muldim.dragon",
     "array_transpose.dragon", "array_reshape.dragon",
+    "array_overrun.dragon", "array_resize.dragon",
     "canvas.dragon",
     "typecheck.dragon", "cast.dragon", "cast_error.dragon",
+    "pipe.dragon",
+    "cmp.dragon",
+    "struct.dragon", "struct_infer.dragon", "struct_nested.dragon",
 ]
     .forEach(fileName => {
     const link = document.createElement("a");
     link.href = "#";
-    link.addEventListener("click", () => {
-        fetch("scripts/" + fileName)
-            .then(file => file.text())
-            .then(text => document.getElementById("input").value = text);
-    });
+    link.addEventListener("click", () => loadScript(fileName));
     link.innerHTML = fileName;
     samples.appendChild(link);
     samples.append(" ");
+})
+
+async function loadScript(fileName) {
+    const file = await fetch("scripts/" + fileName);
+    const text = await file.text();
+    let size = view.state.doc.length;
+    const trans = view.state.update(
+        {changes: {from: 0, to: size}, sequential: true},
+        {changes: {from: 0, insert: text}, sequential: true});
+    view.dispatch(trans);
+    location.hash = `#${fileName}`;
+}
+
+// If we wait the page to load by window.addEventListener('load'), we can miss the event since this code
+// itself is asynchronously loaded. In other words, it does not have to wait for the page load.
+if (location.hash.length !== 0) {
+    const fileName = location.hash.substring(1);
+    loadScript(fileName);
+}
+
+let initState = EditorState.create({
+    extensions: [basicSetup, StreamLanguage.define(Parser)],
+    doc: initalSrc,
+});
+
+let view = new EditorView({
+    state: initState,
+    parent: document.getElementById("highlighting"),
 })

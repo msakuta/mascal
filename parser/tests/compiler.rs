@@ -5,8 +5,8 @@ use std::{cell::RefCell, collections::HashMap, io::Write, rc::Rc};
 #[test]
 fn test_default_arg() {
     let src = r#"
-fn add(a: i32 = 123, b: i32 = 456) {
-    a + b;
+fn add(a: i32 = 123, b: i32 = 456) -> i32 {
+    a + b
 }
 
 output(add());
@@ -18,8 +18,8 @@ output(add());
 #[test]
 fn test_default_arg_const_expr() {
     let src = r#"
-fn double(a: i32 = 1 + 2 + 3) {
-    a * 2;
+fn double(a: i32 = 1 + 2 + 3) -> i32 {
+    a * 2
 }
 
 output(double());

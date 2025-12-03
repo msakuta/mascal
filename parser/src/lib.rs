@@ -1,26 +1,55 @@
 macro_rules! dbg_println {
     ($($rest:tt)*) => {{
-        #[cfg(debug_assertions)]
-        std::println!($($rest)*)
+        crate::DEBUG_STREAM.with_borrow_mut(|s| {
+            let _ = std::writeln!(s.as_mut(), $($rest)*);
+        });
     }}
 }
 
 mod bytecode;
+mod coercion;
 mod compiler;
+mod eval_error;
+mod format_ast;
 mod interpreter;
+mod iter_types;
 mod parser;
 mod std_fns;
-mod type_checker;
 mod type_decl;
+mod type_infer;
+mod type_set;
 mod type_tags;
 mod value;
 mod vm;
 
-pub use self::bytecode::{Bytecode, Instruction, OpCode};
+use std::cell::RefCell;
+
+pub use nom;
+
+pub use self::bytecode::{
+    Bytecode, DebugInfo, FnBytecode, FunctionInfo, Instruction, LineInfo, OpCode,
+};
+pub use self::coercion::coerce_type;
 pub use self::compiler::*;
-pub use self::interpreter::{coerce_type, run, EvalContext, EvalError, FuncDef};
+pub use self::eval_error::EvalError;
+pub use self::format_ast::format_stmts;
+pub use self::interpreter::{run, EvalContext, FuncDef, RunResult};
+pub use self::iter_types::{iter_types, TypeParams};
 pub use self::parser::{span_source as source, ArgDecl, ReadError, Span};
-pub use self::type_checker::{type_check, TypeCheckContext};
 pub use self::type_decl::TypeDecl;
+pub use self::type_infer::{type_check, TypeCheckContext};
 pub use self::value::Value;
 pub use self::vm::*;
+
+thread_local! {
+    pub static DEBUG_STREAM: RefCell<Box<dyn std::io::Write>> = RefCell::new({
+        #[cfg(debug_assertions)]
+        {
+            Box::new(std::io::stdout())
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            Box::new(std::io::sink())
+        }
+    });
+}

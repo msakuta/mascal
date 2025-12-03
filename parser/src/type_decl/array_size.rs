@@ -3,7 +3,7 @@ use std::io::{Read, Write};
 use crate::ReadError;
 
 /// Array size that possibly define the shape of multi-dimensional arrays.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ArraySize(pub Vec<ArraySizeAxis>);
 
 impl Default for ArraySize {
@@ -12,10 +12,26 @@ impl Default for ArraySize {
     }
 }
 
+impl std::ops::Deref for ArraySize {
+    type Target = Vec<ArraySizeAxis>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 impl ArraySize {
     /// Returns a 1-dimensional array with unbounded size.
     pub fn all_dyn() -> Self {
         Self(vec![ArraySizeAxis::Range(0..usize::MAX)])
+    }
+
+    pub fn try_and(&self, other: &Self) -> Self {
+        Self(
+            self.iter()
+                .zip(other.iter())
+                .map(|(s, r)| s.try_and(&r).unwrap_or(ArraySizeAxis::Fixed(0)))
+                .collect::<Vec<_>>(),
+        )
     }
 }
 
@@ -32,7 +48,7 @@ impl std::fmt::Display for ArraySize {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ArraySizeAxis {
     /// Either dynamic or fixed array
     Any,
@@ -73,6 +89,59 @@ impl ArraySizeAxis {
                 Self::Range(lhs.start.min(rhs.start)..lhs.end.max(rhs.end))
             }
             _ => Self::Any,
+        }
+    }
+
+    /// It returns None when there is no valid range in the intersection of 2 ranges
+    pub fn try_and(&self, other: &Self) -> Option<Self> {
+        match (self, other) {
+            (Self::Any, other) => Some(other.clone()),
+            (this, Self::Any) => Some(this.clone()),
+            (Self::Range(lhs), Self::Range(rhs)) => {
+                let min = lhs.clone().min()?.max(rhs.clone().min()?);
+                let max = lhs.clone().max()?.min(rhs.clone().max()?);
+                Some(if max - min <= 1 {
+                    Self::Fixed(min)
+                } else {
+                    Self::Range(min..max + 1)
+                })
+            }
+            (Self::Range(lhs), Self::Fixed(rhs)) => {
+                if lhs.contains(&rhs) {
+                    Some(other.clone())
+                } else {
+                    None
+                }
+            }
+            (Self::Fixed(lhs), Self::Range(rhs)) => {
+                if rhs.contains(&lhs) {
+                    Some(self.clone())
+                } else {
+                    None
+                }
+            }
+            (Self::Fixed(lhs), Self::Fixed(rhs)) => {
+                if lhs == rhs {
+                    Some(self.clone())
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
+    pub fn contains(&self, size: usize) -> bool {
+        match self {
+            Self::Any => true,
+            Self::Fixed(fixed) => *fixed == size,
+            Self::Range(range) => range.contains(&size),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        match self {
+            Self::Fixed(0) => true,
+            _ => false,
         }
     }
 }

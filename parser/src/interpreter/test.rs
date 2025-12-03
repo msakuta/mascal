@@ -4,9 +4,15 @@ use nom::{Finish, IResult};
 
 use super::*;
 use crate::{
+    parser::{
+        source, span_source, statement,
+        test::{expr_nosemi, expr_semi},
+        Subslice,
+    },
     parser::{source, span_source, Subslice},
-    type_check,
+    type_check, type_check,
     type_decl::ArraySize,
+    type_set::TypeSetAnnotated,
     TypeCheckContext,
 };
 use ExprEnum::*;
@@ -64,7 +70,7 @@ fn parens_eval_test() {
 #[test]
 fn var_ident_test() {
     let span = Span::new(" x123 ");
-    let res = var_ref(span).finish().unwrap().1;
+    let res = _var_ref(span).finish().unwrap().1;
     assert_eq!(res, Expression::new(Variable("x123"), span.subslice(1, 4)));
 }
 
@@ -75,8 +81,8 @@ fn var_test() {
         .borrow_mut()
         .insert("x", Rc::new(RefCell::new(Value::F64(42.))));
     assert_eq!(
-        eval(&span_expr(" x +  2 ").unwrap().1, &mut ctx),
-        Ok(RunResult::Yield(Value::F64(44.)))
+        eval(&span_expr(" x +  2 ").unwrap().1, &mut ctx).unwrap(),
+        RunResult::Yield(Value::F64(44.))
     );
 }
 
@@ -86,7 +92,10 @@ fn var_r(name: Span) -> Box<Expression> {
 
 /// Boxed numeric literal
 fn bnl(value: Value, span: Span) -> Box<Expression> {
-    Box::new(Expression::new(NumLiteral(value), span))
+    Box::new(Expression::new(
+        NumLiteral(value, TypeSetAnnotated::int()),
+        span,
+    ))
 }
 
 #[test]
@@ -111,7 +120,7 @@ fn var_assign_test() {
             &assign_expr(Span::new("x=12")).finish().unwrap().1,
             &mut ctx
         ),
-        Ok(RunResult::Yield(Value::I64(12)))
+        RunResult::Yield(Value::I64(12))
     );
 }
 
@@ -120,24 +129,27 @@ fn fn_invoke_test() {
     let span = Span::new("f();");
     assert_eq!(
         source(span).finish().unwrap().1,
-        vec![Statement::Expression(Expression::new(
-            FnInvoke("f", vec![]),
-            span.subslice(0, 3)
-        ))]
+        vec![Statement::Expression {
+            ex: Expression::new(FnInvoke("f", vec![]), span.subslice(0, 3)),
+            semicolon: true
+        }]
     );
     let span = Span::new("f(1);");
     assert_eq!(
         source(span).finish().unwrap().1,
-        vec![Statement::Expression(Expression::new(
-            FnInvoke(
-                "f",
-                vec![FnArg {
-                    name: None,
-                    expr: *bnl(Value::I64(1), span.subslice(2, 1))
-                }]
+        vec![Statement::Expression {
+            ex: Expression::new(
+                FnInvoke(
+                    "f",
+                    vec![FnArg {
+                        name: None,
+                        expr: *bnl(Value::I64(1), span.subslice(2, 1))
+                    }]
+                ),
+                span.subslice(0, 4)
             ),
-            span.subslice(0, 4)
-        ))]
+            semicolon: true
+        }]
     );
 }
 
@@ -153,8 +165,10 @@ fn fn_default_test() {
 fn fn_default_failure_test() {
     let span = Span::new("var b = 1; fn f(a: i32 = b) { a; } f()");
     let stmts = source(span).finish().unwrap().1;
-    let res = run(&stmts, &mut EvalContext::new());
-    assert_eq!(res, Err(EvalError::VarNotFound("b".to_string())));
+    let Err(err) = run(&stmts, &mut EvalContext::new()) else {
+        panic!("Should error");
+    };
+    assert!(matches!(err, EvalError::VarNotFound(_)));
 }
 
 fn span_conditional(s: &str) -> IResult<Span, Expression> {
@@ -169,10 +183,10 @@ fn cond_test() {
         Expression::new(
             Conditional(
                 bnl(Value::I64(0), span.subslice(3, 1)),
-                vec![Statement::Expression(*bnl(
-                    Value::I64(1),
-                    span.subslice(7, 1)
-                ))],
+                vec![Statement::Expression {
+                    ex: *bnl(Value::I64(1), span.subslice(7, 1)),
+                    semicolon: true
+                }],
                 None,
             ),
             span
@@ -184,14 +198,8 @@ fn cond_test() {
         Expression::new(
             Conditional(
                 bnl(Value::I64(1), span.subslice(3, 4)),
-                vec![Statement::Expression(*bnl(
-                    Value::I64(2),
-                    span.subslice(9, 1)
-                ))],
-                Some(vec![Statement::Expression(*bnl(
-                    Value::I64(3),
-                    span.subslice(21, 1)
-                ))]),
+                vec![expr_semi(*bnl(Value::I64(2), span.subslice(9, 1)))],
+                Some(vec![expr_semi(*bnl(Value::I64(3), span.subslice(21, 1)))]),
             ),
             span
         )
@@ -208,14 +216,8 @@ fn cond_test() {
                     ),
                     span.subslice(3, 6)
                 )),
-                vec![Statement::Expression(*bnl(
-                    Value::I64(2),
-                    span.subslice(12, 1)
-                ))],
-                Some(vec![Statement::Expression(*bnl(
-                    Value::I64(3),
-                    span.subslice(24, 1)
-                ))]),
+                vec![expr_semi(*bnl(Value::I64(2), span.subslice(12, 1)))],
+                Some(vec![expr_semi(*bnl(Value::I64(3), span.subslice(24, 1)))]),
             ),
             span
         )
@@ -278,19 +280,35 @@ fn cmp_test() {
 fn cmp_eval_test() {
     assert_eq!(
         eval0(&cmp_expr(Span::new(" 1 <  2 ")).finish().unwrap().1),
-        RunResult::Yield(Value::I64(1))
+        RunResult::Yield(Value::I32(1))
     );
     assert_eq!(
         eval0(&cmp_expr(Span::new(" 1 > 2")).finish().unwrap().1),
-        RunResult::Yield(Value::I64(0))
+        RunResult::Yield(Value::I32(0))
+    );
+    assert_eq!(
+        eval0(&cmp_expr(Span::new(" 1 <=  2 ")).finish().unwrap().1),
+        RunResult::Yield(Value::I32(1))
+    );
+    assert_eq!(
+        eval0(&cmp_expr(Span::new(" 1 >= 2")).finish().unwrap().1),
+        RunResult::Yield(Value::I32(0))
     );
     assert_eq!(
         eval0(&cmp_expr(Span::new(" 2 < 1")).finish().unwrap().1),
-        RunResult::Yield(Value::I64(0))
+        RunResult::Yield(Value::I32(0))
     );
     assert_eq!(
         eval0(&cmp_expr(Span::new(" 2 > 1")).finish().unwrap().1),
-        RunResult::Yield(Value::I64(1))
+        RunResult::Yield(Value::I32(1))
+    );
+    assert_eq!(
+        eval0(&cmp_expr(Span::new(" 2 <= 1")).finish().unwrap().1),
+        RunResult::Yield(Value::I32(0))
+    );
+    assert_eq!(
+        eval0(&cmp_expr(Span::new(" 2 >= 1")).finish().unwrap().1),
+        RunResult::Yield(Value::I32(1))
     );
 }
 
@@ -432,17 +450,16 @@ fn logic_eval_test() {
 
 /// Numeric literal without box
 fn nl(value: Value, span: Span) -> Expression {
-    Expression::new(NumLiteral(value), span)
+    Expression::new(NumLiteral(value, TypeSetAnnotated::int()), span)
 }
 
 #[test]
 fn brace_expr_test() {
-    use Statement::Expression as Expr;
     let span = Span::new(" { 1; }");
     assert_eq!(
         full_expression(span).finish().unwrap().1,
         Expression::new(
-            Brace(vec![Expr(nl(Value::I64(1), span.subslice(3, 1)))]),
+            Brace(vec![expr_semi(nl(Value::I64(1), span.subslice(3, 1)))]),
             span.subslice(1, 6)
         )
     );
@@ -451,8 +468,8 @@ fn brace_expr_test() {
         full_expression(span).finish().unwrap().1,
         Expression::new(
             Brace(vec![
-                Expr(nl(Value::I64(1), span.subslice(3, 1))),
-                Expr(nl(Value::I64(2), span.subslice(6, 1))),
+                expr_semi(nl(Value::I64(1), span.subslice(3, 1))),
+                expr_semi(nl(Value::I64(2), span.subslice(6, 1))),
             ]),
             span.subslice(1, 9)
         )
@@ -462,28 +479,28 @@ fn brace_expr_test() {
         full_expression(span).finish().unwrap().1,
         Expression::new(
             Brace(vec![
-                Expr(nl(Value::I64(1), span.subslice(3, 1))),
-                Expr(nl(Value::I64(2), span.subslice(6, 1))),
+                expr_semi(nl(Value::I64(1), span.subslice(3, 1))),
+                expr_nosemi(nl(Value::I64(2), span.subslice(6, 1))),
             ]),
             span.subslice(1, 8)
         )
     );
     let span = Span::new(" { x = 1; x }; ");
     assert_eq!(
-        statement(span).finish().unwrap().1,
-        Expr(Expression::new(
+        source(span).finish().unwrap().1,
+        vec![expr_semi(Expression::new(
             Brace(vec![
-                Expr(Expression::new(
+                expr_semi(Expression::new(
                     VarAssign(
                         var_r(span.subslice(3, 1)),
                         bnl(Value::I64(1), span.subslice(7, 1))
                     ),
                     span.subslice(3, 5)
                 )),
-                Expr(*var_r(span.subslice(10, 1))),
+                expr_nosemi(*var_r(span.subslice(10, 1))),
             ]),
             span.subslice(1, 12)
-        ))
+        ))]
     );
 }
 
@@ -515,18 +532,18 @@ fn brace_expr_eval_test() {
 fn stmt_test() {
     let span = Span::new(" 1;");
     assert_eq!(
-        statement(span).finish().unwrap().1,
-        Statement::Expression(nl(Value::I64(1), span.subslice(1, 1))),
+        source(span).finish().unwrap().1,
+        vec![expr_semi(nl(Value::I64(1), span.subslice(1, 1)))],
     );
     let span = Span::new(" 1 ");
     assert_eq!(
-        last_statement(span).finish().unwrap().1,
-        Statement::Expression(nl(Value::I64(1), span.subslice(1, 1))),
+        statement(span).finish().unwrap().1,
+        expr_nosemi(nl(Value::I64(1), span.subslice(1, 1))),
     );
-    let span = Span::new(" 1; ");
+    let span = Span::new(" 1 ");
     assert_eq!(
-        last_statement(span).finish().unwrap().1,
-        Statement::Expression(nl(Value::I64(1), span.subslice(1, 1))),
+        source(span).finish().unwrap().1,
+        vec![expr_nosemi(nl(Value::I64(1), span.subslice(1, 1)))],
     );
 }
 
@@ -536,16 +553,16 @@ fn stmts_test() {
     assert_eq!(
         source(span).finish().unwrap().1,
         vec![
-            Statement::Expression(nl(Value::I64(1), span.subslice(1, 1))),
-            Statement::Expression(nl(Value::I64(2), span.subslice(4, 1))),
+            expr_semi(nl(Value::I64(1), span.subslice(1, 1))),
+            expr_nosemi(nl(Value::I64(2), span.subslice(4, 1))),
         ]
     );
     let span = Span::new(" 1; 2; ");
     assert_eq!(
         source(span).finish().unwrap().1,
         vec![
-            Statement::Expression(nl(Value::I64(1), span.subslice(1, 1))),
-            Statement::Expression(nl(Value::I64(2), span.subslice(4, 1))),
+            expr_semi(nl(Value::I64(1), span.subslice(1, 1))),
+            expr_semi(nl(Value::I64(2), span.subslice(4, 1))),
         ]
     );
 }
@@ -726,11 +743,11 @@ fn fn_array_decl_test() {
         Statement::FnDecl {
             name: span.subslice(3, 1),
             args: vec![ArgDecl::new(
-                "a",
+                span.subslice(5, 1),
                 TypeDecl::Array(Box::new(TypeDecl::I32), ArraySize::default())
             )],
-            ret_type: None,
-            stmts: Rc::new(vec![Statement::Expression(Expression::new(
+            ret_type: RetType::Void,
+            stmts: Rc::new(vec![expr_semi(Expression::new(
                 VarAssign(
                     var_r(span.subslice(17, 1)),
                     bnl(Value::I64(123), span.subslice(21, 3))
@@ -791,17 +808,19 @@ fn array_index_eval_test() {
         _ => panic!("a must be an array"),
     });
 
-    assert_eq!(run_result, Ok(RunResult::Yield(a_rc.unwrap())));
+    assert_eq!(run_result.unwrap(), RunResult::Yield(a_rc.unwrap()));
 
     // Technically, this test will return a reference to an element in a temporary array,
     // but we wouldn't care and just unwrap_deref.
     assert_eq!(
-        run0(&span_source("[1,3,5][1]").unwrap().1).and_then(unwrap_deref),
-        Ok(RunResult::Yield(I64(3)))
+        run0(&span_source("[1,3,5][1]").unwrap().1)
+            .and_then(unwrap_deref)
+            .unwrap(),
+        RunResult::Yield(I64(3))
     );
     assert_eq!(
-        run0(&span_source("len([1,3,5])").unwrap().1),
-        Ok(RunResult::Yield(I64(3)))
+        run0(&span_source("len([1,3,5])").unwrap().1).unwrap(),
+        RunResult::Yield(I64(3))
     );
 }
 
@@ -832,26 +851,29 @@ fn array_index_assign_test() {
         )
     );
     assert_eq!(
-        run0(&span_source("var a: [i32] = [1,3,5]; a[1] = 123").unwrap().1),
-        Ok(RunResult::Yield(I64(123)))
+        run0(&span_source("var a: [i32] = [1,3,5]; a[1] = 123").unwrap().1).unwrap(),
+        RunResult::Yield(I64(123))
     );
 }
 
 #[test]
 fn array_sized_test() {
     let span = Span::new("var a: [i32; 3] = [1,2,3]; var b: [i32; 3] = [4,5,6]; a = b;");
-    let ast = source(span).finish().unwrap().1;
-    type_check(&ast, &mut TypeCheckContext::new(None)).unwrap();
+    let mut ast = source(span).finish().unwrap().1;
+    type_check(&mut ast, &mut TypeCheckContext::new(None)).unwrap();
     run0(&ast).unwrap();
 }
 
 #[test]
 fn array_sized_error_test() {
     let span = Span::new("var a: [i32; 3] = [1,2,3]; var b: [i32; 4] = [4,5,6,7]; a = b;");
-    let ast = source(span).finish().unwrap().1;
-    match type_check(&ast, &mut TypeCheckContext::new(Some("input"))) {
+    let mut ast = source(span).finish().unwrap().1;
+    match type_check(&mut ast, &mut TypeCheckContext::new(Some("input"))) {
         Ok(_) => panic!(),
-        Err(e) => assert_eq!(e.to_string(), "Operation Assignment between incompatible type [i32; 3] and [i32; 4]: Array size is not compatible: 4 cannot assign to 3\ninput:1:57"),
+        Err(e) => assert_eq!(
+            e.to_string(),
+            "Array size is not compatible: 4 cannot assign to 3\ninput:1:57"
+        ),
     }
     // It will run successfully although the typecheck fails.
     run0(&ast).unwrap();
@@ -860,10 +882,10 @@ fn array_sized_error_test() {
 #[test]
 fn array_sized_cmp_error_test() {
     let span = Span::new("var a: [i32; 3] = [1,2,3]; var b: [i32; 4] = [4,5,6,7]; a < b;");
-    let ast = source(span).finish().unwrap().1;
-    match type_check(&ast, &mut TypeCheckContext::new(Some("input"))) {
-        Ok(_) => panic!(),
-        Err(e) => assert_eq!(e.to_string(), "Operation LT between incompatible type [i32; 3] and [i32; 4]: Array size must be the same for comparison\ninput:1:57"),
+    let mut ast = source(span).finish().unwrap().1;
+    match type_check(&mut ast, &mut TypeCheckContext::new(Some("input"))) {
+        Ok(_) => panic!("type check succeeded when it should fail: {:?}", ast),
+        Err(e) => assert_eq!(e.to_string(), "Operation LT between incompatible type [i32; 3] and [i32; 4]: Comparison between incompatible types: [i32; 3] and [i32; 4]: Array size is not compatible: 4 cannot assign to 3\ninput:1:57"),
     }
     // It will fail at runtime
     assert!(run0(&ast).is_err());
@@ -876,8 +898,13 @@ fn var_decl_test() {
     assert_eq!(
         source(span).finish().unwrap().1,
         vec![
-            VarDecl(span.subslice(5, 1), TypeDecl::Any, None),
-            Statement::Expression(Expression::new(
+            VarDecl {
+                name: span.subslice(5, 1),
+                ty: TypeDecl::Any,
+                ty_annotated: false,
+                init: None
+            },
+            expr_semi(Expression::new(
                 VarAssign(
                     var_r(span.subslice(8, 1)),
                     bnl(Value::I64(0), span.subslice(12, 1))
@@ -889,47 +916,52 @@ fn var_decl_test() {
     let span = Span::new(" var x = 0;");
     assert_eq!(
         source(span).finish().unwrap().1,
-        vec![VarDecl(
-            span.subslice(5, 1),
-            TypeDecl::Any,
-            Some(nl(Value::I64(0), span.subslice(9, 1)))
-        )]
+        vec![VarDecl {
+            name: span.subslice(5, 1),
+            ty: TypeDecl::Any,
+            ty_annotated: false,
+            init: Some(nl(Value::I64(0), span.subslice(9, 1)))
+        }]
     );
     let span = Span::new(" var x: f64 = 0;");
     assert_eq!(
         source(span).finish().unwrap().1,
-        vec![VarDecl(
-            span.subslice(5, 1),
-            TypeDecl::F64,
-            Some(nl(Value::I64(0), span.subslice(14, 1)))
-        )]
+        vec![VarDecl {
+            name: span.subslice(5, 1),
+            ty: TypeDecl::F64,
+            ty_annotated: true,
+            init: Some(nl(Value::I64(0), span.subslice(14, 1)))
+        }]
     );
     let span = Span::new(" var x: f32 = 0;");
     assert_eq!(
         source(span).finish().unwrap().1,
-        vec![VarDecl(
-            span.subslice(5, 1),
-            TypeDecl::F32,
-            Some(nl(Value::I64(0), span.subslice(14, 1)))
-        )]
+        vec![VarDecl {
+            name: span.subslice(5, 1),
+            ty: TypeDecl::F32,
+            ty_annotated: true,
+            init: Some(nl(Value::I64(0), span.subslice(14, 1))),
+        }]
     );
     let span = Span::new(" var x: i64 = 0;");
     assert_eq!(
         source(span).finish().unwrap().1,
-        vec![VarDecl(
-            span.subslice(5, 1),
-            TypeDecl::I64,
-            Some(nl(Value::I64(0), span.subslice(14, 1)))
-        )]
+        vec![VarDecl {
+            name: span.subslice(5, 1),
+            ty: TypeDecl::I64,
+            ty_annotated: true,
+            init: Some(nl(Value::I64(0), span.subslice(14, 1)))
+        }]
     );
     let span = Span::new(" var x: i32 = 0;");
     assert_eq!(
         source(span).finish().unwrap().1,
-        vec![VarDecl(
-            span.subslice(5, 1),
-            TypeDecl::I32,
-            Some(nl(Value::I64(0), span.subslice(14, 1)))
-        )]
+        vec![VarDecl {
+            name: span.subslice(5, 1),
+            ty: TypeDecl::I32,
+            ty_annotated: true,
+            init: Some(nl(Value::I64(0), span.subslice(14, 1)))
+        }]
     );
 }
 
@@ -939,15 +971,20 @@ fn loop_test() {
     assert_eq!(
         source(span).finish().unwrap().1,
         vec![
-            Statement::VarDecl(span.subslice(5, 1), TypeDecl::Any, None),
-            Statement::Expression(Expression::new(
+            Statement::VarDecl {
+                name: span.subslice(5, 1),
+                ty: TypeDecl::Any,
+                ty_annotated: false,
+                init: None
+            },
+            expr_semi(Expression::new(
                 VarAssign(
                     var_r(span.subslice(8, 1)),
                     bnl(Value::I64(0), span.subslice(12, 1))
                 ),
                 span.subslice(7, 6)
             )),
-            Statement::Loop(vec![Statement::Expression(Expression::new(
+            Statement::Loop(vec![expr_semi(Expression::new(
                 VarAssign(
                     var_r(span.subslice(22, 1)),
                     Box::new(Expression::new(
@@ -965,7 +1002,7 @@ fn loop_test() {
     let span = Span::new("if i < 10 { break };");
     assert_eq!(
         source(span).finish().unwrap().1,
-        vec![Statement::Expression(Expression::new(
+        vec![expr_semi(Expression::new(
             Conditional(
                 Box::new(Expression::new(
                     LT(
@@ -984,8 +1021,13 @@ fn loop_test() {
     assert_eq!(
         source(span).finish().unwrap().1,
         vec![
-            Statement::VarDecl(span.subslice(5, 1), TypeDecl::Any, None),
-            Statement::Expression(Expression::new(
+            Statement::VarDecl {
+                name: span.subslice(5, 1),
+                ty: TypeDecl::Any,
+                ty_annotated: false,
+                init: None
+            },
+            expr_semi(Expression::new(
                 VarAssign(
                     var_r(span.subslice(8, 1)),
                     bnl(Value::I64(0), span.subslice(12, 1))
@@ -993,7 +1035,7 @@ fn loop_test() {
                 span.subslice(7, 6)
             )),
             Statement::Loop(vec![
-                Statement::Expression(Expression::new(
+                expr_semi(Expression::new(
                     VarAssign(
                         var_r(span.subslice(22, 1)),
                         Box::new(Expression::new(
@@ -1006,7 +1048,7 @@ fn loop_test() {
                     ),
                     span.subslice(22, 9)
                 )),
-                Statement::Expression(Expression::new(
+                expr_semi(Expression::new(
                     Conditional(
                         Box::new(Expression::new(
                             LT(
@@ -1031,8 +1073,13 @@ fn while_test() {
     assert_eq!(
         source(span).finish().unwrap().1,
         vec![
-            Statement::VarDecl(span.subslice(5, 1), TypeDecl::I64, None),
-            Statement::Expression(Expression::new(
+            Statement::VarDecl {
+                name: span.subslice(5, 1),
+                ty: TypeDecl::I64,
+                ty_annotated: true,
+                init: None
+            },
+            expr_semi(Expression::new(
                 VarAssign(
                     var_r(span.subslice(13, 1)),
                     bnl(Value::I64(0), span.subslice(17, 1))
@@ -1047,7 +1094,7 @@ fn while_test() {
                     ),
                     span.subslice(26, 7)
                 ),
-                vec![Statement::Expression(Expression::new(
+                vec![expr_semi(Expression::new(
                     VarAssign(
                         var_r(span.subslice(35, 1)),
                         Box::new(Expression::new(
@@ -1070,14 +1117,21 @@ fn for_test() {
     let span = Span::new(" for i in 0..10 { print(i); }");
     assert_eq!(
         source(span).finish().unwrap().1,
-        vec![Statement::For(
-            span.subslice(5, 1),
-            Expression::new(NumLiteral(Value::I64(0)), span.subslice(10, 1)),
-            Expression::new(NumLiteral(Value::I64(10)), span.subslice(13, 2)),
-            vec![Statement::Expression(Expression::new(
+        vec![Statement::For {
+            var: span.subslice(5, 1),
+            ty: None,
+            start: Expression::new(
+                NumLiteral(Value::I64(0), TypeSetAnnotated::int()),
+                span.subslice(10, 1)
+            ),
+            end: Expression::new(
+                NumLiteral(Value::I64(10), TypeSetAnnotated::int()),
+                span.subslice(13, 2)
+            ),
+            stmts: vec![expr_semi(Expression::new(
                 FnInvoke("print", vec![FnArg::new(*var_r(span.subslice(24, 1)))],),
                 span.subslice(18, 8)
             ))]
-        )]
+        }]
     );
 }

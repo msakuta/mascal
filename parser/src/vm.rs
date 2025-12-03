@@ -1,14 +1,14 @@
 //! Bytecode interpreter, aka a Virtual Machine.
 
-use std::collections::HashMap;
+use std::{cell::RefCell, collections::HashMap, io::Write, rc::Rc};
 
 use crate::{
-    bytecode::{Bytecode, FnBytecode, FnProto, OpCode},
-    interpreter::{
-        binary_op, binary_op_int, binary_op_str, coerce_f64, coerce_i64, coerce_type, truthy,
-        EvalError, EvalResult,
-    },
+    bytecode::{Bytecode, FnBytecode, FnProto, FnProtos, OpCode},
+    coercion::{coerce_i64, coerce_type},
+    eval_error::EvalError,
+    interpreter::{binary_op, binary_op_int, binary_op_str, compare_op, truthy, EvalResult},
     type_decl::TypeDecl,
+    value::{StructInt, TupleEntry},
     Value,
 };
 
@@ -27,7 +27,8 @@ pub fn interpret(bytecode: &Bytecode) -> Result<Value, EvalError> {
     }
 }
 
-struct CallInfo<'a> {
+#[derive(Clone)]
+pub struct CallInfo<'a> {
     fun: &'a FnBytecode,
     ip: usize,
     stack_size: usize,
@@ -35,29 +36,57 @@ struct CallInfo<'a> {
 }
 
 impl<'a> CallInfo<'a> {
-    fn has_next_inst(&self) -> bool {
+    pub fn bytecode(&self) -> &'a FnBytecode {
+        self.fun
+    }
+
+    pub fn instruction_ptr(&self) -> usize {
+        self.ip
+    }
+
+    pub fn has_next_inst(&self) -> bool {
         self.ip < self.fun.instructions.len()
     }
 }
 
 /// The virtual machine state run by the bytecode.
-struct Vm {
+/// Now it is a full state machine that has complete information to suspend and resume at any time,
+/// given that the lifetime of the functions are valid.
+pub struct Vm<'a> {
     /// A stack for function call stack frames.
     stack: Vec<Value>,
     /// The stack base address of the currently running function.
     stack_base: usize,
+    call_stack: Vec<CallInfo<'a>>,
     /// A special register to remember the target index in Set instruction, updated by SetReg instruction.
     /// Similar to x64's RSI or RDI, it indicates the index of the array to set, because we need more arguments than
     /// a fixed length arguments in an instruction for Set operation.
     set_register: usize,
+    functions: &'a FnProtos,
 }
 
-impl Vm {
-    fn new(stack_size: usize) -> Self {
+impl<'a> Vm<'a> {
+    fn new(bytecode: &'a FnBytecode, functions: &'a FnProtos) -> Self {
+        let stack_size = bytecode.stack_size;
         Self {
             stack: vec![Value::I64(0); stack_size],
+            call_stack: vec![CallInfo {
+                fun: bytecode,
+                ip: 0,
+                stack_size: stack_size,
+                stack_base: 0,
+            }],
             stack_base: 0,
             set_register: 0,
+            functions,
+        }
+    }
+
+    pub fn start_main(bytecode: &'a Bytecode) -> EvalResult<Self> {
+        if let Some(FnProto::Code(main)) = bytecode.functions.get("") {
+            Ok(Self::new(main, &bytecode.functions))
+        } else {
+            Err(EvalError::NoMainFound)
         }
     }
 
@@ -77,8 +106,9 @@ impl Vm {
         &self.stack[self.stack_base + from..self.stack_base + to]
     }
 
-    fn dump_stack(&self) {
-        dbg_println!(
+    pub fn dump_stack(&self, f: &mut impl Write) -> std::io::Result<()> {
+        writeln!(
+            f,
             "stack[{}..{}]: {}",
             self.stack_base,
             self.stack.len(),
@@ -91,7 +121,78 @@ impl Vm {
                         acc + ", " + &cur.to_string()
                     }
                 })
-        );
+        )
+    }
+
+    pub fn call_stack(&self) -> &[CallInfo<'_>] {
+        &self.call_stack
+    }
+
+    pub fn call_info(&self, level: usize) -> Option<&CallInfo<'_>> {
+        self.call_stack
+            .get(self.call_stack.len().saturating_sub(level + 1))
+    }
+
+    pub fn format_current_inst(
+        &self,
+        f: &mut impl Write,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let ci = self.call_stack.clast()?;
+        if !self.call_stack.clast()?.has_next_inst() {
+            return Err("PrematureEnd".into());
+        }
+        let ip = ci.ip;
+        let inst = ci.fun.instructions[ip];
+        writeln!(f, "inst[{ip}]: {inst}")?;
+        Ok(())
+    }
+
+    pub fn stack_trace(&self, level: usize, f: &mut impl Write) -> std::io::Result<()> {
+        for (i, frame) in self.call_stack.iter().enumerate() {
+            let name = if frame.fun.name.is_empty() {
+                "<toplevel>"
+            } else {
+                &frame.fun.name
+            };
+            let current = if level == self.call_stack.len().saturating_sub(i + 1) {
+                ">"
+            } else {
+                " "
+            };
+            writeln!(f, "{current}  [{i}]: {name} ip: {}", frame.ip)?;
+        }
+        Ok(())
+    }
+
+    pub fn print_stack(&self, f: &mut impl Write, level: usize) -> std::io::Result<()> {
+        let Some(ci) = self.call_info(level) else {
+            // Empty call stack is not an error
+            return Ok(());
+        };
+        let top = (ci.stack_base + ci.stack_size).min(self.stack.len());
+        for (i, value) in self.stack[ci.stack_base..top].iter().enumerate() {
+            writeln!(f, "  [{i}] {value}")?;
+        }
+        Ok(())
+    }
+
+    pub fn iter_stack(&self, level: usize) -> Option<impl Iterator<Item = &Value>> {
+        let Some(ci) = self.call_info(level) else {
+            // Empty call stack is not an error
+            return None;
+        };
+        let top = (ci.stack_base + ci.stack_size).min(self.stack.len());
+        Some(self.stack[ci.stack_base..top].iter())
+    }
+
+    pub fn deepclone(&self) -> Self {
+        Self {
+            stack: self.stack.iter().map(|v| v.deepclone()).collect(),
+            stack_base: self.stack_base,
+            call_stack: self.call_stack.clone(),
+            set_register: self.set_register,
+            functions: self.functions,
+        }
     }
 }
 
@@ -125,40 +226,51 @@ fn interpret_fn(
     );
     dbg_println!("size callInfo: {}", std::mem::size_of::<CallInfo>());
     dbg_println!("literals: {:?}", bytecode.literals);
-    let mut vm = Vm::new(bytecode.stack_size);
-    let mut call_stack = vec![CallInfo {
-        fun: &bytecode,
-        ip: 0,
-        stack_size: vm.stack.len(),
-        stack_base: vm.stack_base,
-    }];
+    #[cfg(debug_assertions)]
+    {
+        let mut buf = vec![0u8; 0];
+        bytecode.disasm(&mut buf).unwrap();
+        if let Ok(s) = String::from_utf8(buf) {
+            dbg_println!("instructions: {}", s);
+        }
+    }
+    let mut vm = Vm::new(bytecode, functions);
+    let value = loop {
+        if let Some(res) = vm.next_inst()? {
+            break res;
+        }
+    };
+    Ok(value)
+}
 
-    while call_stack.clast()?.has_next_inst() {
-        let ci = call_stack.clast()?;
+impl<'a> Vm<'a> {
+    pub fn next_inst(&mut self) -> Result<Option<Value>, EvalError> {
+        if !self.call_stack.clast()?.has_next_inst() {
+            return Err(EvalError::PrematureEnd);
+        }
+        let ci = self.call_stack.clast()?;
         let ip = ci.ip;
         let inst = ci.fun.instructions[ip];
 
-        dbg_println!("inst[{ip}]: {inst:?}");
-
         match inst.op {
             OpCode::LoadLiteral => {
-                vm.set(inst.arg1, ci.fun.literals[inst.arg0 as usize].clone());
+                self.set(inst.arg1, ci.fun.literals[inst.arg0 as usize].clone());
             }
             OpCode::Move => {
                 if let (Value::Array(lhs), Value::Array(rhs)) =
-                    (vm.get(inst.arg0), vm.get(inst.arg1))
+                    (self.get(inst.arg0), self.get(inst.arg1))
                 {
                     if lhs as *const _ == rhs as *const _ {
                         println!("Self-assignment!");
-                        call_stack.clast_mut()?.ip += 1;
-                        continue;
+                        self.call_stack.clast_mut()?.ip += 1;
+                        return Ok(None);
                     }
                 }
-                let val = vm.get(inst.arg0).clone();
-                vm.set(inst.arg1, val);
+                let val = self.get(inst.arg0).clone();
+                self.set(inst.arg1, val);
             }
             OpCode::Incr => {
-                let val = vm.get_mut(inst.arg0);
+                let val = self.get_mut(inst.arg0);
                 fn incr(val: &mut Value) -> Result<(), String> {
                     match val {
                         Value::I64(i) => *i += 1,
@@ -178,166 +290,189 @@ fn interpret_fn(
             }
             OpCode::Add => {
                 let result = binary_op_str(
-                    &vm.get(inst.arg0),
-                    &vm.get(inst.arg1),
+                    &self.get(inst.arg0),
+                    &self.get(inst.arg1),
                     |lhs, rhs| Ok(lhs + rhs),
                     |lhs, rhs| lhs + rhs,
                     |lhs: &str, rhs: &str| Ok(lhs.to_string() + rhs),
                 )?;
-                vm.set(inst.arg0, result);
+                self.set(inst.arg0, result);
             }
             OpCode::Sub => {
                 let result = binary_op(
-                    &vm.get(inst.arg0),
-                    &vm.get(inst.arg1),
+                    &self.get(inst.arg0),
+                    &self.get(inst.arg1),
                     |lhs, rhs| lhs - rhs,
                     |lhs, rhs| lhs - rhs,
                 )?;
-                vm.set(inst.arg0, result);
+                self.set(inst.arg0, result);
             }
             OpCode::Mul => {
                 let result = binary_op(
-                    &vm.get(inst.arg0),
-                    &vm.get(inst.arg1),
+                    &self.get(inst.arg0),
+                    &self.get(inst.arg1),
                     |lhs, rhs| lhs * rhs,
                     |lhs, rhs| lhs * rhs,
                 )?;
-                vm.set(inst.arg0, result);
+                self.set(inst.arg0, result);
             }
             OpCode::Div => {
                 let result = binary_op(
-                    &vm.get(inst.arg0),
-                    &vm.get(inst.arg1),
+                    &self.get(inst.arg0),
+                    &self.get(inst.arg1),
                     |lhs, rhs| lhs / rhs,
                     |lhs, rhs| lhs / rhs,
                 )?;
-                vm.set(inst.arg0, result);
+                self.set(inst.arg0, result);
             }
             OpCode::BitAnd => {
                 let result =
-                    binary_op_int(&vm.get(inst.arg0), &vm.get(inst.arg1), |lhs, rhs| lhs & rhs)?;
-                vm.set(inst.arg0, result);
+                    binary_op_int(&self.get(inst.arg0), &self.get(inst.arg1), |lhs, rhs| {
+                        lhs & rhs
+                    })?;
+                self.set(inst.arg0, result);
             }
             OpCode::BitXor => {
                 let result =
-                    binary_op_int(&vm.get(inst.arg0), &vm.get(inst.arg1), |lhs, rhs| lhs ^ rhs)?;
-                vm.set(inst.arg0, result);
+                    binary_op_int(&self.get(inst.arg0), &self.get(inst.arg1), |lhs, rhs| {
+                        lhs ^ rhs
+                    })?;
+                self.set(inst.arg0, result);
             }
             OpCode::BitOr => {
                 let result =
-                    binary_op_int(&vm.get(inst.arg0), &vm.get(inst.arg1), |lhs, rhs| lhs | rhs)?;
-                vm.set(inst.arg0, result);
+                    binary_op_int(&self.get(inst.arg0), &self.get(inst.arg1), |lhs, rhs| {
+                        lhs | rhs
+                    })?;
+                self.set(inst.arg0, result);
             }
             OpCode::And => {
-                let result = truthy(&vm.get(inst.arg0)) && truthy(&vm.get(inst.arg1));
-                vm.set(inst.arg0, Value::I32(result as i32));
+                let result = truthy(&self.get(inst.arg0)) && truthy(&self.get(inst.arg1));
+                self.set(inst.arg0, Value::I32(result as i32));
             }
             OpCode::Or => {
-                let result = truthy(&vm.get(inst.arg0)) || truthy(&vm.get(inst.arg1));
-                vm.set(inst.arg0, Value::I32(result as i32));
+                let result = truthy(&self.get(inst.arg0)) || truthy(&self.get(inst.arg1));
+                self.set(inst.arg0, Value::I32(result as i32));
             }
             OpCode::Not => {
-                let result = !truthy(&vm.get(inst.arg0));
-                vm.set(inst.arg0, Value::I32(result as i32));
+                let result = !truthy(&self.get(inst.arg0));
+                self.set(inst.arg0, Value::I32(result as i32));
             }
             OpCode::BitNot => {
-                let val = vm.get(inst.arg0);
+                let val = self.get(inst.arg0);
                 let result = match val {
                     Value::I32(i) => Value::I32(!i),
                     Value::I64(i) => Value::I64(!i),
                     _ => return Err(EvalError::NonIntegerBitwise(format!("{val:?}"))),
                 };
-                vm.set(inst.arg0, result);
+                self.set(inst.arg0, result);
+            }
+            OpCode::Neg => {
+                let val = self.get(inst.arg0);
+                let result = match val {
+                    Value::I32(i) => Value::I32(-i),
+                    Value::I64(i) => Value::I64(-i),
+                    Value::F32(i) => Value::F32(-i),
+                    Value::F64(i) => Value::F64(-i),
+                    _ => return Err(EvalError::NonIntegerBitwise(format!("{val:?}"))),
+                };
+                self.set(inst.arg0, result);
             }
             OpCode::Get => {
-                let target_collection = &vm.get(inst.arg0);
-                let target_index = &vm.get(inst.arg1);
+                let target_collection = &self.get(inst.arg0);
+                let target_index = &self.get(inst.arg1);
                 let index = coerce_i64(target_index)? as u64;
-                let new_val = target_collection.array_get(index).or_else(|_| {
-                    target_collection.tuple_get(index)
-                }).map_err(|e| {
-                    format!("Get instruction failed with {target_collection:?} and {target_index:?}: {e:?}")
-                })?;
-                vm.set(inst.arg1, new_val);
+                let new_val = target_collection
+                    .array_get(index)
+                    .or_else(|_| target_collection.tuple_get(index))
+                    .or_else(|_| target_collection.struct_field(index))
+                    .map_err(|e| {
+                        format!("Get instruction failed with {target_collection:?} and {target_index:?}: {e:?}")
+                    })?;
+                self.set(inst.arg1, new_val);
             }
             OpCode::Set => {
-                let target_collection = &vm.get(inst.arg0);
-                let value = vm.get(inst.arg1);
-                let index = vm.set_register;
+                let target_collection = self.get(inst.arg0);
+                let value = self.get(inst.arg1);
+                let index = self.set_register;
                 target_collection.array_assign(index, value.clone())?;
             }
             OpCode::SetReg => {
-                vm.set_register = coerce_i64(vm.get(inst.arg0 as usize))? as usize;
+                self.set_register = coerce_i64(self.get(inst.arg0 as usize))? as usize;
             }
             OpCode::Lt => {
-                let result = compare_op(
-                    &vm.get(inst.arg0),
-                    &vm.get(inst.arg1),
-                    |lhs, rhs| lhs.lt(&rhs),
-                    |lhs, rhs| lhs.lt(&rhs),
-                )?;
-                vm.set(inst.arg0, Value::I64(result as i64));
+                let result =
+                    compare_op(&self.get(inst.arg0), &self.get(inst.arg1), f64::lt, i64::lt)?;
+                self.set(inst.arg0, result);
+            }
+            OpCode::Le => {
+                let result =
+                    compare_op(&self.get(inst.arg0), &self.get(inst.arg1), f64::le, i64::le)?;
+                self.set(inst.arg0, result);
             }
             OpCode::Gt => {
-                let result = compare_op(
-                    &vm.get(inst.arg0),
-                    &vm.get(inst.arg1),
-                    |lhs, rhs| lhs.gt(&rhs),
-                    |lhs, rhs| lhs.gt(&rhs),
-                )?;
-                vm.set(inst.arg0, Value::I64(result as i64));
+                let result =
+                    compare_op(&self.get(inst.arg0), &self.get(inst.arg1), f64::gt, i64::gt)?;
+                self.set(inst.arg0, result);
+            }
+            OpCode::Ge => {
+                let result =
+                    compare_op(&self.get(inst.arg0), &self.get(inst.arg1), f64::ge, i64::ge)?;
+                self.set(inst.arg0, result);
+            }
+            OpCode::Eq => {
+                let result =
+                    compare_op(&self.get(inst.arg0), &self.get(inst.arg1), f64::eq, i64::eq)?;
+                self.set(inst.arg0, result);
             }
             OpCode::Jmp => {
-                dbg_println!("[{ip}] Jumping by Jmp to {}", inst.arg1);
-                call_stack.clast_mut()?.ip = inst.arg1 as usize;
-                continue;
+                self.call_stack.clast_mut()?.ip = inst.arg1 as usize;
+                return Ok(None);
             }
             OpCode::Jt => {
-                if truthy(&vm.get(inst.arg0)) {
-                    dbg_println!("[{ip}] Jumping by Jt to {}", inst.arg1);
-                    call_stack.clast_mut()?.ip = inst.arg1 as usize;
-                    continue;
+                if truthy(&self.get(inst.arg0)) {
+                    self.call_stack.clast_mut()?.ip = inst.arg1 as usize;
+                    return Ok(None);
                 }
             }
             OpCode::Jf => {
-                if !truthy(&vm.get(inst.arg0)) {
-                    dbg_println!("[{ip}] Jumping by Jf to {}", inst.arg1);
-                    call_stack.clast_mut()?.ip = inst.arg1 as usize;
-                    continue;
+                if !truthy(&self.get(inst.arg0)) {
+                    self.call_stack.clast_mut()?.ip = inst.arg1 as usize;
+                    return Ok(None);
                 }
             }
             OpCode::Call => {
-                let arg_name = vm.get(inst.arg1);
+                let arg_name = self.get(inst.arg1);
                 let arg_name = if let Value::Str(s) = arg_name {
                     s
                 } else {
                     return Err(EvalError::NonNameFnRef(format!("{arg_name:?}")));
                 };
-                let fun = functions.iter().find(|(fname, _)| *fname == arg_name);
+                let fun = self.functions.iter().find(|(fname, _)| *fname == arg_name);
                 if let Some((_, fun)) = fun {
                     match fun {
                         FnProto::Code(fun) => {
-                            dbg_println!("Calling code function with stack size (base:{}) + (fn: 1) + (params: {}) + (cur stack:{})", inst.arg1, inst.arg0, fun.stack_size);
+                            // dbg_println!("Calling code function with stack size (base:{}) + (fn: 1) + (params: {}) + (cur stack:{})", inst.arg1, inst.arg0, fun.stack_size);
                             // +1 for function name and return slot
-                            vm.stack_base += inst.arg1 as usize;
-                            vm.stack.resize(
-                                vm.stack_base + inst.arg0 as usize + fun.stack_size + 1,
+                            self.stack_base += inst.arg1 as usize;
+                            self.stack.resize(
+                                self.stack_base + inst.arg0 as usize + fun.stack_size + 1,
                                 Value::default(),
                             );
-                            call_stack.push(CallInfo {
+                            self.call_stack.push(CallInfo {
                                 fun,
                                 ip: 0,
-                                stack_size: vm.stack.len(),
-                                stack_base: vm.stack_base,
+                                stack_size: self.stack.len(),
+                                stack_base: self.stack_base,
                             });
-                            continue;
+                            return Ok(None);
                         }
                         FnProto::Native(nat) => {
-                            let ret = nat(&vm.slice(
+                            let ret = nat(&self.slice(
                                 inst.arg1 as usize + 1,
                                 inst.arg1 as usize + 1 + inst.arg0 as usize,
                             ));
-                            vm.set(inst.arg1, ret?);
+                            self.set(inst.arg1, ret?);
                         }
                     }
                 } else {
@@ -345,59 +480,70 @@ fn interpret_fn(
                 }
             }
             OpCode::Ret => {
-                let retval = vm.stack_base + inst.arg1 as usize;
-                if let Some(prev_ci) = call_stack.pop() {
-                    if call_stack.is_empty() {
-                        return Ok(vm.get(inst.arg1).clone());
+                let retval = self.stack_base + inst.arg1 as usize;
+                if let Some(prev_ci) = self.call_stack.pop() {
+                    if self.call_stack.is_empty() {
+                        return Ok(Some(self.get(inst.arg1).clone()));
                     } else {
-                        let ci = call_stack.clast()?;
-                        vm.stack_base = ci.stack_base;
-                        vm.stack[prev_ci.stack_base] = vm.stack[retval].clone();
-                        vm.stack.resize(ci.stack_size, Value::default());
-                        vm.dump_stack();
+                        let ci = self.call_stack.clast()?;
+                        self.stack_base = ci.stack_base;
+                        self.stack[prev_ci.stack_base] = self.stack[retval].clone();
+                        self.stack.resize(ci.stack_size, Value::default());
+                        // self.dump_stack();
                     }
                 } else {
                     return Err(EvalError::CallStackUndeflow);
                 }
             }
             OpCode::Cast => {
-                let target_var = &vm.get(inst.arg0);
-                let target_type = coerce_i64(vm.get(inst.arg1))
+                let target_var = &self.get(inst.arg0);
+                let target_type = coerce_i64(self.get(inst.arg1))
                     .map_err(|e| format!("arg1 of Cast was not a number: {e:?}"))?;
                 let tt_buf = target_type.to_le_bytes();
                 let tt = TypeDecl::deserialize(&mut &tt_buf[..])
                     .map_err(|e| format!("arg1 of Cast was not a TypeDecl: {e:?}"))?;
                 let new_val = coerce_type(target_var, &tt)?;
-                vm.set(inst.arg0, new_val);
+                self.set(inst.arg0, new_val);
+            }
+            OpCode::MakeTuple => {
+                let values = (0..inst.arg0)
+                    .map(|i| {
+                        // +1 for the return slot
+                        let stk_val = i as usize + inst.arg1 as usize + 1;
+                        let value = self.get(stk_val);
+                        TupleEntry {
+                            decl: TypeDecl::from_value(value),
+                            value: value.clone(),
+                        }
+                    })
+                    .collect::<Vec<_>>();
+
+                let tuple = Value::Tuple(Rc::new(RefCell::new(values)));
+                self.set(inst.arg1, tuple);
+            }
+            OpCode::MakeStruct => {
+                let values = (0..inst.arg0)
+                    .map(|i| {
+                        // +1 for the name/return slot
+                        let stk_val = i as usize + inst.arg1 as usize + 1;
+                        self.get(stk_val).clone()
+                    })
+                    .collect::<Vec<_>>();
+
+                let st_value = Value::Struct(Rc::new(RefCell::new(StructInt {
+                    name: self.get(inst.arg1 as usize).to_string(),
+                    fields: values,
+                })));
+                self.set(inst.arg1, st_value);
             }
         }
 
-        vm.dump_stack();
+        // self.dump_stack();
 
-        call_stack.clast_mut()?.ip += 1;
+        self.call_stack.clast_mut()?.ip += 1;
+
+        Ok(None)
     }
-
-    dbg_println!("Final stack: {:?}", vm.stack);
-    Ok(Value::I64(0))
-}
-
-fn compare_op(
-    lhs: &Value,
-    rhs: &Value,
-    d: impl Fn(f64, f64) -> bool,
-    i: impl Fn(i64, i64) -> bool,
-) -> Result<bool, EvalError> {
-    Ok(match (lhs.clone(), rhs.clone()) {
-        (Value::F64(lhs), rhs) => d(lhs, coerce_f64(&rhs)?),
-        (lhs, Value::F64(rhs)) => d(coerce_f64(&lhs)?, rhs),
-        (Value::F32(lhs), rhs) => d(lhs as f64, coerce_f64(&rhs)?),
-        (lhs, Value::F32(rhs)) => d(coerce_f64(&lhs)?, rhs as f64),
-        (Value::I64(lhs), Value::I64(rhs)) => i(lhs, rhs),
-        (Value::I64(lhs), Value::I32(rhs)) => i(lhs, rhs as i64),
-        (Value::I32(lhs), Value::I64(rhs)) => i(lhs as i64, rhs),
-        (Value::I32(lhs), Value::I32(rhs)) => i(lhs as i64, rhs as i64),
-        _ => return Err(EvalError::OpError(lhs.to_string(), rhs.to_string())),
-    })
 }
 
 #[cfg(test)]

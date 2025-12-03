@@ -2,7 +2,8 @@ use std::{cell::Ref, collections::HashMap};
 
 use crate::{
     coerce_type,
-    interpreter::{coerce_i64, EvalResult},
+    coercion::coerce_i64,
+    interpreter::EvalResult,
     type_decl::{ArraySize, ArraySizeAxis},
     value::ArrayInt,
     ArgDecl, EvalError, FuncDef, TypeDecl, Value,
@@ -28,6 +29,7 @@ fn s_puts(vals: &[Value]) -> Result<Value, EvalError> {
                 Value::Str(val) => print!("{}", val),
                 Value::Array(val) => puts_inner(&mut val.borrow().values.iter()),
                 Value::Tuple(val) => puts_inner(&mut val.borrow().iter().map(|v| &v.value)),
+                Value::Struct(val) => puts_inner(&mut val.borrow().fields.iter()),
             }
         }
     }
@@ -54,6 +56,7 @@ pub(crate) fn s_type(vals: &[Value]) -> Result<Value, EvalError> {
                     }
                 })
             ),
+            Value::Struct(inner) => inner.borrow().name.clone(),
         }
     }
     if let [val, ..] = vals {
@@ -495,7 +498,7 @@ pub(crate) fn std_functions_gen<'src, 'native>(
             ),
             ArgDecl::new(
                 "shape",
-                TypeDecl::Array(Box::new(TypeDecl::Integer), ArraySize::all_dyn()),
+                TypeDecl::Array(Box::new(TypeDecl::I64), ArraySize::all_dyn()),
             ),
         ],
         None,

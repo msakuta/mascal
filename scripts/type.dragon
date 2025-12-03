@@ -16,13 +16,13 @@ print("i", i);
 print("l", l);
 print(type(l));
 
-fn coerce_i64(a: i64) {
+fn coerce_i64(a: i64) -> i64 {
     a
 }
 
 print(coerce_i64(123));
 
-fn coerce_f64(a: f64) {
+fn coerce_f64(a: f64) -> f64 {
     a
 }
 

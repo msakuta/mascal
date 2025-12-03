@@ -1,12 +1,17 @@
 //! The definition of bytecode data structure that is shared among the bytecode compiler and the interpreter (vm.rs)
 
+mod debug_info;
+
 use std::{
+    cell::RefCell,
     collections::HashMap,
     convert::{TryFrom, TryInto},
     io::{Read, Write},
+    rc::Rc,
 };
 
-use crate::{interpreter::EvalError, parser::ReadError, std_fns::std_functions_gen, value::Value};
+pub use self::debug_info::{DebugInfo, FunctionInfo, LineInfo};
+use crate::{eval_error::EvalError, parser::ReadError, std_fns::std_functions_gen, value::Value};
 
 /// Operational codes for an instruction. Supposed to fit in an u8.
 #[derive(Debug, Clone, Copy)]
@@ -37,8 +42,10 @@ pub enum OpCode {
     /// it has bool type. It can distinguish logical or bitwise operation by the operand type.
     /// However, we do not have bool type (yet), so we need a dedicated operator for bitwise not, like C.
     BitNot,
-    /// Get an element of an array (or a table in the future) at arg0 with the key at arg1, and make a copy at arg1.
-    /// Array elements are always Rc wrapped, so the user can assign into it.
+    /// Unary negation (-).
+    Neg,
+    /// Get an element of an array or a struct (or a table in the future) at arg0 with the key at arg1, and make a
+    /// copy at arg1.
     Get,
     Set,
     /// Set a value to the special register to use in later instructions.
@@ -47,7 +54,11 @@ pub enum OpCode {
     /// Compare arg0 and arg1, sets result -1, 0 or 1 to arg0, meaning less, equal and more, respectively
     // Cmp,
     Lt,
+    Le,
     Gt,
+    Ge,
+    /// Compare arg0 and arg1 for equality.
+    Eq,
     /// Unconditional jump to arg1.
     Jmp,
     /// Conditional jump. If arg0 is truthy, jump to arg1.
@@ -61,6 +72,12 @@ pub enum OpCode {
     /// Casts a value at arg0 to a type indicated by arg1. I'm feeling this should be a standard library function
     /// rather than a opcode, but let's finish implementation compatible with AST interpreter first.
     Cast,
+    /// Make a tuple with arg0 arguments on the stack at index arg1. arg1 + 1 to arg1 + arg0 are the indices of the
+    /// values to read from.
+    MakeTuple,
+    /// Make a tuple with arg0 arguments on the stack at index arg1. arg1 + 1 to arg1 + arg0 are the indices of the
+    /// values to read from. arg1 shall contain the type name (struct name) before invocation.
+    MakeStruct,
 }
 
 macro_rules! impl_op_from {
@@ -76,6 +93,15 @@ macro_rules! impl_op_from {
                     $($op => Ok(Self::$op),)*
                     _ => Err(ReadError::UndefinedOpCode(o)),
                 }
+            }
+        }
+
+        impl std::fmt::Display for OpCode {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                match self {
+                    $(Self::$op => write!(f, "{}", stringify!($op))?,)*
+                }
+                Ok(())
             }
         }
     }
@@ -96,16 +122,23 @@ impl_op_from!(
     Or,
     Not,
     BitNot,
+    Neg,
     Get,
     Set,
+    SetReg,
     Lt,
+    Le,
     Gt,
+    Ge,
+    Eq,
     Jmp,
     Jt,
     Jf,
     Call,
     Ret,
-    Cast
+    Cast,
+    MakeTuple,
+    MakeStruct
 );
 
 /// A single instruction in a bytecode. OpCodes can have 0 to 2 arguments.
@@ -120,6 +153,19 @@ impl Instruction {
     pub(crate) fn new(op: OpCode, arg0: u8, arg1: u16) -> Self {
         Self { op, arg0, arg1 }
     }
+
+    pub fn op(&self) -> OpCode {
+        self.op
+    }
+
+    pub fn arg0(&self) -> u8 {
+        self.arg0
+    }
+
+    pub fn arg1(&self) -> u16 {
+        self.arg1
+    }
+
     pub(crate) fn serialize(&self, writer: &mut impl Write) -> std::io::Result<()> {
         writer.write_all(&(self.op as u8).to_le_bytes())?;
         writer.write_all(&self.arg0.to_le_bytes())?;
@@ -148,16 +194,25 @@ impl std::fmt::Display for Instruction {
     }
 }
 
+fn write_usize(val: usize, writer: &mut impl Write) -> std::io::Result<()> {
+    writer.write_all(&(val as u32).to_le_bytes())?;
+    Ok(())
+}
+
+fn read_usize(reader: &mut impl Read) -> std::io::Result<usize> {
+    let mut buf = [0u8; std::mem::size_of::<u32>()];
+    reader.read_exact(&mut buf)?;
+    Ok(u32::from_le_bytes(buf) as usize)
+}
+
 fn write_str(s: &str, writer: &mut impl Write) -> std::io::Result<()> {
-    writer.write_all(&s.len().to_le_bytes())?;
+    write_usize(s.len(), writer)?;
     writer.write_all(&s.as_bytes())?;
     Ok(())
 }
 
 fn read_str(reader: &mut impl Read) -> Result<String, ReadError> {
-    let mut len = [0u8; std::mem::size_of::<usize>()];
-    reader.read_exact(&mut len)?;
-    let len = usize::from_le_bytes(len);
+    let len = read_usize(reader)?;
     let mut buf = vec![0u8; len];
     reader.read_exact(&mut buf)?;
     Ok(String::from_utf8(buf)?)
@@ -195,6 +250,9 @@ pub(crate) fn read_opt_value(reader: &mut impl Read) -> Result<Option<Value>, Re
 
 pub type NativeFn = Box<dyn Fn(&[Value]) -> Result<Value, EvalError>>;
 
+/// A mapping from function name to function prototypes, which can be a bytecode or a native extension.
+pub(crate) type FnProtos = HashMap<String, FnProto>;
+
 pub(crate) enum FnProto {
     Code(FnBytecode),
     Native(NativeFn),
@@ -209,11 +267,20 @@ impl FnProto {
     }
 }
 
+// Random byte sequences to identify chunks
+const FUNCTION_TAG: [u8; 2] = [0xae, 0x55];
+const DEBUG_TAG: [u8; 2] = [0xde, 0xba];
+
 pub struct Bytecode {
     pub(crate) functions: HashMap<String, FnProto>,
+    pub(crate) debug: Option<DebugInfo>,
 }
 
 impl Bytecode {
+    pub fn debug_info(&self) -> Option<&DebugInfo> {
+        self.debug.as_ref()
+    }
+
     /// Add a user-application provided native function to this bytecode.
     pub fn add_ext_fn(
         &mut self,
@@ -223,11 +290,19 @@ impl Bytecode {
         self.functions.insert(name, FnProto::Native(f));
     }
 
-    pub fn add_std_fn(&mut self) {
-        std_functions(&mut |name, f| self.add_ext_fn(name, f));
+    pub fn add_std_fn(&mut self, out: Rc<RefCell<dyn std::io::Write>>) {
+        std_functions(out, &mut |name, f| self.add_ext_fn(name, f));
+    }
+
+    pub fn set_file_name(&mut self, file_name: &str) {
+        if let Some(ref mut debug) = self.debug {
+            debug.set_file_name(file_name);
+        }
     }
 
     pub fn write(&self, writer: &mut impl Write) -> std::io::Result<()> {
+        writer.write_all(&FUNCTION_TAG)?;
+
         writer.write_all(
             &self
                 .functions
@@ -242,30 +317,48 @@ impl Bytecode {
                 func.write(writer)?;
             }
         }
+
+        if let Some(ref debug) = self.debug {
+            writer.write_all(&DEBUG_TAG)?;
+            Self::write_debug_info(debug, writer)?;
+        }
         Ok(())
     }
 
     pub fn read(reader: &mut impl Read) -> Result<Self, ReadError> {
-        let mut len = [0u8; std::mem::size_of::<usize>()];
-        reader.read_exact(&mut len)?;
-        let len = usize::from_le_bytes(len);
-        let ret = Bytecode {
-            functions: (0..len)
-                .map(|_| -> Result<(String, FnProto), ReadError> {
-                    Ok((read_str(reader)?, FnProto::Code(FnBytecode::read(reader)?)))
-                })
-                .collect::<Result<HashMap<_, _>, ReadError>>()?,
-        };
-        dbg_println!("loaded {} functions", ret.functions.len());
-        let loaded_fn = ret
-            .functions
+        let mut functions = HashMap::new();
+        let mut debug = None;
+        loop {
+            let mut tag = [0u8; 2];
+            match reader.read_exact(&mut tag) {
+                Ok(_) => {}
+                Err(_) => break, // Failing to read a tag is not an error. It is probably end of the file.
+            };
+            match tag {
+                FUNCTION_TAG => functions = Self::read_functions(reader)?,
+                DEBUG_TAG => debug = Some(Self::read_debug_info(reader)?),
+                _ => return Err(ReadError::UnknownTag(tag)),
+            }
+        }
+        functions
             .iter()
             .find(|(name, _)| *name == "")
             .ok_or(ReadError::NoMainFound)?;
-        if let FnProto::Code(ref _code) = loaded_fn.1 {
-            dbg_println!("instructions: {:#?}", _code.instructions);
-        }
-        Ok(ret)
+        Ok(Bytecode { functions, debug })
+    }
+
+    fn read_functions(reader: &mut impl Read) -> Result<HashMap<String, FnProto>, ReadError> {
+        let mut len = [0u8; std::mem::size_of::<usize>()];
+        reader.read_exact(&mut len)?;
+        let len = usize::from_le_bytes(len);
+        let functions = (0..len)
+            .map(|_| -> Result<(String, FnProto), ReadError> {
+                let name = read_str(reader)?;
+                Ok((name.clone(), FnProto::Code(FnBytecode::read(name, reader)?)))
+            })
+            .collect::<Result<HashMap<_, _>, ReadError>>()?;
+        dbg_println!("debug info loaded for {} functions", functions.len());
+        Ok(functions)
     }
 
     pub fn disasm(&self, out: &mut impl Write) -> std::io::Result<()> {
@@ -280,6 +373,17 @@ impl Bytecode {
             }
         }
         Ok(())
+    }
+
+    /// Returns a FnBytecode of a named function if it is included in this bytecode.
+    pub fn fn_bytecode(&self, name: &str) -> Option<&FnBytecode> {
+        self.functions.get(name).and_then(|f| {
+            if let FnProto::Code(code) = f {
+                Some(code)
+            } else {
+                None
+            }
+        })
     }
 
     pub fn signatures(&self, out: &mut impl Write) -> std::io::Result<()> {
@@ -308,6 +412,7 @@ impl Bytecode {
 
 /// Add standard common functions, such as `print`, `len` and `push`, to this bytecode.
 pub fn std_functions(
+    out: Rc<RefCell<dyn Write>>,
     f: &mut impl FnMut(String, Box<dyn Fn(&[Value]) -> Result<Value, EvalError>>),
 ) {
     std_functions_gen(&mut |name, code, _, _| {
@@ -329,6 +434,9 @@ impl BytecodeArg {
 
 #[derive(Debug, Clone)]
 pub struct FnBytecode {
+    /// Name is technically not required here, since it is also the key to a hash map,
+    /// but it is convenient to have this in bytecode for debugging.
+    pub(crate) name: String,
     pub(crate) literals: Vec<Value>,
     pub(crate) args: Vec<BytecodeArg>,
     pub(crate) instructions: Vec<Instruction>,
@@ -336,9 +444,14 @@ pub struct FnBytecode {
 }
 
 impl FnBytecode {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
     /// Create a placeholder entry that will be filled later.
-    pub(crate) fn proto(args: Vec<String>) -> Self {
+    pub(crate) fn proto(name: String, args: Vec<String>) -> Self {
         Self {
+            name,
             literals: vec![],
             args: args
                 .into_iter()
@@ -376,7 +489,7 @@ impl FnBytecode {
         Ok(())
     }
 
-    pub fn read(reader: &mut impl Read) -> Result<Self, ReadError> {
+    pub fn read(name: String, reader: &mut impl Read) -> Result<Self, ReadError> {
         let mut stack_size = [0u8; std::mem::size_of::<usize>()];
         reader.read_exact(&mut stack_size)?;
 
@@ -405,6 +518,7 @@ impl FnBytecode {
             .map(|_| Instruction::deserialize(reader))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Self {
+            name,
             literals,
             args,
             instructions,
@@ -436,5 +550,9 @@ impl FnBytecode {
             }
         }
         Ok(())
+    }
+
+    pub fn iter_instructions(&self) -> impl Iterator<Item = &Instruction> {
+        self.instructions.iter()
     }
 }
