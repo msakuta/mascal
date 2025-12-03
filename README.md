@@ -105,6 +105,7 @@ In ascending order of difficulty.
 * [x] Proper error handling
 * [x] Tuple types
 * [x] Type inference
+* [x] Structs (memory-packed container with named fields)
 * [ ] Multi-dimensional arrays
 * [ ] Function types (first class function variables)
 * [ ] Lambda expressions
