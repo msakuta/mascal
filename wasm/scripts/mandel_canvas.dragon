@@ -8,7 +8,7 @@ fn printdensity(d: i64, x: i64, y: i64) {
 /* Solve for z = z^2 + c in the complex plane. */
 fn mandelconverger(real: f64, imag: f64, iters: i64, creal: f64, cimag: f64) -> i64 {
     for iters in 0 .. 255 {
-        if real*real + imag*imag > 4 {
+        if real*real + imag*imag > 4. {
             break;
         };
         var next_r = real*real - imag*imag + creal;
@@ -26,11 +26,11 @@ fn mandelconverge(real: f64, imag: f64) -> i64 {
 /* Compute and plot the mandelbrot set with the specified 2 dimensional range
  info. */
 fn mandelhelp(xmin: f64, xmax: f64, xstep: f64,   ymin: f64, ymax: f64, ystep: f64) {
-    var steps: i64 = (ymax - ymin) / ystep;
+    var steps: i64 = ((ymax - ymin) / ystep) as i64;
     print("xstep", xstep, "ysteps", steps, "ystep", ystep);
     for iy in 0 .. steps {
         var y = iy as f64 * (ymax - ymin) * ystep as f64 + ymin;
-        var xsteps: i64 = (xmax - xmin) / xstep;
+        var xsteps: i64 = ((xmax - xmin) / xstep) as i64;
         for ix in 0 .. xsteps {
             var x = ix as f64 * (xmax - xmin) * xstep as f64 + xmin;
             printdensity(mandelconverge(x,y), ix as i64, iy as i64);

@@ -1,5 +1,6 @@
 {
     "rust-analyzer.linkedProjects": [
+        "cli/Cargo.toml",
         "parser/Cargo.toml",
         "wasm/Cargo.toml",
         "vscode-ext/mascal-lsp-server/Cargo.toml"
