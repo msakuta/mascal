@@ -14,12 +14,23 @@ use crate::{
 #[derive(Debug, PartialEq, Clone)]
 pub struct ArrayInt {
     pub(crate) type_decl: TypeDecl,
+    /// Shape of multi-dimensional array.
+    pub(crate) shape: Vec<usize>,
+    /// Flattened payload for values. First axis changes last.
     pub(crate) values: Vec<Value>,
 }
 
 impl ArrayInt {
-    pub(crate) fn new(type_decl: TypeDecl, values: Vec<Value>) -> Rc<RefCell<Self>> {
-        Rc::new(RefCell::new(Self { type_decl, values }))
+    pub(crate) fn new(
+        type_decl: TypeDecl,
+        shape: Vec<usize>,
+        values: Vec<Value>,
+    ) -> Rc<RefCell<Self>> {
+        Rc::new(RefCell::new(Self {
+            type_decl,
+            shape,
+            values,
+        }))
     }
 
     pub fn values(&self) -> &[Value] {
@@ -60,17 +71,10 @@ impl std::fmt::Display for Value {
             Self::I64(v) => write!(f, "{v}"),
             Self::I32(v) => write!(f, "{v}"),
             Self::Str(v) => write!(f, "{v}"),
-            Self::Array(v) => write!(
-                f,
-                "[{}]",
-                &v.borrow().values.iter().fold("".to_string(), |acc, cur| {
-                    if acc.is_empty() {
-                        cur.to_string()
-                    } else {
-                        acc + ", " + &cur.to_string()
-                    }
-                })
-            ),
+            Self::Array(v) => {
+                let v = v.borrow();
+                array_recurse(f, &v.values, &v.shape, 0, true)
+            }
             Self::Tuple(v) => write!(
                 f,
                 "({})",
@@ -101,6 +105,52 @@ impl std::fmt::Display for Value {
     }
 }
 
+fn array_recurse(
+    f: &mut std::fmt::Formatter<'_>,
+    arr: &[Value],
+    shape: &[usize],
+    level: usize,
+    last: bool,
+) -> std::fmt::Result {
+    if shape.is_empty() {
+        write!(f, "{}, ", arr[0])?;
+        return Ok(());
+    }
+    let indent = " ".repeat(2 + level);
+    if shape.len() == 2 {
+        write!(f, "[\n")?;
+    } else {
+        write!(f, "{indent}[")?;
+    }
+    let stride: usize = shape[1..].iter().product();
+    for i in 0..shape[0] {
+        if 1 < shape.len() {
+            array_recurse(
+                f,
+                &arr[i * stride..(i + 1) * stride],
+                &shape[1..],
+                level + 1,
+                i == shape[0] - 1,
+            )?;
+        } else {
+            if i != 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{}", arr[i])?;
+        }
+    }
+    if shape.len() == 1 {
+        write!(f, "],{indent}\n")?;
+    } else {
+        if last {
+            write!(f, "]")?;
+        } else {
+            write!(f, "],")?;
+        }
+    }
+    Ok(())
+}
+
 impl Value {
     pub(crate) fn serialize(&self, writer: &mut impl Write) -> std::io::Result<()> {
         macro_rules! serialize_with_tag {
@@ -125,10 +175,11 @@ impl Value {
             Self::Array(rc) => {
                 let ArrayInt {
                     type_decl: decl,
+                    shape,
                     values,
                 } = &rc.borrow() as &ArrayInt;
                 writer.write_all(&ARRAY_TAG.to_le_bytes())?;
-                writer.write_all(&values.len().to_le_bytes())?;
+                write_sizes(shape, writer)?;
                 decl.serialize(writer)?;
                 for value in values {
                     value.serialize(writer)?;
@@ -183,12 +234,13 @@ impl Value {
                 String::from_utf8(buf)?
             }),
             ARRAY_TAG => {
-                let value_count = parse!(usize);
+                let shape = read_sizes(reader)?;
+                let value_count = shape.iter().fold(1usize, |acc, cur| acc * *cur);
                 let decl = TypeDecl::deserialize(reader)?;
                 let values = (0..value_count)
                     .map(|_| Value::deserialize(reader))
                     .collect::<Result<_, _>>()?;
-                Self::Array(ArrayInt::new(decl, values))
+                Self::Array(ArrayInt::new(decl, shape, values))
             }
             TUPLE_TAG => {
                 let value_count = parse!(usize);
@@ -242,7 +294,11 @@ impl Value {
         match self {
             Value::Array(array) => {
                 let mut array_int = array.borrow_mut();
+                if array_int.shape.len() != 1 {
+                    return Err("push() must be called for 1-D array".to_string().into());
+                }
                 array_int.values.push(value);
+                array_int.shape[0] += 1;
                 Ok(())
             }
             _ => Err("push() must be called for an array".to_string().into()),
@@ -303,6 +359,7 @@ impl Value {
                 let values = a.values.iter().map(|v| v.deepclone()).collect();
                 Self::Array(Rc::new(RefCell::new(ArrayInt {
                     type_decl: a.type_decl.clone(),
+                    shape: a.shape.clone(),
                     values,
                 })))
             }
@@ -346,7 +403,7 @@ impl std::convert::TryFrom<&Value> for usize {
             Value::Array(rc) => {
                 let arr = rc.borrow();
                 Err(ValueError::Invalid(
-                    TypeDecl::Array(Box::new(arr.type_decl.clone()), ArraySize::Any),
+                    TypeDecl::Array(Box::new(arr.type_decl.clone()), ArraySize::default()),
                     TypeDecl::I64,
                 ))
             }
@@ -366,6 +423,28 @@ impl std::convert::TryFrom<&Value> for usize {
             }
         }
     }
+}
+
+fn write_sizes(shape: &[usize], writer: &mut impl Write) -> std::io::Result<()> {
+    writer.write_all(&(shape.len() as u64).to_le_bytes())?;
+    for shape_axis in shape {
+        writer.write_all(&(*shape_axis as u64).to_le_bytes())?;
+    }
+    Ok(())
+}
+
+fn read_sizes(reader: &mut impl Read) -> std::io::Result<Vec<usize>> {
+    let mut buf = [0u8; std::mem::size_of::<u64>()];
+    reader.read_exact(&mut buf)?;
+    let size = u64::from_le_bytes(buf) as usize;
+    let ret = (0..size)
+        .map(|_| -> std::io::Result<_> {
+            let mut buf = [0u8; std::mem::size_of::<u64>()];
+            reader.read_exact(&mut buf)?;
+            Ok(u64::from_le_bytes(buf) as usize)
+        })
+        .collect::<Result<_, _>>()?;
+    Ok(ret)
 }
 
 pub type TupleInt = Vec<TupleEntry>;
@@ -399,6 +478,20 @@ impl StructInt {
 
     pub fn fields(&self) -> &[Value] {
         &self.fields
+    }
+}
+
+impl std::fmt::Display for StructInt {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} (", self.name)?;
+        for (i, val) in self.fields.iter().enumerate() {
+            if i != 0 {
+                write!(f, ", ")?;
+            }
+            val.fmt(f)?;
+        }
+        write!(f, ")")?;
+        Ok(())
     }
 }
 

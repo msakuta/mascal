@@ -1,7 +1,7 @@
 mod array_size;
 
-pub use self::array_size::ArraySize;
 use self::array_size::{read_array_size, write_array_size};
+pub use self::array_size::{ArraySize, ArraySizeAxis};
 use std::io::{Read, Write};
 
 use crate::{
@@ -32,7 +32,10 @@ impl TypeDecl {
             Value::I32(_) => Self::I32,
             Value::I64(_) => Self::I64,
             Value::Str(_) => Self::Str,
-            Value::Array(a) => Self::Array(Box::new(a.borrow().type_decl.clone()), ArraySize::Any),
+            Value::Array(a) => Self::Array(
+                Box::new(a.borrow().type_decl.clone()),
+                ArraySize(vec![ArraySizeAxis::Any]),
+            ),
             Value::Tuple(a) => Self::Tuple(
                 a.borrow()
                     .iter()
@@ -108,10 +111,14 @@ impl std::fmt::Display for TypeDecl {
             TypeDecl::I64 => write!(f, "i64")?,
             TypeDecl::I32 => write!(f, "i32")?,
             TypeDecl::Str => write!(f, "str")?,
-            TypeDecl::Array(inner, len) => match len {
-                ArraySize::Any => write!(f, "[{}]", inner)?,
-                _ => write!(f, "[{}; {}]", inner, len)?,
-            },
+            TypeDecl::Array(inner, shape) => {
+                for dim in &shape.0 {
+                    match dim {
+                        ArraySizeAxis::Any => write!(f, "[{}]", inner)?,
+                        _ => write!(f, "[{}; {}]", inner, dim)?,
+                    }
+                }
+            }
             TypeDecl::Tuple(inner) => write!(
                 f,
                 "({})",

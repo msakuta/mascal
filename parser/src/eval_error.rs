@@ -1,4 +1,4 @@
-use crate::{value::ValueError, TypeDecl};
+use crate::{type_decl::ArraySizeAxis, value::ValueError, TypeDecl};
 
 /// Error type for the AST intepreter and bytecode interpreter.
 /// Note that it is shared among 2 kinds of interpreters, so some of them only happen in either kind.
@@ -20,6 +20,7 @@ pub enum EvalError {
     VarNotFound(String),
     FnNotFound(String),
     ArrayOutOfBounds(usize, usize),
+    NonRectangularArray,
     TupleOutOfBounds(usize, usize),
     IndexNonArray,
     NeedRef(String),
@@ -32,7 +33,7 @@ pub enum EvalError {
     NoMainFound,
     NonNameFnRef(String),
     CallStackUndeflow,
-    IncompatibleArrayLength(usize, usize),
+    IncompatibleArrayLength(ArraySizeAxis, usize),
     AssignToLiteral(String),
     IndexNonNum,
     NonLValue(String),
@@ -44,6 +45,8 @@ pub enum EvalError {
     NoFieldFound(String),
     TypeCheck(String),
     ExpectStruct(TypeDecl),
+    /// Some other error that happened in a library code.
+    RuntimeError(String),
 }
 
 impl std::convert::From<ValueError> for EvalError {
@@ -81,6 +84,9 @@ impl std::fmt::Display for EvalError {
                 f,
                 "ArrayRef index out of range: {idx} is larger than array length {len}"
             ),
+            Self::NonRectangularArray => {
+                write!(f, "The array has different number of columns among rows")
+            }
             Self::TupleOutOfBounds(idx, len) => write!(
                 f,
                 "Tuple index out of range: {idx} is larger than tuple length {len}"
@@ -126,6 +132,7 @@ impl std::fmt::Display for EvalError {
             Self::NoFieldFound(name) => write!(f, "Field {name} not found"),
             Self::TypeCheck(name) => write!(f, "Type check error: {name}"),
             Self::ExpectStruct(ty) => write!(f, "Expect a struct, but got a {ty}"),
+            Self::RuntimeError(e) => write!(f, "Runtime error: {e}"),
         }
     }
 }

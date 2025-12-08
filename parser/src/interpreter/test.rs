@@ -9,7 +9,9 @@ use crate::{
         test::{expr_nosemi, expr_semi},
         Subslice,
     },
-    type_check,
+    parser::{source, span_source, Subslice},
+    type_check, type_check,
+    type_decl::ArraySize,
     type_set::TypeSetAnnotated,
     TypeCheckContext,
 };
@@ -104,7 +106,7 @@ fn var_assign_test() {
         .insert("x", Rc::new(RefCell::new(Value::F64(42.))));
     let span = Span::new("x=12");
     assert_eq!(
-        var_assign(span).finish().unwrap().1,
+        assign_expr(span).finish().unwrap().1,
         Expression::new(
             VarAssign(
                 var_r(span.subslice(0, 1)),
@@ -114,7 +116,10 @@ fn var_assign_test() {
         )
     );
     assert_eq!(
-        eval(&var_assign(Span::new("x=12")).finish().unwrap().1, &mut ctx).unwrap(),
+        eval(
+            &assign_expr(Span::new("x=12")).finish().unwrap().1,
+            &mut ctx
+        ),
         RunResult::Yield(Value::I64(12))
     );
 }
@@ -570,18 +575,24 @@ fn array_decl_test() {
     );
     assert_eq!(
         type_spec(Span::new(": [i32]")).finish().unwrap().1,
-        TypeDecl::Array(Box::new(TypeDecl::I32), ArraySize::Any)
+        TypeDecl::Array(Box::new(TypeDecl::I32), ArraySize::default())
     );
     assert_eq!(
         type_spec(Span::new(": [[f32]]")).finish().unwrap().1,
         TypeDecl::Array(
-            Box::new(TypeDecl::Array(Box::new(TypeDecl::F32), ArraySize::Any)),
-            ArraySize::Any
+            Box::new(TypeDecl::Array(
+                Box::new(TypeDecl::F32),
+                ArraySize::default()
+            )),
+            ArraySize::default()
         )
     );
     assert_eq!(
         type_spec(Span::new(": [f32; 3]")).finish().unwrap().1,
-        TypeDecl::Array(Box::new(TypeDecl::F32), ArraySize::Fixed(3))
+        TypeDecl::Array(
+            Box::new(TypeDecl::F32),
+            ArraySize(vec![ArraySizeAxis::Fixed(3)])
+        )
     );
 }
 
@@ -592,22 +603,22 @@ fn array_literal_test() {
     assert_eq!(
         array_literal(span).finish().unwrap().1,
         Expression::new(
-            ArrLiteral(vec![
+            ArrLiteral(vec![vec![
                 nl(I64(1), span.subslice(1, 1)),
                 nl(I64(3), span.subslice(3, 1)),
                 nl(I64(5), span.subslice(5, 1))
-            ]),
+            ]]),
             span
         )
     );
     assert_eq!(
         full_expression(span).finish().unwrap().1,
         Expression::new(
-            ArrLiteral(vec![
+            ArrLiteral(vec![vec![
                 nl(I64(1), span.subslice(1, 1)),
                 nl(I64(3), span.subslice(3, 1)),
                 nl(I64(5), span.subslice(5, 1))
-            ]),
+            ]]),
             span
         )
     );
@@ -615,24 +626,24 @@ fn array_literal_test() {
     assert_eq!(
         full_expression(span).finish().unwrap().1,
         Expression::new(
-            ArrLiteral(vec![
+            ArrLiteral(vec![vec![
                 Expression::new(
-                    ArrLiteral(vec![
+                    ArrLiteral(vec![vec![
                         nl(I64(1), span.subslice(2, 1)),
                         nl(I64(3), span.subslice(4, 1)),
                         nl(I64(5), span.subslice(6, 1))
-                    ]),
+                    ]]),
                     span.subslice(1, 7)
                 ),
                 Expression::new(
-                    ArrLiteral(vec![
+                    ArrLiteral(vec![vec![
                         nl(I64(7), span.subslice(10, 1)),
                         nl(I64(8), span.subslice(12, 1)),
                         nl(I64(9), span.subslice(14, 1))
-                    ]),
+                    ]]),
                     span.subslice(9, 7)
                 ),
-            ]),
+            ]]),
             span
         )
     );
@@ -652,18 +663,75 @@ fn array_literal_eval_test() {
         eval0(&span_full_expression("[1,3,5]").finish().unwrap().1),
         // Right now array literals have "Any" internal type, but it should be decided somehow.
         RunResult::Yield(Value::Array(ArrayInt::new(
-            TypeDecl::Any,
+            TypeDecl::I64,
+            vec![3],
             vec![i64(1), i64(3), i64(5)]
         )))
     );
 
     // Type coercion won't happen through variable declaration, because it is discarded in compiled bytecode.
     assert_eq!(
-        run0(&span_source("var v: [f64] = [1,3,5]; v").finish().unwrap().1).unwrap(),
-        RunResult::Yield(Value::Array(ArrayInt::new(
-            TypeDecl::Any,
+        run0(&span_source("var v: [f64] = [1,3,5]; v").finish().unwrap().1),
+        Ok(RunResult::Yield(Value::Array(ArrayInt::new(
+            TypeDecl::I64,
+            vec![3],
             vec![i64(1), i64(3), i64(5)]
-        )))
+        ))))
+    );
+}
+
+#[test]
+fn array_shape_test() {
+    use Value::*;
+
+    let src = "var v: [i64; 2, 3] = [1,2,3;4,5,6]; shape(v)";
+    assert_eq!(
+        run0(&span_source(src).finish().unwrap().1),
+        Ok(RunResult::Yield(Value::Array(ArrayInt::new(
+            TypeDecl::I64,
+            vec![2],
+            vec![I64(2), I64(3)]
+        ))))
+    );
+}
+
+#[test]
+fn array_transpose_test() {
+    use Value::*;
+
+    let src = "var v: [i64; 2, 3] = [1,2,3;4,5,6]; transpose(v)";
+    assert_eq!(
+        run0(&span_source(src).finish().unwrap().1),
+        Ok(RunResult::Yield(Value::Array(ArrayInt::new(
+            TypeDecl::I64,
+            vec![3, 2],
+            vec![I64(1), I64(4), I64(2), I64(5), I64(3), I64(6)]
+        ))))
+    );
+
+    let src = "var v: [i64; 3] = [1,2,3]; transpose(v)";
+    assert_eq!(
+        run0(&span_source(src).finish().unwrap().1),
+        Ok(RunResult::Yield(Value::Array(ArrayInt::new(
+            TypeDecl::I64,
+            vec![3, 1],
+            vec![I64(1), I64(2), I64(3)]
+        ))))
+    );
+}
+
+#[test]
+fn array_reshape_test() {
+    use Value::*;
+
+    let src = "var v: [i64; 2, 3] = [1,2,3;4,5,6]; reshape(v, [3, 2])";
+    assert_eq!(
+        run0(&span_source(src).finish().unwrap().1),
+        Ok(RunResult::Yield(Value::Array(ArrayInt::new(
+            TypeDecl::I64,
+            vec![3, 2],
+            vec![I64(1), I64(2), I64(3), I64(4), I64(5), I64(6)]
+        ))))
     );
 }
 
@@ -676,7 +744,7 @@ fn fn_array_decl_test() {
             name: span.subslice(3, 1),
             args: vec![ArgDecl::new(
                 span.subslice(5, 1),
-                TypeDecl::Array(Box::new(TypeDecl::I32), ArraySize::Any)
+                TypeDecl::Array(Box::new(TypeDecl::I32), ArraySize::default())
             )],
             ret_type: RetType::Void,
             stmts: Rc::new(vec![expr_semi(Expression::new(
@@ -695,7 +763,7 @@ fn array_index_test() {
     use Value::*;
     let span = Span::new("a[1]");
     assert_eq!(
-        array_index(span).finish().unwrap().1,
+        full_expression(span).finish().unwrap().1,
         Expression::new(
             ArrIndex(
                 var_r(span.subslice(0, 1)),

@@ -2,7 +2,6 @@ use std::{cell::RefCell, rc::Rc};
 
 use crate::{
     interpreter::{EvalResult, TypeMap},
-    type_decl::ArraySize,
     value::{ArrayInt, TupleEntry},
     EvalError, TypeDecl, Value,
 };
@@ -73,6 +72,7 @@ fn _coerce_var(value: &Value, target: &Value, typedefs: &TypeMap) -> Result<Valu
         Value::Array(array) => {
             let ArrayInt {
                 type_decl: inner_type,
+                shape,
                 values: inner,
             } = &array.borrow() as &ArrayInt;
             if inner.len() == 0 {
@@ -89,6 +89,7 @@ fn _coerce_var(value: &Value, target: &Value, typedefs: &TypeMap) -> Result<Valu
                 if let Value::Array(array) = value {
                     Value::Array(ArrayInt::new(
                         inner_type.clone(),
+                        shape.clone(),
                         array
                             .borrow()
                             .values
@@ -160,22 +161,25 @@ pub fn coerce_type(value: &Value, target: &TypeDecl) -> Result<Value, EvalError>
         TypeDecl::I64 => Value::I64(coerce_i64(value)?),
         TypeDecl::I32 => Value::I32(coerce_i64(value)? as i32),
         TypeDecl::Str => Value::Str(coerce_str(value)?),
-        TypeDecl::Array(_, len) => {
-            if let Value::Array(array) = value {
-                let array = array.borrow();
-                if let ArraySize::Fixed(len) = len {
-                    if *len != array.values.len() {
-                        return Err(EvalError::IncompatibleArrayLength(*len, array.values.len()));
-                    }
-                }
-                // Type coercion should not alter the referenced value, i.e. array elements
-                return Ok(value.clone());
-            } else {
+        TypeDecl::Array(_, shape) => {
+            let Value::Array(array) = value else {
                 return Err(EvalError::CoerceError(
                     value.to_string(),
                     "array".to_string(),
                 ));
+            };
+
+            let array = array.borrow();
+            for (target_len, val_len) in shape.iter().zip(array.shape.iter()) {
+                if !target_len.contains(*val_len) {
+                    return Err(EvalError::IncompatibleArrayLength(
+                        target_len.clone(),
+                        array.values.len(),
+                    ));
+                }
             }
+            // Type coercion should not alter the referenced value, i.e. array elements
+            return Ok(value.clone());
         }
         TypeDecl::Tuple(_) => {
             if let Value::Tuple(_) = value {

@@ -6,11 +6,11 @@ use crate::{
     coercion::{coerce_f64, coerce_i64, coerce_type},
     eval_error::EvalError,
     parser::*,
-    type_decl::ArraySize,
+    std_fns::std_functions,
     value::{ArrayInt, StructInt, TupleEntry},
     TypeDecl, Value,
 };
-use std::{cell::RefCell, collections::HashMap, convert::TryInto, io::Write, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum RunResult {
@@ -140,6 +140,52 @@ pub(crate) fn truthy(a: &Value) -> bool {
     }
 }
 
+fn eval_array_literal<'src, 'native>(
+    val: &[Vec<Expression<'src>>],
+    ctx: &mut EvalContext<'src, 'native, '_>,
+) -> EvalResult<RunResult>
+where
+    'native: 'src,
+{
+    let Some(cols) = val.first().map(|row| row.len()) else {
+        // An empty array has 1 dimension by convention
+        let int = ArrayInt::new(TypeDecl::Any, vec![0], vec![]);
+        return Ok(RunResult::Yield(Value::Array(int)));
+    };
+
+    let total_size = val.len() * cols;
+
+    // Validate array shape
+    for row in val {
+        if row.len() != cols {
+            return Err(EvalError::NonRectangularArray);
+        }
+    }
+
+    let mut rows = Vec::with_capacity(total_size);
+    for row in val.iter() {
+        for cell in row.iter() {
+            if let RunResult::Yield(y) = eval(cell, ctx)? {
+                rows.push(y);
+            } else {
+                return Err(EvalError::DisallowedBreak);
+            }
+        }
+    }
+
+    let shape = if val.len() == 1 {
+        vec![cols]
+    } else {
+        vec![val.len(), cols]
+    };
+
+    Ok(RunResult::Yield(Value::Array(ArrayInt::new(
+        rows.first().map_or(TypeDecl::Any, TypeDecl::from_value),
+        shape,
+        rows,
+    ))))
+}
+
 pub(crate) fn eval<'src, 'native>(
     e: &Expression<'src>,
     ctx: &mut EvalContext<'src, 'native, '_>,
@@ -150,18 +196,21 @@ where
     Ok(match &e.expr {
         ExprEnum::NumLiteral(val, _) => RunResult::Yield(val.clone()),
         ExprEnum::StrLiteral(val) => RunResult::Yield(Value::Str(val.clone())),
-        ExprEnum::ArrLiteral(val) => RunResult::Yield(Value::Array(ArrayInt::new(
-            TypeDecl::Any,
+        ExprEnum::ArrLiteral(val) => eval_array_literal(val, ctx)?,
+        ExprEnum::TupleLiteral(val) => RunResult::Yield(Value::Tuple(Rc::new(RefCell::new(
             val.iter()
                 .map(|v| {
-                    if let RunResult::Yield(y) = eval(v, ctx)? {
-                        Ok(y)
+                    if let RunResult::Yield(y) = unwrap_deref(eval(v, ctx)?)? {
+                        Ok(TupleEntry {
+                            decl: TypeDecl::from_value(&y),
+                            value: y,
+                        })
                     } else {
                         Err(EvalError::DisallowedBreak)
                     }
                 })
                 .collect::<Result<Vec<_>, _>>()?,
-        ))),
+        )))),
         ExprEnum::StructLiteral { name, fields, .. } => {
             // TODO: work around clone for the borrow checker
             let st_ty = ctx
@@ -189,20 +238,6 @@ where
                     .collect::<Result<Vec<_>, _>>()?,
             }))))
         }
-        ExprEnum::TupleLiteral(val) => RunResult::Yield(Value::Tuple(Rc::new(RefCell::new(
-            val.iter()
-                .map(|v| {
-                    if let RunResult::Yield(y) = unwrap_deref(eval(v, ctx)?)? {
-                        Ok(TupleEntry {
-                            decl: TypeDecl::from_value(&y),
-                            value: y,
-                        })
-                    } else {
-                        Err(EvalError::DisallowedBreak)
-                    }
-                })
-                .collect::<Result<Vec<_>, _>>()?,
-        )))),
         ExprEnum::Variable(str) => RunResult::Yield(
             ctx.get_var(str)
                 .ok_or_else(|| EvalError::VarNotFound(str.to_string()))?,
@@ -488,161 +523,6 @@ where
     })
 }
 
-pub(crate) fn s_print(out: &mut dyn Write, vals: &[Value]) -> EvalResult<Value> {
-    fn print_inner(out: &mut dyn Write, val: &Value) -> EvalResult<()> {
-        match val {
-            Value::F64(val) => write!(out, "{}", val)?,
-            Value::F32(val) => write!(out, "{}", val)?,
-            Value::I64(val) => write!(out, "{}", val)?,
-            Value::I32(val) => write!(out, "{}", val)?,
-            Value::Str(val) => write!(out, "{}", val)?,
-            Value::Array(val) => {
-                write!(out, "[")?;
-                for (i, val) in val.borrow().values.iter().enumerate() {
-                    if i != 0 {
-                        write!(out, ", ")?;
-                    }
-                    print_inner(out, val)?;
-                }
-                write!(out, "]")?;
-            }
-            Value::Tuple(val) => {
-                write!(out, "(")?;
-                for (i, val) in val.borrow().iter().enumerate() {
-                    if i != 0 {
-                        write!(out, ", ")?;
-                    }
-                    print_inner(out, &val.value)?;
-                }
-                write!(out, ")")?;
-            }
-            Value::Struct(val) => {
-                let val = val.borrow();
-                write!(out, "{} (", val.name)?;
-                for (i, val) in val.fields.iter().enumerate() {
-                    if i != 0 {
-                        write!(out, ", ")?;
-                    }
-                    print_inner(out, &val)?;
-                }
-                write!(out, ")")?;
-            }
-        }
-        Ok(())
-    }
-    for val in vals {
-        print_inner(out, val)?;
-        // Put a space between tokens
-        write!(out, " ")?;
-    }
-    write!(out, "\n")?;
-    Ok(Value::I32(0))
-}
-
-pub(crate) fn s_puts(out: &mut dyn Write, vals: &[Value]) -> Result<Value, EvalError> {
-    fn puts_inner<'a>(
-        out: &mut dyn Write,
-        vals: &mut dyn Iterator<Item = &'a Value>,
-    ) -> std::io::Result<()> {
-        for val in vals {
-            match val {
-                Value::F64(val) => write!(out, "{}", val)?,
-                Value::F32(val) => write!(out, "{}", val)?,
-                Value::I64(val) => write!(out, "{}", val)?,
-                Value::I32(val) => write!(out, "{}", val)?,
-                Value::Str(val) => write!(out, "{}", val)?,
-                Value::Array(val) => puts_inner(out, &mut val.borrow().values.iter())?,
-                Value::Tuple(val) => puts_inner(out, &mut val.borrow().iter().map(|v| &v.value))?,
-                Value::Struct(val) => puts_inner(out, &mut val.borrow().fields.iter())?,
-            }
-        }
-        Ok(())
-    }
-    puts_inner(out, &mut vals.iter())?;
-    Ok(Value::I32(0))
-}
-
-pub(crate) fn s_type(vals: &[Value]) -> Result<Value, EvalError> {
-    fn type_str(val: &Value) -> String {
-        match val {
-            Value::F64(_) => "f64".to_string(),
-            Value::F32(_) => "f32".to_string(),
-            Value::I64(_) => "i64".to_string(),
-            Value::I32(_) => "i32".to_string(),
-            Value::Str(_) => "str".to_string(),
-            Value::Array(inner) => format!("[{}]", inner.borrow().type_decl),
-            Value::Tuple(inner) => format!(
-                "({})",
-                &inner.borrow().iter().fold(String::new(), |acc, cur| {
-                    if acc.is_empty() {
-                        cur.decl.to_string()
-                    } else {
-                        acc + ", " + &cur.decl.to_string()
-                    }
-                })
-            ),
-            Value::Struct(inner) => inner.borrow().name.clone(),
-        }
-    }
-    if let [val, ..] = vals {
-        Ok(Value::Str(type_str(val)))
-    } else {
-        Ok(Value::I32(0))
-    }
-}
-
-pub(crate) fn s_strlen(vals: &[Value]) -> Result<Value, EvalError> {
-    if let [val, ..] = vals {
-        Ok(Value::I64(val.str_len()? as i64))
-    } else {
-        Ok(Value::I32(0))
-    }
-}
-
-pub(crate) fn s_len(vals: &[Value]) -> Result<Value, EvalError> {
-    if let [val, ..] = vals {
-        Ok(Value::I64(val.array_len()? as i64))
-    } else {
-        Ok(Value::I32(0))
-    }
-}
-
-pub(crate) fn s_push(vals: &[Value]) -> Result<Value, EvalError> {
-    if let [arr, val, ..] = vals {
-        let val = val.clone();
-        arr.array_push(val).map(|_| Value::I32(0))
-    } else {
-        Err(EvalError::MissingArg(
-            "push requires 2 arguments".to_string(),
-        ))
-    }
-}
-
-pub(crate) fn s_resize(vals: &[Value]) -> Result<Value, EvalError> {
-    if let [arr, len, ..] = vals {
-        let new_len = len.try_into()?;
-        arr.array_resize(new_len, &Value::default())
-            .map(|_| Value::I32(0))
-    } else {
-        Err(EvalError::MissingArg(
-            "resize requires 2 arguments".to_string(),
-        ))
-    }
-}
-
-pub(crate) fn s_hex_string(vals: &[Value]) -> Result<Value, EvalError> {
-    if let [val, ..] = vals {
-        match coerce_type(val, &TypeDecl::I64)? {
-            Value::I64(i) => Ok(Value::Str(format!("{:02x}", i))),
-            _ => Err(EvalError::Other(
-                "hex_string() could not convert argument to i64".to_string(),
-            )),
-        }
-    } else {
-        Ok(Value::Str("".to_string()))
-    }
-}
-
 #[derive(Clone)]
 pub struct FuncCode<'src> {
     args: Vec<ArgDecl<'src>>,
@@ -842,86 +722,6 @@ impl<'src, 'ast, 'native, 'ctx> EvalContext<'src, 'native, 'ctx> {
             .get(name)
             .or_else(|| self.super_context.and_then(|sc| sc.get_type(name)))
     }
-}
-
-pub(crate) fn std_functions<'src, 'native>() -> HashMap<String, FuncDef<'src, 'native>> {
-    let mut functions = HashMap::new();
-    functions.insert(
-        "print".to_string(),
-        FuncDef::new_native(&|vals| s_print(&mut std::io::stdout(), vals), vec![], None),
-    );
-    functions.insert(
-        "puts".to_string(),
-        FuncDef::new_native(
-            &|vals| s_puts(&mut std::io::stdout(), vals),
-            vec![ArgDecl::new("val", TypeDecl::Any)],
-            None,
-        ),
-    );
-    functions.insert(
-        "type".to_string(),
-        FuncDef::new_native(
-            &s_type,
-            vec![ArgDecl::new("value", TypeDecl::Any)],
-            Some(TypeDecl::Str),
-        ),
-    );
-    functions.insert(
-        "strlen".to_string(),
-        FuncDef::new_native(
-            &s_strlen,
-            vec![ArgDecl::new("str", TypeDecl::Str)],
-            Some(TypeDecl::I64),
-        ),
-    );
-    functions.insert(
-        "len".to_string(),
-        FuncDef::new_native(
-            &s_len,
-            vec![ArgDecl::new(
-                "array",
-                TypeDecl::Array(Box::new(TypeDecl::Any), ArraySize::Any),
-            )],
-            Some(TypeDecl::I64),
-        ),
-    );
-    functions.insert(
-        "push".to_string(),
-        FuncDef::new_native(
-            &s_push,
-            vec![
-                ArgDecl::new(
-                    "array",
-                    TypeDecl::Array(Box::new(TypeDecl::Any), ArraySize::Range(0..usize::MAX)),
-                ),
-                ArgDecl::new("value", TypeDecl::Any),
-            ],
-            None,
-        ),
-    );
-    functions.insert(
-        "resize".to_string(),
-        FuncDef::new_native(
-            &s_resize,
-            vec![
-                ArgDecl::new(
-                    "array",
-                    TypeDecl::Array(Box::new(TypeDecl::Any), ArraySize::Range(0..usize::MAX)),
-                ),
-                ArgDecl::new("new_len", TypeDecl::Any),
-            ],
-            None,
-        ),
-    );
-    functions.insert(
-        "hex_string".to_string(),
-        FuncDef::new_native(
-            &s_hex_string,
-            vec![ArgDecl::new("value", TypeDecl::I64)],
-            Some(TypeDecl::Str),
-        ),
-    );
-    functions
 }
 
 macro_rules! unwrap_break {

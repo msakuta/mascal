@@ -1,7 +1,7 @@
 use crate::{
     coercion::{coerce_f32, coerce_f64, coerce_i32, coerce_i64},
     interpreter::RetType,
-    type_decl::{ArraySize, TypeDecl},
+    type_decl::{ArraySize, ArraySizeAxis, TypeDecl},
     type_set::TypeSetAnnotated,
     Value,
 };
@@ -23,12 +23,14 @@ use std::{rc::Rc, string::FromUtf8Error};
 
 pub type Span<'a> = LocatedSpan<&'a str>;
 
+#[non_exhaustive]
 #[derive(Debug)]
 pub enum ReadError {
     IO(std::io::Error),
     FromUtf8(FromUtf8Error),
     NoMainFound,
     UndefinedOpCode(u8),
+    ZeroDimShape,
     UnknownTag([u8; 2]),
     UnknownTypeTag(u8),
 }
@@ -52,6 +54,7 @@ impl std::fmt::Display for ReadError {
             ReadError::FromUtf8(e) => write!(f, "{e}"),
             ReadError::NoMainFound => write!(f, "No main function found"),
             ReadError::UndefinedOpCode(code) => write!(f, "Opcode \"{code:02X}\" unrecognized!"),
+            Self::ZeroDimShape => write!(f, "Array has zero dimensions"),
             ReadError::UnknownTag(code) => write!(f, "Unknwon tag \"{code:?}\" encountered"),
             ReadError::UnknownTypeTag(code) => {
                 write!(f, "Unknwon type tag \"{code:?}\" encountered")
@@ -137,7 +140,7 @@ impl<'a> Statement<'a> {
 pub(crate) enum ExprEnum<'a> {
     NumLiteral(Value, TypeSetAnnotated),
     StrLiteral(String),
-    ArrLiteral(Vec<Expression<'a>>),
+    ArrLiteral(Vec<Vec<Expression<'a>>>),
     TupleLiteral(Vec<Expression<'a>>),
     StructLiteral {
         name: Span<'a>,
@@ -282,26 +285,31 @@ fn type_scalar(input: Span) -> IResult<Span, TypeDecl> {
     ))
 }
 
-fn array_size_range(input: Span) -> IResult<Span, ArraySize> {
+fn array_size_range(input: Span) -> IResult<Span, ArraySizeAxis> {
     let (r, start) = opt(ws(decimal))(input)?;
     let (r, _) = ws(tag(".."))(r)?;
     let (r, end) = opt(ws(decimal))(r)?;
     let start = start.and_then(|v| v.parse().ok()).unwrap_or(0);
     let end = end.and_then(|v| v.parse().ok()).unwrap_or(usize::MAX);
-    Ok((r, ArraySize::Range(start..end)))
+    Ok((r, ArraySizeAxis::Range(start..end)))
 }
 
-fn array_size_fixed(input: Span) -> IResult<Span, ArraySize> {
+fn array_size_fixed(input: Span) -> IResult<Span, ArraySizeAxis> {
     let (r, v) = ws(decimal)(input)?;
     Ok((
         r,
-        ArraySize::Fixed(v.parse().map_err(|_| {
+        ArraySizeAxis::Fixed(v.parse().map_err(|_| {
             nom::Err::Error(nom::error::Error {
                 input,
                 code: nom::error::ErrorKind::Digit,
             })
         })?),
     ))
+}
+
+fn type_array_axis(input: Span) -> IResult<Span, ArraySizeAxis> {
+    let (r, range) = alt((array_size_range, array_size_fixed))(input)?;
+    Ok((r, range))
 }
 
 fn type_array(input: Span) -> IResult<Span, TypeDecl> {
@@ -311,14 +319,17 @@ fn type_array(input: Span) -> IResult<Span, TypeDecl> {
             type_decl,
             opt(preceded(
                 tag(";"),
-                alt((array_size_range, array_size_fixed)),
+                separated_list1(tag(","), type_array_axis),
             )),
         ),
         ws(char(']')),
     )(input)?;
     Ok((
         r,
-        TypeDecl::Array(Box::new(arr), range.unwrap_or_else(|| ArraySize::Any)),
+        TypeDecl::Array(
+            Box::new(arr),
+            range.map_or_else(ArraySize::default, ArraySize),
+        ),
     ))
 }
 
@@ -484,17 +495,24 @@ fn str_literal(i: Span) -> IResult<Span, Expression> {
     ))
 }
 
+fn array_row(i: Span) -> IResult<Span, Vec<Expression>> {
+    terminated(
+        separated_list1(char(','), full_expression),
+        opt(ws(char(','))),
+    )(i)
+}
+
+fn array_rows(i: Span) -> IResult<Span, Vec<Vec<Expression>>> {
+    // 2D arrays should be rectangular in shape, i.e. all rows should have the same length.
+    // We do not apply that constrait here, but in evaluation.
+    terminated(separated_list0(char(';'), array_row), opt(ws(char(';'))))(i)
+}
+
 pub(crate) fn array_literal(i: Span) -> IResult<Span, Expression> {
     let (r, _) = multispace0(i)?;
     let (r, open_br) = tag("[")(r)?;
-    let (r, (mut val, last)) = pair(
-        many0(terminated(full_expression, tag(","))),
-        opt(full_expression),
-    )(r)?;
-    let (r, close_br) = tag("]")(r)?;
-    if let Some(last) = last {
-        val.push(last);
-    }
+    let (r, val) = array_rows(r)?;
+    let (r, close_br) = ws(tag("]"))(r)?;
     let span = i.subslice(
         i.offset(&open_br),
         open_br.offset(&close_br) + close_br.len(),
@@ -565,18 +583,12 @@ pub(crate) fn fn_invoke_arg(i: Span) -> IResult<Span, FnArg> {
 pub(crate) fn func_invoke(i: Span) -> IResult<Span, Expression> {
     let (r, ident) = ws(identifier)(i)?;
     // println!("func_invoke ident: {}", ident);
-    let (r, args) = delimited(
-        multispace0,
-        delimited(
-            char('('),
-            terminated(
-                separated_list0(ws(char(',')), fn_invoke_arg),
-                opt(ws(char(','))),
-            ),
-            char(')'),
-        ),
-        multispace0,
+    let (r, _) = ws(char('('))(r)?;
+    let (r, args) = terminated(
+        separated_list0(ws(char(',')), fn_invoke_arg),
+        opt(ws(char(','))),
     )(r)?;
+    let (r, _) = ws(char(')'))(r)?;
     Ok((
         r,
         Expression::new(
@@ -586,8 +598,8 @@ pub(crate) fn func_invoke(i: Span) -> IResult<Span, Expression> {
     ))
 }
 
-pub(crate) fn array_index(i: Span) -> IResult<Span, Expression> {
-    let (r, prim) = primary_expression(i)?;
+/// Parse `[b, c][d]` as `vec![vec![b, c], vec![d]]`. Returns a vector of vectors of array index expression, excluding the prefix
+pub(crate) fn array_index_suffix(i: Span) -> IResult<Span, Vec<Vec<Expression>>> {
     let (r, indices) = many1(delimited(
         multispace0,
         delimited(
@@ -596,7 +608,16 @@ pub(crate) fn array_index(i: Span) -> IResult<Span, Expression> {
             tag("]"),
         ),
         multispace0,
-    ))(r)?;
+    ))(i)?;
+    Ok((r, indices))
+}
+
+fn array_index<'a>(
+    prim: Expression<'a>,
+    indices: Vec<Vec<Expression<'a>>>,
+    i: Span<'a>,
+    r: Span<'a>,
+) -> IResult<Span<'a>, Expression<'a>> {
     let prim_span = prim.span;
     Ok((
         r,
@@ -609,34 +630,54 @@ pub(crate) fn array_index(i: Span) -> IResult<Span, Expression> {
     ))
 }
 
-pub(crate) fn tuple_index(i: Span) -> IResult<Span, Expression> {
-    let (r, prim) = primary_expression(i)?;
-    let (r, indices) = many1(ws(preceded(tag("."), digit1)))(r)?;
-    let prim_span = prim.span;
+/// Parse `.0.1` as `vec![0, 1]`. Returns a vector of tuple suffices, excluding the prefix
+pub(crate) fn tuple_index_suffix(i: Span) -> IResult<Span, Vec<usize>> {
+    let (r, indices) = many1(ws(preceded(tag("."), digit1)))(i)?;
     Ok((
         r,
         indices
             .into_iter()
-            .fold(Ok(prim), |acc, v: Span| -> Result<_, _> {
-                Ok(Expression::new(
-                    ExprEnum::TupleIndex(
-                        Box::new(acc?),
-                        v.parse().map_err(|_| {
-                            nom::Err::Error(nom::error::Error {
-                                input: i,
-                                code: nom::error::ErrorKind::Digit,
-                            })
-                        })?,
-                    ),
-                    i.subslice(i.offset(&prim_span), prim_span.offset(&r)),
-                ))
-            })?,
+            .map(|v| -> Result<_, _> {
+                v.parse::<usize>().map_err(|_| {
+                    nom::Err::Error(nom::error::Error {
+                        input: i,
+                        code: nom::error::ErrorKind::Digit,
+                    })
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?,
     ))
 }
 
-pub(crate) fn field_access(i: Span) -> IResult<Span, Expression> {
-    let (r, prim) = primary_expression(i)?;
-    let (r, indices) = many1(ws(preceded(tag("."), ident_space)))(r)?;
+pub(crate) fn tuple_index<'a>(
+    prim: Expression<'a>,
+    indices: Vec<usize>,
+    i: Span<'a>,
+    r: Span<'a>,
+) -> IResult<Span<'a>, Expression<'a>> {
+    let prim_span = prim.span;
+    Ok((
+        r,
+        indices.into_iter().fold(prim, |acc, v| {
+            Expression::new(
+                ExprEnum::TupleIndex(Box::new(acc), v),
+                i.subslice(i.offset(&prim_span), prim_span.offset(&r)),
+            )
+        }),
+    ))
+}
+
+fn field_access_suffix(i: Span) -> IResult<Span, Vec<Span>> {
+    let (r, indices) = many1(ws(preceded(tag("."), ident_space)))(i)?;
+    Ok((r, indices))
+}
+
+pub(crate) fn field_access<'a>(
+    prim: Expression<'a>,
+    indices: Vec<Span<'a>>,
+    i: Span<'a>,
+    r: Span<'a>,
+) -> IResult<Span<'a>, Expression<'a>> {
     let prim_span = prim.span;
     Ok((
         r,
@@ -665,6 +706,34 @@ pub(crate) fn primary_expression(i: Span) -> IResult<Span, Expression> {
         tuple_literal,
         primary_with_ident,
     ))(i)
+}
+
+/// Postfix expression has a bit special implementation to avoid backtracking.
+fn postfix_expression(i: Span) -> IResult<Span, Expression> {
+    // Function calls can be invoked to identifiers (yet).
+    if let Ok(fn_result) = func_invoke(i) {
+        return Ok(fn_result);
+    }
+
+    let (r, prim) = primary_expression(i)?;
+
+    if let Ok((r, indices)) = array_index_suffix(r) {
+        return array_index(prim, indices, i, r);
+    }
+
+    if let Ok((r, indices)) = tuple_index_suffix(r) {
+        return tuple_index(prim, indices, i, r);
+    }
+
+    if let Ok((r, fields)) = field_access_suffix(r) {
+        return field_access(prim, fields, i, r);
+    }
+
+    if let Ok((r, ex)) = cast(r) {
+        return Ok((r, ex));
+    }
+
+    Ok((r, prim))
 }
 
 fn primary_with_ident(i: Span) -> IResult<Span, Expression> {
@@ -708,17 +777,6 @@ fn struct_literal<'a>(name: Span<'a>, i: Span<'a>) -> IResult<Span<'a>, Expressi
             calc_offset(i, r),
         ),
     ));
-}
-
-fn postfix_expression(i: Span) -> IResult<Span, Expression> {
-    alt((
-        func_invoke,
-        array_index,
-        tuple_index,
-        field_access,
-        cast,
-        primary_expression,
-    ))(i)
 }
 
 fn not(i: Span) -> IResult<Span, Expression> {
@@ -805,7 +863,7 @@ pub(crate) fn expr(i: Span) -> IResult<Span, Expression> {
 fn cmp(i: Span) -> IResult<Span, Expression> {
     let (r, lhs) = expr(i)?;
 
-    let (r, (op, val)) = pair(
+    let (r, res) = opt(pair(
         ws(alt((
             tag("<="),
             tag(">="),
@@ -815,20 +873,25 @@ fn cmp(i: Span) -> IResult<Span, Expression> {
             tag("!="),
         ))),
         expr,
-    )(r)?;
-    let span = calc_offset(i, r);
-    Ok((
-        r,
-        match *op {
-            "<" => Expression::new(ExprEnum::LT(Box::new(lhs), Box::new(val)), span),
-            "<=" => Expression::new(ExprEnum::LE(Box::new(lhs), Box::new(val)), span),
-            ">" => Expression::new(ExprEnum::GT(Box::new(lhs), Box::new(val)), span),
-            ">=" => Expression::new(ExprEnum::GE(Box::new(lhs), Box::new(val)), span),
-            "==" => Expression::new(ExprEnum::EQ(Box::new(lhs), Box::new(val)), span),
-            "!=" => Expression::new(ExprEnum::NE(Box::new(lhs), Box::new(val)), span),
-            _ => unreachable!("Comparison operator should be <, >, <=, >=, == or !="),
-        },
-    ))
+    ))(r)?;
+
+    if let Some((op, val)) = res {
+        let span = calc_offset(i, r);
+        Ok((
+            r,
+            match *op {
+                "<" => Expression::new(ExprEnum::LT(Box::new(lhs), Box::new(val)), span),
+                "<=" => Expression::new(ExprEnum::LE(Box::new(lhs), Box::new(val)), span),
+                ">" => Expression::new(ExprEnum::GT(Box::new(lhs), Box::new(val)), span),
+                ">=" => Expression::new(ExprEnum::GE(Box::new(lhs), Box::new(val)), span),
+                "==" => Expression::new(ExprEnum::EQ(Box::new(lhs), Box::new(val)), span),
+                "!=" => Expression::new(ExprEnum::NE(Box::new(lhs), Box::new(val)), span),
+                _ => unreachable!("Comparison operator should be <, >, <=, >=, == or !="),
+            },
+        ))
+    } else {
+        Ok((r, lhs))
+    }
 }
 
 pub(crate) fn conditional(i: Span) -> IResult<Span, Expression> {
@@ -859,20 +922,7 @@ pub(crate) fn conditional(i: Span) -> IResult<Span, Expression> {
     ))
 }
 
-pub(crate) fn var_assign(i: Span) -> IResult<Span, Expression> {
-    let (r, res) = tuple((cmp_expr, char('='), assign_expr))(i)?;
-    let span = calc_offset(i, r);
-    Ok((
-        r,
-        Expression::new(ExprEnum::VarAssign(Box::new(res.0), Box::new(res.2)), span),
-    ))
-}
-
-pub(crate) fn cmp_expr(i: Span) -> IResult<Span, Expression> {
-    alt((cmp, expr))(i)
-}
-
-/// A functor to create a function for a binary operator
+/// A functor to create a function for a left-associative binary operator
 fn bin_op<'src>(
     t: &'static str,
     sub: impl Fn(Span<'src>) -> IResult<Span<'src>, Expression<'src>>,
@@ -898,7 +948,7 @@ fn bin_op<'src>(
 }
 
 fn bit_and(i: Span) -> IResult<Span, Expression> {
-    bin_op("&", cmp_expr, |lhs, rhs| ExprEnum::BitAnd(lhs, rhs))(i)
+    bin_op("&", cmp, |lhs, rhs| ExprEnum::BitAnd(lhs, rhs))(i)
 }
 
 fn bit_xor(i: Span) -> IResult<Span, Expression> {
@@ -917,8 +967,20 @@ fn or(i: Span) -> IResult<Span, Expression> {
     bin_op("||", and, |lhs, rhs| ExprEnum::Or(lhs, rhs))(i)
 }
 
-fn assign_expr(i: Span) -> IResult<Span, Expression> {
-    alt((var_assign, or))(i)
+pub(crate) fn assign_expr(i: Span) -> IResult<Span, Expression> {
+    let (r, lhs) = or(i)?;
+
+    if let Ok((r, rhs)) = preceded(ws(char('=')), assign_expr)(r) {
+        return Ok((
+            r,
+            Expression::new(
+                ExprEnum::VarAssign(Box::new(lhs), Box::new(rhs)),
+                i.subslice(0, i.offset(&r)),
+            ),
+        ));
+    }
+
+    Ok((r, lhs))
 }
 
 pub(crate) fn conditional_expr(i: Span) -> IResult<Span, Expression> {
@@ -1004,7 +1066,7 @@ fn loop_stmt(input: Span) -> IResult<Span, Statement> {
 
 fn while_stmt(input: Span) -> IResult<Span, Statement> {
     let (r, _) = ws(tag("while"))(input)?;
-    let (r, cond) = cmp_expr(r)?;
+    let (r, cond) = cmp(r)?;
     let (r, stmts) = delimited(ws(char('{')), source, ws(char('}')))(r)?;
     Ok((r, Statement::While(cond, stmts)))
 }
