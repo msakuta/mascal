@@ -48,66 +48,73 @@ struct Args {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
-    let parse_source = |code, source_file| -> Result<(), Box<dyn std::error::Error>> {
-        let mut result = source(code).map_err(|e| format!("{:#?}", e))?;
-        if !result.0.is_empty() {
-            return Err(format!("Input has terminated unexpectedly: {:#?}", result.0).into());
-        }
-        if args.ast_pretty {
-            println!("Match: {:#?}", result.1);
-        } else if args.ast {
-            format_stmts(&result.1, &mut std::io::stdout())?;
-        }
-        if args.type_check {
-            if let Err(e) = type_check(&mut result.1, &mut TypeCheckContext::new(source_file)) {
-                eprintln!("Type check error: {}", e.to_string().red());
-                return Ok(());
+    let parse_source =
+        |code, source_file: Option<&str>| -> Result<(), Box<dyn std::error::Error>> {
+            let mut result = source(code).map_err(|e| format!("{:#?}", e))?;
+            if !result.0.is_empty() {
+                return Err(format!(
+                    "Input has terminated unexpectedly: {}:{}:{}",
+                    source_file.unwrap_or("<unknown>"),
+                    result.0.location_line(),
+                    result.0.get_column()
+                )
+                .into());
             }
-            if args.ast {
-                println!("AST after type inference:");
+            if args.ast_pretty {
+                println!("Match: {:#?}", result.1);
+            } else if args.ast {
                 format_stmts(&result.1, &mut std::io::stdout())?;
             }
-        }
-
-        let source_file = source_file.unwrap_or("<Unknown>");
-
-        if args.compile || args.compile_and_run {
-            let mut bytecode = CompilerBuilder::new(&result.1)
-                .enable_debug(args.debug_info)
-                .compile(&mut std::io::sink())
-                .map_err(|e| format!("Error: {}:{}", source_file, e))?;
-            bytecode.set_file_name(source_file);
-            if args.signatures {
-                bytecode
-                    .signatures(&mut std::io::stdout())
-                    .map_err(|e| e.to_string())?;
-            }
-            if args.disasm {
-                bytecode
-                    .disasm(&mut std::io::stdout())
-                    .map_err(|e| e.to_string())?;
-            }
-            if let Ok(writer) = std::fs::File::create("out.cdragon") {
-                bytecode
-                    .write(&mut BufWriter::new(writer))
-                    .map_err(|s| s.to_string())?;
-            }
-            if args.compile_and_run {
-                if args.debugger {
-                    run_debugger(bytecode)?;
-                } else {
-                    let out = Rc::new(RefCell::new(std::io::stdout()));
-                    bytecode.add_std_fn(out);
-                    interpret(&bytecode)?;
+            if args.type_check {
+                if let Err(e) = type_check(&mut result.1, &mut TypeCheckContext::new(source_file)) {
+                    eprintln!("Type check error: {}", e.to_string().red());
+                    return Ok(());
+                }
+                if args.ast {
+                    println!("AST after type inference:");
+                    format_stmts(&result.1, &mut std::io::stdout())?;
                 }
             }
-        } else {
-            run(&result.1, &mut EvalContext::new())
-                .map_err(|e| format!("Error in run(): {}", e))?;
-        }
 
-        Ok(())
-    };
+            let source_file = source_file.unwrap_or("<Unknown>");
+
+            if args.compile || args.compile_and_run {
+                let mut bytecode = CompilerBuilder::new(&result.1)
+                    .enable_debug(args.debug_info)
+                    .compile(&mut std::io::sink())
+                    .map_err(|e| format!("Error: {}:{}", source_file, e))?;
+                bytecode.set_file_name(source_file);
+                if args.signatures {
+                    bytecode
+                        .signatures(&mut std::io::stdout())
+                        .map_err(|e| e.to_string())?;
+                }
+                if args.disasm {
+                    bytecode
+                        .disasm(&mut std::io::stdout())
+                        .map_err(|e| e.to_string())?;
+                }
+                if let Ok(writer) = std::fs::File::create("out.cdragon") {
+                    bytecode
+                        .write(&mut BufWriter::new(writer))
+                        .map_err(|s| s.to_string())?;
+                }
+                if args.compile_and_run {
+                    if args.debugger {
+                        run_debugger(bytecode)?;
+                    } else {
+                        let out = Rc::new(RefCell::new(std::io::stdout()));
+                        bytecode.add_std_fn(out);
+                        interpret(&bytecode)?;
+                    }
+                }
+            } else {
+                run(&result.1, &mut EvalContext::new())
+                    .map_err(|e| format!("Error in run(): {}", e))?;
+            }
+
+            Ok(())
+        };
 
     if args.eval {
         parse_source(&args.input, None)?;
