@@ -66,7 +66,7 @@ print(fact(5));
 const samples = document.getElementById("samples");
 
 [
-    "expr.dragon", "factorial.dragon", "fibonacci.dragon", "recurse.dragon", "mandel.dragon",
+    "expr.dragon", "factorial.dragon", "fibonacci.dragon", "recurse.dragon", "mandel.dragon", "mandel_struct.dragon",
     "mandel_canvas.dragon", "str.dragon", "type.dragon", "sieve.dragon",
     "if.dragon", "for.dragon", "fn.dragon", "array.dragon", "array_reverse.dragon", "array_range_sized.dragon",
     "array_overrun.dragon", "array_resize.dragon",
