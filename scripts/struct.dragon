@@ -17,4 +17,4 @@ a.c = 1.732;
 
 print(a.c);
 
-// print("a: ", a, type(a));
+print("a: ", a, type(a));

@@ -17,6 +17,7 @@ use crate::{
     interpreter::{s_hex_string, s_len, s_print, s_push, s_puts, s_resize, s_strlen, s_type},
     parser::ReadError,
     value::Value,
+    TypeDecl,
 };
 
 /// Operational codes for an instruction. Supposed to fit in an u8.
@@ -447,12 +448,13 @@ pub fn std_functions(
 #[derive(Debug, Clone)]
 pub struct BytecodeArg {
     pub(crate) name: String,
+    pub ty: TypeDecl,
     pub(crate) init: Option<Value>,
 }
 
 impl BytecodeArg {
-    pub(crate) fn new(name: String, init: Option<Value>) -> Self {
-        Self { name, init }
+    pub(crate) fn new(name: String, ty: TypeDecl, init: Option<Value>) -> Self {
+        Self { name, ty, init }
     }
 }
 
@@ -481,6 +483,7 @@ impl FnBytecode {
                 .into_iter()
                 .map(|arg| BytecodeArg {
                     name: arg,
+                    ty: TypeDecl::Any,
                     init: None,
                 })
                 .collect(),
@@ -531,7 +534,11 @@ impl FnBytecode {
             .map(|_| -> Result<_, ReadError> {
                 let name = read_str(reader)?;
                 let init = read_opt_value(reader)?;
-                Ok(BytecodeArg { name, init })
+                Ok(BytecodeArg {
+                    name,
+                    ty: TypeDecl::Any,
+                    init,
+                })
             })
             .collect::<Result<Vec<_>, _>>()?;
 

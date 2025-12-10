@@ -76,10 +76,20 @@ impl Default for Target {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct LocalVar {
     name: String,
     stack_idx: usize,
+    size: usize,
+}
+
+impl From<&LocalVar> for RValue {
+    fn from(value: &LocalVar) -> Self {
+        Self {
+            start: value.stack_idx,
+            size: value.size,
+        }
+    }
 }
 
 struct CompilerEnv<'src> {
@@ -141,14 +151,13 @@ impl<'a, 'src> Compiler<'a, 'src> {
                 instructions: vec![],
                 stack_size: 0,
             },
-            target_stack: (0..args.len() + 1)
-                .map(|i| {
-                    if i == 0 {
-                        Target::None
-                    } else {
-                        Target::Local(i - 1)
-                    }
-                })
+            target_stack: std::iter::once(Target::None)
+                .chain(
+                    args.iter()
+                        .enumerate()
+                        .map(|(i, arg)| std::iter::repeat(Target::Local(i)).take(arg.size))
+                        .flatten(),
+                )
                 .collect(),
             locals: vec![args],
             break_ips: vec![],
@@ -442,6 +451,7 @@ fn emit_stmts<'src>(
                 locals.push(LocalVar {
                     name: var.to_string(),
                     stack_idx: init_val.start,
+                    size: init_val.size,
                 });
                 dbg_println!("Locals: {:?}", compiler.locals);
             }
@@ -449,20 +459,25 @@ fn emit_stmts<'src>(
                 name, args, stmts, ..
             } => {
                 dbg_println!("FnDecl: Args: {:?}", args);
+                let mut offset = 1;
                 let a_args = args
                     .iter()
                     .enumerate()
                     .map(|(idx, arg)| {
+                        let size = ty_size_of(arg.name, &arg.ty, &compiler.env.typedefs)?;
                         // The 0th index is used for function name / return value, so the args start with 1.
-                        let target = idx + 1;
                         let local = LocalVar {
                             name: arg.name.to_string(),
-                            stack_idx: target,
+                            stack_idx: offset,
+                            size,
                         };
-                        compiler.target_stack.push(Target::Local(target));
-                        local
+                        compiler
+                            .target_stack
+                            .extend(std::iter::repeat(Target::Local(idx + 1)).take(size));
+                        offset += size;
+                        Ok(local)
                     })
-                    .collect();
+                    .collect::<Result<Vec<_>, CompileError>>()?;
                 let fn_args = args
                     .iter()
                     .map(|arg| {
@@ -479,7 +494,7 @@ fn emit_stmts<'src>(
                         } else {
                             None
                         };
-                        Ok(BytecodeArg::new(arg.name.to_string(), init))
+                        Ok(BytecodeArg::new(arg.name.to_string(), arg.ty.clone(), init))
                     })
                     .collect::<Result<_, _>>()?;
                 dbg_println!("FnDecl actual args: {:?} fn_args: {:?}", a_args, fn_args);
@@ -544,6 +559,7 @@ fn emit_stmts<'src>(
                     .push(LocalVar {
                         name: var.to_string(),
                         stack_idx: stk_from,
+                        size: 1,
                     });
                 compiler.target_stack[stk_from] = Target::Local(local_iter);
                 compiler.target_stack.push(Target::None);
@@ -688,7 +704,7 @@ fn emit_expr<'src>(
         }
         ExprEnum::Variable(str) => {
             let local = compiler.find_local(*str, expr.span)?;
-            Ok(local.stack_idx.into())
+            Ok(local.into())
         }
         ExprEnum::Cast(ex, decl) => {
             let val = scalar(ex.span, emit_expr(ex, compiler)?)?;
@@ -728,11 +744,14 @@ fn emit_expr<'src>(
             let rhs_result = emit_expr(rhs, compiler)?;
             match lhs_result {
                 LValue::Variable(name) => {
-                    let local_idx = compiler.find_local(&name, expr.span)?.stack_idx;
-                    for (dst, src) in (local_idx..).zip(rhs_result.range()) {
+                    let local = compiler.find_local(&name, expr.span)?.clone();
+                    for (dst, src) in (local.stack_idx..).zip(rhs_result.range()) {
                         compiler.push_inst(OpCode::Move, src as u8, dst as u16);
                     }
-                    Ok(local_idx.into())
+                    Ok(RValue {
+                        start: local.stack_idx,
+                        size: local.size,
+                    })
                 }
                 LValue::ArrayRef(arr, subidx) => {
                     let rhs_result = scalar(rhs.span, rhs_result)?;
@@ -767,10 +786,21 @@ fn emit_expr<'src>(
                 fun.args().map(|args| args.to_vec())
             };
 
+            // The size of the arguemnts are not easy to calculate, because it depends on the individual type of the
+            // args. Here we calculate the total size of the arguments by computing size_of and accumulating them.
+            // let args_size = params.as_ref().map_or(Ok(args.len()), |params| {
+            //     params.iter().zip(args.iter()).fold(
+            //         Ok(0),
+            //         |acc, cur| -> Result<usize, CompileError> {
+            //             Ok(acc? + ty_size_of(cur.1.expr.span, &cur.0.ty, &compiler.env.typedefs)?)
+            //         },
+            //     )
+            // })?;
+            let args_size = params.as_ref().map_or(args.len(), |params| params.len());
+
             // Prepare a buffer for actual arguments. It could be a mix of unnamed and named arguments.
             // Unnamed arguments are indexed from 0, while named arguments can appear at any index.
-            let mut arg_values =
-                vec![None; params.as_ref().map_or(args.len(), |params| params.len())];
+            let mut arg_values = vec![None; args_size];
 
             // First, fill the buffer with unnamed arguments. Technically it could be more optimized by
             // allocating and initializing at the same time, but we do not pursue performance that much yet.
@@ -827,10 +857,10 @@ fn emit_expr<'src>(
 
             // Align arguments to the stack to prepare a call.
             for arg in &arg_values {
-                let arg_target = compiler.target_stack.len();
-                compiler.target_stack.push(Target::None);
-                for field in 0..arg.size {
-                    compiler.push_inst(OpCode::Move, (arg.start + field) as u8, arg_target as u16);
+                for src in arg.range() {
+                    let arg_target = compiler.target_stack.len();
+                    compiler.target_stack.push(Target::None);
+                    compiler.push_inst(OpCode::Move, src as u8, arg_target as u16);
                 }
             }
 
