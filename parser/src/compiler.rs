@@ -15,11 +15,42 @@ use crate::{
         LineInfo, NativeFn, OpCode,
     },
     format_ast::format_expr,
-    interpreter::{eval, EvalContext, RunResult, TypeMap},
-    parser::{ExprEnum, Expression, Statement},
+    interpreter::{eval, EvalContext, RunResult, TypeMapRc},
+    parser::{ExprEnum, Expression, Statement, StructDecl, StructField},
     value::{ArrayInt, TupleEntry},
     DebugInfo, Span, TypeDecl, Value,
 };
+
+/// Extracted info of a field of a struct. Some information is determined by a position in the struct,
+/// referring to other types, so they are not part of [`StructField`].
+struct FieldInfo<'src> {
+    field: &'src StructField<'src>,
+    offset: usize,
+    size: usize,
+}
+
+impl<'src> StructDecl<'src> {
+    fn field_info(&'src self, name: &str, typedefs: &TypeMapRc) -> Option<FieldInfo<'src>> {
+        let mut offset = 0;
+        for field in &self.fields {
+            let size = ty_size_of(Span::new(""), &field.ty, typedefs).ok()?;
+            if *field.name == name {
+                println!("offsetof({}, {name}) = {offset}", self.name);
+                return Some(FieldInfo {
+                    field,
+                    offset,
+                    size,
+                });
+            }
+            offset += size;
+        }
+        None
+    }
+
+    pub(crate) fn offset_of(&'src self, name: &str, typedefs: &TypeMapRc) -> Option<usize> {
+        self.field_info(name, typedefs).map(|info| info.offset)
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 enum Target {
@@ -35,6 +66,8 @@ enum Target {
     /// **NOTE** that it is not a stack index.
     #[allow(unused)]
     Local(usize),
+    /// Inlined struct field. First
+    StructField { start: usize, idx: usize },
 }
 
 impl Default for Target {
@@ -52,7 +85,7 @@ struct LocalVar {
 struct CompilerEnv<'src> {
     functions: HashMap<String, FnProto>,
     debug: HashMap<String, FunctionInfo>,
-    typedefs: TypeMap<'src>,
+    typedefs: TypeMapRc<'src>,
 }
 
 impl<'src> CompilerEnv<'src> {
@@ -64,7 +97,7 @@ impl<'src> CompilerEnv<'src> {
         Self {
             functions,
             debug,
-            typedefs: TypeMap::new(),
+            typedefs: TypeMapRc::new(),
         }
     }
 }
@@ -279,7 +312,7 @@ impl<'src, 'ast> CompilerBuilder<'src, 'ast> {
         // In the current VM model, there is always a return value, even if the function ends with a semicolon.
         // Void return type is only effective in type system. So we return _something_ but its value should not be
         // evaluated.
-        let last_target = emit_stmts(self.stmts, &mut compiler)?.unwrap_or(0);
+        let last_target = emit_stmts(self.stmts, &mut compiler)?.map_or(0, |res| res.start);
         compiler
             .bytecode
             .instructions
@@ -337,7 +370,7 @@ fn compile_fn<'src, 'ast>(
     // In the current VM model, there is always a return value, even if the function ends with a semicolon.
     // Void return type is only effective in type system. So we return _something_ but its value should not be
     // evaluated. We may revisit this design and introduce RET_VOID instruction.
-    let last_target = emit_stmts(stmts, &mut compiler)?.unwrap_or(0);
+    let last_target = emit_stmts(stmts, &mut compiler)?.map_or(0, |res| res.start);
     compiler
         .bytecode
         .instructions
@@ -370,12 +403,15 @@ fn retrieve_fn_signatures(stmts: &[Statement], env: &mut CompilerEnv) {
 fn emit_stmts<'src>(
     stmts: &[Statement<'src>],
     compiler: &mut Compiler<'_, 'src>,
-) -> CompileResult<'src, Option<usize>> {
+) -> CompileResult<'src, Option<RValue>> {
     let mut last_target = None;
     for stmt in stmts {
         match stmt {
             Statement::VarDecl {
-                name: var, init, ..
+                name: var,
+                init,
+                ty,
+                ..
             } => {
                 let locals = compiler
                     .locals
@@ -384,12 +420,20 @@ fn emit_stmts<'src>(
                     .len();
                 let init_val = if let Some(init_expr) = init {
                     let stk_var = emit_expr(init_expr, compiler)?;
-                    compiler.target_stack[stk_var] = Target::Local(locals);
+                    for target_stack in
+                        &mut compiler.target_stack[stk_var.start..stk_var.start + stk_var.size]
+                    {
+                        *target_stack = Target::Local(locals);
+                    }
                     stk_var
                 } else {
                     let stk_var = compiler.target_stack.len();
+                    let size = ty_size_of(*var, ty, &compiler.env.typedefs)?;
                     compiler.target_stack.push(Target::Local(locals));
-                    stk_var
+                    RValue {
+                        start: stk_var,
+                        size,
+                    }
                 };
                 let locals = compiler
                     .locals
@@ -397,7 +441,7 @@ fn emit_stmts<'src>(
                     .ok_or_else(|| CompileError::new(*var, CEK::LocalsStackUnderflow))?;
                 locals.push(LocalVar {
                     name: var.to_string(),
-                    stack_idx: init_val,
+                    stack_idx: init_val.start,
                 });
                 dbg_println!("Locals: {:?}", compiler.locals);
             }
@@ -463,7 +507,7 @@ fn emit_stmts<'src>(
             }
             Statement::While(cond, stmts) => {
                 let inst_loop_start = compiler.bytecode.instructions.len();
-                let stk_cond = emit_expr(cond, compiler)?;
+                let stk_cond = scalar(cond.span, emit_expr(cond, compiler)?)?;
                 let inst_break = compiler.push_inst(OpCode::Jf, stk_cond as u8, 0);
                 last_target = emit_stmts(stmts, compiler)?;
                 compiler.push_inst(OpCode::Jmp, 0, inst_loop_start as u16);
@@ -478,8 +522,8 @@ fn emit_stmts<'src>(
                 stmts,
                 ..
             } => {
-                let stk_from = emit_expr(start, compiler)?;
-                let stk_to = emit_expr(end, compiler)?;
+                let stk_from = scalar(start.span, emit_expr(start, compiler)?)?;
+                let stk_to = scalar(end.span, emit_expr(end, compiler)?)?;
                 let local_iter = compiler
                     .locals
                     .last()
@@ -523,7 +567,7 @@ fn emit_stmts<'src>(
                 compiler
                     .env
                     .typedefs
-                    .insert(st.name.to_string(), st.clone());
+                    .insert(st.name.to_string(), Rc::new(st.clone()));
             }
             Statement::Comment(_) => (),
         }
@@ -531,14 +575,45 @@ fn emit_stmts<'src>(
     Ok(last_target)
 }
 
+/// Internal to the compiler
+#[derive(Clone, Copy, Debug)]
+pub(self) struct RValue {
+    start: usize,
+    size: usize,
+}
+
+impl RValue {
+    fn range(&self) -> impl Iterator<Item = usize> {
+        self.start..self.start + self.size
+    }
+}
+
+impl From<usize> for RValue {
+    fn from(value: usize) -> Self {
+        Self {
+            start: value,
+            size: 1,
+        }
+    }
+}
+
+fn scalar(span: Span, value: RValue) -> Result<usize, CompileError> {
+    if value.size != 1 {
+        return Err(CompileError::new(span, CEK::DisallowedAggregate));
+    }
+    Ok(value.start)
+}
+
 fn emit_expr<'src>(
     expr: &Expression<'src>,
     compiler: &mut Compiler<'_, 'src>,
-) -> CompileResult<'src, usize> {
+) -> CompileResult<'src, RValue> {
     compiler.start_src_pos(expr.span.into());
-    let res = match &expr.expr {
-        ExprEnum::NumLiteral(val, _) => Ok(compiler.find_or_create_literal(val)),
-        ExprEnum::StrLiteral(val) => Ok(compiler.find_or_create_literal(&Value::Str(val.clone()))),
+    let res: CompileResult<RValue> = match &expr.expr {
+        ExprEnum::NumLiteral(val, _) => Ok(compiler.find_or_create_literal(val).into()),
+        ExprEnum::StrLiteral(val) => Ok(compiler
+            .find_or_create_literal(&Value::Str(val.clone()))
+            .into()),
         ExprEnum::ArrLiteral(val) => {
             let mut ctx = EvalContext::new();
             let val = Value::Array(Rc::new(RefCell::new(ArrayInt {
@@ -556,7 +631,7 @@ fn emit_expr<'src>(
                     })
                     .collect::<Result<Vec<_>, _>>()?,
             })));
-            Ok(compiler.find_or_create_literal(&val))
+            Ok(compiler.find_or_create_literal(&val).into())
         }
         ExprEnum::TupleLiteral(values) => {
             let mut ctx = EvalContext::new();
@@ -579,7 +654,7 @@ fn emit_expr<'src>(
             // If the tuple literal is a constant expression, put it into the literal table.
             if let Ok(val) = val {
                 let val = Value::Tuple(Rc::new(RefCell::new(val)));
-                Ok(compiler.find_or_create_literal(&val))
+                Ok(compiler.find_or_create_literal(&val).into())
             } else {
                 // If it is not a constant expression, build the expression to construct a tuple at runtime.
 
@@ -597,20 +672,26 @@ fn emit_expr<'src>(
                 // It is important to not call emit_expr between those elements, since they can push temporary variables.
                 for arg in &arg_values {
                     let arg_target = compiler.target_stack.len();
-                    compiler.target_stack.push(Target::None);
-                    compiler.push_inst(OpCode::Move, *arg as u8, arg_target as u16);
+                    for offset in 0..arg.size {
+                        compiler.target_stack.push(Target::None);
+                        compiler.push_inst(
+                            OpCode::Move,
+                            (arg.start + offset) as u8,
+                            arg_target as u16,
+                        );
+                    }
                 }
 
                 compiler.push_inst(OpCode::MakeTuple, arg_values.len() as u8, stk_ret as u16);
-                Ok(stk_ret)
+                Ok(stk_ret.into())
             }
         }
         ExprEnum::Variable(str) => {
             let local = compiler.find_local(*str, expr.span)?;
-            Ok(local.stack_idx)
+            Ok(local.stack_idx.into())
         }
         ExprEnum::Cast(ex, decl) => {
-            let val = emit_expr(ex, compiler)?;
+            let val = scalar(ex.span, emit_expr(ex, compiler)?)?;
             // Make a copy of the value to avoid overwriting original variable
             let val_copy = compiler.target_stack.len();
             compiler.push_inst(OpCode::Move, val as u8, val_copy as u16);
@@ -620,37 +701,41 @@ fn emit_expr<'src>(
             let decl_stk =
                 compiler.find_or_create_literal(&Value::I64(i64::from_le_bytes(decl_buf)));
             compiler.push_inst(OpCode::Cast, val_copy as u8, decl_stk as u16);
-            Ok(val_copy)
+            Ok(val_copy.into())
         }
         ExprEnum::Not(val) => {
-            let val = emit_expr(val, compiler)?;
+            let val = scalar(val.span, emit_expr(val, compiler)?)?;
             compiler.push_inst(OpCode::Not, val as u8, 0);
-            Ok(val)
+            Ok(val.into())
         }
         ExprEnum::BitNot(val) => {
-            let val = emit_expr(val, compiler)?;
+            let val = scalar(val.span, emit_expr(val, compiler)?)?;
             compiler.push_inst(OpCode::BitNot, val as u8, 0);
-            Ok(val)
+            Ok(val.into())
         }
         ExprEnum::Neg(val) => {
-            let val = emit_expr(val, compiler)?;
+            let val = scalar(val.span, emit_expr(val, compiler)?)?;
             compiler.push_inst(OpCode::Neg, val as u8, 0);
-            Ok(val)
+            Ok(val.into())
         }
-        ExprEnum::Add(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::Add, lhs, rhs)?),
-        ExprEnum::Sub(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::Sub, lhs, rhs)?),
-        ExprEnum::Mult(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::Mul, lhs, rhs)?),
-        ExprEnum::Div(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::Div, lhs, rhs)?),
+        ExprEnum::Add(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::Add, lhs, rhs)?.into()),
+        ExprEnum::Sub(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::Sub, lhs, rhs)?.into()),
+        ExprEnum::Mult(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::Mul, lhs, rhs)?.into()),
+        ExprEnum::Div(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::Div, lhs, rhs)?.into()),
         ExprEnum::VarAssign(lhs, rhs) => {
             let lhs_result = emit_lvalue(lhs, compiler)?;
+            // TODO: assignment should work for aggregate types
             let rhs_result = emit_expr(rhs, compiler)?;
             match lhs_result {
                 LValue::Variable(name) => {
                     let local_idx = compiler.find_local(&name, expr.span)?.stack_idx;
-                    compiler.push_inst(OpCode::Move, rhs_result as u8, local_idx as u16);
-                    Ok(local_idx)
+                    for (dst, src) in (local_idx..).zip(rhs_result.range()) {
+                        compiler.push_inst(OpCode::Move, src as u8, dst as u16);
+                    }
+                    Ok(local_idx.into())
                 }
                 LValue::ArrayRef(arr, subidx) => {
+                    let rhs_result = scalar(rhs.span, rhs_result)?;
                     let value_copy = compiler.target_stack.len();
                     compiler.target_stack.push(Target::None);
 
@@ -663,7 +748,13 @@ fn emit_expr<'src>(
                     // Third, get the element from the array reference
                     compiler.push_inst(OpCode::Set, arr as u8, value_copy as u16);
 
-                    Ok(value_copy)
+                    Ok(value_copy.into())
+                }
+                LValue::StructRef(_st_ty, start, size) => {
+                    for (dst, src) in (start..start + size).zip(rhs_result.range()) {
+                        compiler.push_inst(OpCode::Move, src as u8, dst as u16);
+                    }
+                    Ok(start.into())
                 }
             }
         }
@@ -711,7 +802,7 @@ fn emit_expr<'src>(
                     }
                     if let Some(default_val) = param.init.as_ref() {
                         let default_val = compiler.find_or_create_literal(default_val);
-                        *arg_value = Some(default_val);
+                        *arg_value = Some(default_val.into());
                     }
                 }
             }
@@ -738,20 +829,22 @@ fn emit_expr<'src>(
             for arg in &arg_values {
                 let arg_target = compiler.target_stack.len();
                 compiler.target_stack.push(Target::None);
-                compiler.push_inst(OpCode::Move, *arg as u8, arg_target as u16);
+                for field in 0..arg.size {
+                    compiler.push_inst(OpCode::Move, (arg.start + field) as u8, arg_target as u16);
+                }
             }
 
             compiler.push_inst(OpCode::Call, arg_values.len() as u8, stk_fname as u16);
             compiler.target_stack.push(Target::None);
-            Ok(stk_fname)
+            Ok(stk_fname.into())
         }
         ExprEnum::ArrIndex(ex, args) => {
-            let stk_ex = emit_expr(ex, compiler)?;
+            let stk_ex = scalar(ex.span, emit_expr(ex, compiler)?)?;
             let args = args
                 .iter()
                 .map(|v| emit_expr(v, compiler))
                 .collect::<Result<Vec<_>, _>>()?;
-            let arg = args[0];
+            let arg = scalar(ex.span, args[0])?;
             let arg = if matches!(compiler.target_stack[arg], Target::Local(_)) {
                 // We move the local variable to another slot because our instructions are destructive
                 let top = compiler.target_stack.len();
@@ -762,10 +855,10 @@ fn emit_expr<'src>(
                 arg
             };
             compiler.push_inst(OpCode::Get, stk_ex as u8, arg as u16);
-            Ok(arg)
+            Ok(arg.into())
         }
         ExprEnum::TupleIndex(ex, index) => {
-            let stk_ex = emit_expr(ex, compiler)?;
+            let stk_ex = scalar(ex.span, emit_expr(ex, compiler)?)?;
             let stk_idx = compiler.find_or_create_literal(&Value::I64(*index as i64));
             let stk_idx_copy = compiler.target_stack.len();
             compiler.target_stack.push(Target::None);
@@ -773,7 +866,7 @@ fn emit_expr<'src>(
 
             compiler.push_inst(OpCode::Get, stk_ex as u8, stk_idx_copy as u16);
 
-            Ok(stk_idx_copy)
+            Ok(stk_idx_copy.into())
         }
         ExprEnum::FieldAccess {
             prefix,
@@ -785,42 +878,47 @@ fn emit_expr<'src>(
                 CompileError::new(prefix.span, CEK::TypeNameNotFound(expr_to_string(prefix)))
             })?;
 
-            let (idx, _) = st_ty
-                .fields
-                .iter()
-                .enumerate()
-                .find(|(_, field)| *field.name == **postfix)
+            let field_info = st_ty
+                .field_info(postfix, &compiler.env.typedefs)
                 .ok_or_else(|| {
                     CompileError::new(prefix.span, CEK::FieldNotFound(postfix.to_string()))
                 })?;
 
             let stk_ex = emit_expr(prefix, compiler)?;
-            let stk_idx = compiler.find_or_create_literal(&Value::I64(idx as i64));
-            let stk_idx_copy = compiler.target_stack.len();
-            compiler.target_stack.push(Target::None);
-            compiler.push_inst(OpCode::Move, stk_idx as u8, stk_idx_copy as u16);
+            // let stk_idx = compiler.find_or_create_literal(&Value::I64(idx as i64));
+            // let stk_idx_copy = compiler.target_stack.len();
+            // compiler.target_stack.push(Target::None);
+            // compiler.push_inst(OpCode::Move, stk_idx as u8, stk_idx_copy as u16);
 
-            compiler.push_inst(OpCode::Get, stk_ex as u8, stk_idx_copy as u16);
+            // compiler.push_inst(OpCode::Get, stk_ex as u8, stk_idx_copy as u16);
 
-            Ok(stk_idx_copy)
+            Ok(RValue {
+                start: stk_ex.start + field_info.offset,
+                size: ty_size_of(expr.span, &field_info.field.ty, &compiler.env.typedefs)?,
+            })
         }
-        ExprEnum::LT(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::Lt, lhs, rhs)?),
-        ExprEnum::LE(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::Le, lhs, rhs)?),
-        ExprEnum::GT(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::Gt, lhs, rhs)?),
-        ExprEnum::GE(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::Ge, lhs, rhs)?),
-        ExprEnum::EQ(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::Eq, lhs, rhs)?),
+        ExprEnum::LT(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::Lt, lhs, rhs)?.into()),
+        ExprEnum::LE(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::Le, lhs, rhs)?.into()),
+        ExprEnum::GT(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::Gt, lhs, rhs)?.into()),
+        ExprEnum::GE(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::Ge, lhs, rhs)?.into()),
+        ExprEnum::EQ(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::Eq, lhs, rhs)?.into()),
         ExprEnum::NE(lhs, rhs) => {
             let val = emit_binary_op(compiler, OpCode::Eq, lhs, rhs)?;
             compiler.push_inst(OpCode::Not, val as u8, 0);
-            Ok(val)
+            Ok(val.into())
         }
-        ExprEnum::BitAnd(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::BitAnd, lhs, rhs)?),
-        ExprEnum::BitXor(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::BitXor, lhs, rhs)?),
-        ExprEnum::BitOr(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::BitOr, lhs, rhs)?),
-        ExprEnum::And(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::And, lhs, rhs)?),
-        ExprEnum::Or(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::Or, lhs, rhs)?),
+        ExprEnum::BitAnd(lhs, rhs) => {
+            Ok(emit_binary_op(compiler, OpCode::BitAnd, lhs, rhs)?.into())
+        }
+        ExprEnum::BitXor(lhs, rhs) => {
+            Ok(emit_binary_op(compiler, OpCode::BitXor, lhs, rhs)?.into())
+        }
+        ExprEnum::BitOr(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::BitOr, lhs, rhs)?.into()),
+        ExprEnum::And(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::And, lhs, rhs)?.into()),
+        ExprEnum::Or(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::Or, lhs, rhs)?.into()),
         ExprEnum::Conditional(cond, true_branch, false_branch) => {
-            let cond = emit_expr(cond, compiler)?;
+            let span = cond.span;
+            let cond = scalar(cond.span, emit_expr(cond, compiler)?)?;
             let cond_inst_idx = compiler.bytecode.instructions.len();
             compiler.push_inst(OpCode::Jf, cond as u8, 0);
             let true_branch = emit_stmts(true_branch, compiler)?;
@@ -832,7 +930,16 @@ fn emit_expr<'src>(
                 if let Some((false_branch, true_branch)) =
                     emit_stmts(false_branch, compiler)?.zip(true_branch)
                 {
-                    compiler.push_inst(OpCode::Move, false_branch as u8, true_branch as u16);
+                    if false_branch.size != true_branch.size {
+                        return Err(CompileError::new(span, CEK::DisallowedAggregate));
+                    }
+                    for i in 0..false_branch.size {
+                        compiler.push_inst(
+                            OpCode::Move,
+                            (false_branch.start + i) as u8,
+                            (true_branch.start + i) as u16,
+                        );
+                    }
                 }
                 compiler.bytecode.instructions[true_inst_idx].arg1 =
                     compiler.bytecode.instructions.len() as u16;
@@ -840,11 +947,11 @@ fn emit_expr<'src>(
                 compiler.bytecode.instructions[cond_inst_idx].arg1 =
                     compiler.bytecode.instructions.len() as u16;
             }
-            Ok(true_branch.unwrap_or(0))
+            Ok(true_branch.unwrap_or(0.into()))
         }
         ExprEnum::Brace(stmts) => {
             compiler.locals.push(vec![]);
-            let res = emit_stmts(stmts, compiler)?.unwrap_or(0);
+            let res = emit_stmts(stmts, compiler)?.unwrap_or_else(|| 0.into());
             compiler.locals.pop();
             Ok(res)
         }
@@ -858,43 +965,56 @@ fn emit_expr<'src>(
                 CompileError::new(*st_name, CEK::TypeNameNotFound(st_name.to_string()))
             })?;
 
-            let mut arg_values = vec![None; st_ty.fields.len()];
+            let mut arg_values =
+                vec![None; size_of_struct(*st_name, st_ty, &compiler.env.typedefs)?];
 
             // Emit expressions in each field of the struct.
             for (name, ex) in fields {
-                let (idx, _) = st_ty
-                    .fields
-                    .iter()
-                    .enumerate()
-                    .find(|(_, field_decl)| *field_decl.name == **name)
+                let idx = st_ty
+                    .offset_of(name, &compiler.env.typedefs)
                     .ok_or_else(|| {
                         CompileError::new(*name, CEK::FieldNotFound(name.to_string()))
                     })?;
 
                 let stk_from = emit_expr(ex, compiler)?;
-                arg_values[idx] = Some(stk_from);
+                for (arg, from) in arg_values[idx..]
+                    .iter_mut()
+                    .zip(stk_from.start..stk_from.start + stk_from.size)
+                {
+                    *arg = Some(from);
+                }
             }
 
-            // Reserve the stack slot to return and load the struct name at the same time.
-            let stk_ret = compiler.find_or_create_literal(&Value::Str(st_name.to_string()));
+            // // Reserve the stack slot to return and load the struct name at the same time.
+            // let stk_ret = compiler.find_or_create_literal(&Value::Str(st_name.to_string()));
 
             // If a named argument is duplicate, you would have a hole in actual args.
             // Until we have the default parameter value, it would be a compile error.
             let arg_values = arg_values
                 .into_iter()
                 .collect::<Option<Vec<_>>>()
-                .ok_or_else(|| CompileError::new(expr.span, CEK::InsufficientNamedArgs))?;
+                .ok_or_else(|| {
+                    CompileError::new(expr.span, CEK::FieldNotInitialized(st_name.to_string()))
+                })?;
+
+            let struct_start = compiler.target_stack.len();
 
             // Copy the elements in a contiguous region of the stack.
             // It is important to not call emit_expr between those elements, since they can push temporary variables.
-            for arg in &arg_values {
+            for (i, arg) in arg_values.iter().enumerate() {
                 let arg_target = compiler.target_stack.len();
-                compiler.target_stack.push(Target::None);
+                compiler.target_stack.push(Target::StructField {
+                    start: struct_start,
+                    idx: i,
+                });
                 compiler.push_inst(OpCode::Move, *arg as u8, arg_target as u16);
             }
 
-            compiler.push_inst(OpCode::MakeStruct, arg_values.len() as u8, stk_ret as u16);
-            Ok(stk_ret)
+            // compiler.push_inst(OpCode::MakeStruct, arg_values.len() as u8, stk_ret as u16);
+            Ok(RValue {
+                start: struct_start,
+                size: arg_values.len(),
+            })
         }
     };
     compiler.end_src_pos(expr.span.into());
@@ -907,8 +1027,8 @@ fn emit_binary_op<'src>(
     lhs: &Expression<'src>,
     rhs: &Expression<'src>,
 ) -> CompileResult<'src, usize> {
-    let lhs = emit_expr(&lhs, compiler)?;
-    let rhs = emit_expr(&rhs, compiler)?;
+    let lhs = scalar(lhs.span, emit_expr(&lhs, compiler)?)?;
+    let rhs = scalar(rhs.span, emit_expr(&rhs, compiler)?)?;
     let lhs = if matches!(compiler.target_stack[lhs], Target::Local(_)) {
         // We move the local variable to another slot because our instructions are destructive
         let top = compiler.target_stack.len();
@@ -920,6 +1040,38 @@ fn emit_binary_op<'src>(
     };
     compiler.push_inst(op, lhs as u8, rhs as u16);
     Ok(lhs)
+}
+
+fn ty_size_of<'src>(
+    span: Span<'src>,
+    ty: &TypeDecl,
+    typedefs: &TypeMapRc,
+) -> Result<usize, CompileError<'src>> {
+    use TypeDecl::*;
+    match ty {
+        Any | F32 | I32 | F64 | I64 | Str | Array(_, _) | Tuple(_) => Ok(1),
+        TypeName(name) => {
+            let st_ty = typedefs
+                .get(name)
+                .ok_or_else(|| CompileError::new(span, CEK::DisallowedAggregate))?;
+            size_of_struct(span, st_ty, typedefs)
+        }
+    }
+}
+
+fn size_of_struct<'src>(
+    span: Span<'src>,
+    st_ty: &StructDecl,
+    typedefs: &TypeMapRc,
+) -> Result<usize, CompileError<'src>> {
+    let ret = st_ty
+        .fields
+        .iter()
+        .fold(Ok(0), |acc, cur| -> Result<usize, CompileError> {
+            acc.and_then(|acc| Ok(acc + ty_size_of(span, &cur.ty, typedefs)?))
+        })?;
+    dbg_println!("sizeof({}) = {ret}", st_ty.name);
+    Ok(ret)
 }
 
 fn expr_to_string(ex: &Expression) -> String {

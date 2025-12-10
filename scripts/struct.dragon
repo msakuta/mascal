@@ -11,8 +11,10 @@ var a = S {
     b: "Hello",
 };
 
-print(a.a);
+print(a.c);
 
-a.a = 42;
+a.c = 1.732;
 
-print("a: ", a, type(a));
+print(a.c);
+
+// print("a: ", a, type(a));

@@ -15,6 +15,9 @@ pub enum CompileErrorKind {
     NonLValue(String),
     TypeNameNotFound(String),
     FieldNotFound(String),
+    FieldNotInitialized(String),
+    StructNotFound(String),
+    DisallowedAggregate,
     FromUtf8Error(std::string::FromUtf8Error),
     IoError(std::io::Error),
 }
@@ -57,6 +60,11 @@ impl std::fmt::Display for CompileErrorKind {
             ),
             Self::TypeNameNotFound(name) => write!(f, "Struct {name} is not defined"),
             Self::FieldNotFound(name) => write!(f, "Field {name} is not defined"),
+            Self::FieldNotInitialized(name) => write!(f, "Field {name} is not initialized"),
+            Self::StructNotFound(name) => write!(f, "Struct definition of {name} is not found"),
+            Self::DisallowedAggregate => {
+                write!(f, "Aggregate value occurred at where it is disallowed")
+            }
             Self::FromUtf8Error(e) => e.fmt(f),
             Self::IoError(e) => e.fmt(f),
         }

@@ -8,13 +8,13 @@ struct Mat {
     z: Vec2,
 }
 
-fn format_vec(s: Vec2) -> str {
-    (s.x) as str + ", " + (s.y) as str
-}
+// fn format_vec(s: Vec2) -> str {
+//     (s.x) as str + ", " + (s.y) as str
+// }
 
-fn format_mat(s: Mat) -> str {
-    format_vec(s.w) + ", " + format_vec(s.z)
-}
+// fn format_mat(s: Mat) -> str {
+//     format_vec(s.w) + ", " + format_vec(s.z)
+// }
 
 var m = Mat {
     w: Vec2 { x: 10., y: 20. },
@@ -22,4 +22,6 @@ var m = Mat {
 };
 m.z.y = 400.;
 
-print(format_mat(m))
+print(m.w.y);
+
+// print(format_mat(m))
