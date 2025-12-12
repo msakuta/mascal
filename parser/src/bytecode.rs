@@ -74,7 +74,7 @@ pub enum OpCode {
     Jf,
     /// Call a function with arg0 aruguments on the stack with index arg1.
     Call,
-    /// Returns from current call stack.
+    /// Returns arg0 values from current stack, beginning from arg1.
     Ret,
     /// Casts a value at arg0 to a type indicated by arg1. I'm feeling this should be a standard library function
     /// rather than a opcode, but let's finish implementation compatible with AST interpreter first.
@@ -270,6 +270,19 @@ impl FnProto {
         match self {
             Self::Code(bytecode) => Some(&bytecode.args),
             _ => None,
+        }
+    }
+
+    pub fn ret_size(&self) -> usize {
+        match self {
+            Self::Code(bytecode) => bytecode
+                .instructions
+                .last()
+                .map_or(1, |inst| match inst.op {
+                    OpCode::Ret => inst.arg0 as usize,
+                    _ => 1,
+                }),
+            _ => 1,
         }
     }
 }

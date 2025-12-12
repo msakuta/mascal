@@ -481,19 +481,21 @@ impl<'a> Vm<'a> {
             }
             OpCode::Ret => {
                 let retval = self.stack_base + inst.arg1 as usize;
-                if let Some(prev_ci) = self.call_stack.pop() {
-                    if self.call_stack.is_empty() {
-                        return Ok(Some(self.get(inst.arg1).clone()));
-                    } else {
-                        let ci = self.call_stack.clast()?;
-                        self.stack_base = ci.stack_base;
-                        self.stack[prev_ci.stack_base] = self.stack[retval].clone();
-                        self.stack.resize(ci.stack_size, Value::default());
-                        // self.dump_stack();
-                    }
-                } else {
+                let Some(prev_ci) = self.call_stack.pop() else {
                     return Err(EvalError::CallStackUndeflow);
+                };
+                if self.call_stack.is_empty() {
+                    return Ok(Some(self.get(inst.arg1).clone()));
                 }
+                let ci = self.call_stack.clast()?;
+                self.stack_base = ci.stack_base;
+                self.stack[prev_ci.stack_base] = self.stack[retval].clone();
+                for (src, dst) in
+                    (retval..retval + inst.arg0 as usize).zip(prev_ci.stack_base..)
+                {
+                    self.stack[dst] = self.stack[src].clone();
+                }
+                self.stack.resize(ci.stack_size, Value::default());
             }
             OpCode::Cast => {
                 let target_var = &self.get(inst.arg0);

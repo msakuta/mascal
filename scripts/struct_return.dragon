@@ -1,0 +1,21 @@
+
+struct S {
+    a: i32,
+    b: str,
+    c: f64
+}
+
+fn return_S() -> S {
+    var a = S {
+        a: 1,
+        c: 3.14,
+        b: "Hello",
+    };
+    a
+}
+
+var s = return_S();
+
+print("a: ", s.a, type(s.a));
+print("b: ", s.b, type(s.b));
+print("c: ", s.c, type(s.c));

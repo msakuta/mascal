@@ -67,6 +67,7 @@ enum Target {
     #[allow(unused)]
     Local(usize),
     /// Inlined struct field. First
+    #[allow(unused)]
     StructField { start: usize, idx: usize },
 }
 
@@ -379,11 +380,16 @@ fn compile_fn<'src, 'ast>(
     // In the current VM model, there is always a return value, even if the function ends with a semicolon.
     // Void return type is only effective in type system. So we return _something_ but its value should not be
     // evaluated. We may revisit this design and introduce RET_VOID instruction.
-    let last_target = emit_stmts(stmts, &mut compiler)?.map_or(0, |res| res.start);
-    compiler
-        .bytecode
-        .instructions
-        .push(Instruction::new(OpCode::Ret, 0, last_target as u16));
+    let last_target = emit_stmts(stmts, &mut compiler)?.unwrap_or_else(|| RValue {
+        start: compiler.find_or_create_literal(&Value::I32(0)),
+        size: 1,
+    });
+
+    compiler.bytecode.instructions.push(Instruction::new(
+        OpCode::Ret,
+        last_target.size as u8,
+        last_target.start as u16,
+    ));
 
     compiler.bytecode.stack_size = compiler.target_stack.len();
     compiler.bytecode.name = name;
@@ -778,12 +784,12 @@ fn emit_expr<'src>(
             }
         }
         ExprEnum::FnInvoke(fname, args) => {
-            let params = {
+            let (params, ret_size) = {
                 let fun = compiler.env.functions.get(*fname).ok_or_else(|| {
                     CompileError::new(expr.span, CEK::FnNotFound(fname.to_string()))
                 })?;
 
-                fun.args().map(|args| args.to_vec())
+                (fun.args().map(|args| args.to_vec()), fun.ret_size())
             };
 
             // The size of the arguemnts are not easy to calculate, because it depends on the individual type of the
@@ -865,8 +871,13 @@ fn emit_expr<'src>(
             }
 
             compiler.push_inst(OpCode::Call, arg_values.len() as u8, stk_fname as u16);
-            compiler.target_stack.push(Target::None);
-            Ok(stk_fname.into())
+            for _ in 0..ret_size {
+                compiler.target_stack.push(Target::None);
+            }
+            Ok(RValue {
+                start: stk_fname,
+                size: ret_size,
+            })
         }
         ExprEnum::ArrIndex(ex, args) => {
             let stk_ex = scalar(ex.span, emit_expr(ex, compiler)?)?;
