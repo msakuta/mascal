@@ -102,7 +102,7 @@ fn i64<'a>(i: i64) -> ExprEnum<'a> {
 
 /// Generic integer literal
 fn int<'a>(i: i64) -> ExprEnum<'a> {
-    ExprEnum::NumLiteral(Value::I64(i), TypeSetAnnotated::int())
+    ExprEnum::NumLiteral(Value::I64(i), TypeSetAnnotated::int_unannotated())
 }
 
 #[test]
@@ -845,10 +845,7 @@ fn test_array_index() {
                         ExprEnum::Variable("a"),
                         span.subslice(0, 1)
                     )),
-                    vec![Expression::new(
-                        ExprEnum::NumLiteral(Value::I64(0), TypeSetAnnotated::int_unannotated()),
-                        span.subslice(2, 1)
-                    )]
+                    vec![Expression::new(int(0), span.subslice(2, 1))]
                 ),
                 span
             ),
@@ -871,20 +868,11 @@ fn test_nested_array_index() {
                                 ExprEnum::Variable("a"),
                                 span.subslice(0, 1)
                             )),
-                            vec![Expression::new(
-                                ExprEnum::NumLiteral(
-                                    Value::I64(0),
-                                    TypeSetAnnotated::int_unannotated()
-                                ),
-                                span.subslice(2, 1)
-                            )]
+                            vec![Expression::new(int(0), span.subslice(2, 1))]
                         ),
                         span.subslice(0, 4)
                     )),
-                    vec![Expression::new(
-                        ExprEnum::NumLiteral(Value::I64(1), TypeSetAnnotated::int_unannotated()),
-                        span.subslice(5, 1)
-                    )]
+                    vec![Expression::new(int(1), span.subslice(5, 1))]
                 ),
                 span
             ),
@@ -913,6 +901,24 @@ fn test_void_fn() {
                 span.subslice(28, 14)
             ))])
         }]
+    );
+}
+
+#[test]
+fn test_fn_call() {
+    let span = Span::new("a(0)");
+    assert_eq!(
+        statement(span).finish().unwrap().1,
+        Statement::Expression {
+            ex: Expression::new(
+                ExprEnum::FnInvoke(
+                    "a",
+                    vec![FnArg::new(Expression::new(int(0), span.subslice(2, 1)))]
+                ),
+                span
+            ),
+            semicolon: false,
+        }
     );
 }
 

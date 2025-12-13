@@ -614,15 +614,19 @@ pub(crate) fn array_index<'src>(
     ))
 }
 
-pub(crate) fn tuple_index(i: Span) -> IResult<Span, Expression> {
-    let (r, prim) = primary_expression(i)?;
-    let (r, indices) = many1(ws(preceded(tag("."), digit1)))(r)?;
-    let prim_span = prim.span;
+pub(crate) fn tuple_index<'src>(
+    start: Span<'src>,
+    prefix: Expression<'src>,
+    i: Span<'src>,
+) -> IResult<Span<'src>, Expression<'src>> {
+    let (r, indices) = many1(ws(preceded(tag("."), digit1)))(i)?;
+    let prefix_span = prefix.span;
     Ok((
         r,
         indices
             .into_iter()
-            .fold(Ok(prim), |acc, v: Span| -> Result<_, _> {
+            .fold(Ok(prefix), |acc, v: Span| -> Result<_, _> {
+                let prefix_start = start.offset(&prefix_span);
                 Ok(Expression::new(
                     ExprEnum::TupleIndex(
                         Box::new(acc?),
@@ -633,7 +637,7 @@ pub(crate) fn tuple_index(i: Span) -> IResult<Span, Expression> {
                             })
                         })?,
                     ),
-                    i.subslice(i.offset(&prim_span), prim_span.offset(&r)),
+                    start.subslice(prefix_start, start.offset(&r) - prefix_start),
                 ))
             })?,
     ))
@@ -716,6 +720,13 @@ fn struct_literal<'a>(name: Span<'a>, i: Span<'a>) -> IResult<Span<'a>, Expressi
 }
 
 fn postfix_expression(i: Span) -> IResult<Span, Expression> {
+    // Function call is a special case of a postfix expression, because we don't have a function object as a variable,
+    // the prefix is always an identifier.
+    // It is also very cheap to backtrack, since parsing an identifier is a terminal symbol.
+    if let Ok(res) = func_invoke(i) {
+        return Ok(res);
+    }
+
     let (r, prim) = primary_expression(i)?;
     postfix(i, prim, r)
 }
@@ -729,8 +740,11 @@ fn postfix<'src>(
         return Ok(res);
     }
 
+    if let Ok(res) = tuple_index(start, prefix.clone(), i) {
+        return Ok(res);
+    }
+
     // alt((
-    //     func_invoke,
     //     tuple_index,
     //     field_access,
     //     cast,
