@@ -136,7 +136,7 @@ pub fn type_check(src: &str) -> Result<JsValue, JsValue> {
 
 #[wasm_bindgen]
 pub fn run_script(src: &str) -> Result<(), JsValue> {
-    let mut ctx = EvalContext::new();
+    let mut ctx = EvalContext::default();
     wasm_functions(|name, f| ctx.set_fn(name, f));
     let parse_result =
         source(src).map_err(|e| JsValue::from_str(&format!("Parse error: {:?}", e)))?;
