@@ -244,7 +244,7 @@ fn _non_ident(mut input: &str) -> IResult<&str, Span<'_>> {
 }
 
 fn punctuation(i: &str) -> IResult<&str, Span<'_>> {
-    alt((recognize(one_of("(){}[],:;*+-/=<>")), tag("->"), tag("..")))(i)
+    alt((tag(".."), recognize(one_of("(){}[],:;*+-/=<>.")), tag("->")))(i)
         .map(|(r, s)| (r, s.white()))
 }
 
