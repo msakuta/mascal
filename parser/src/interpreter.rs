@@ -784,6 +784,17 @@ pub struct EvalContext<'src, 'native, 'ctx> {
     super_context: Option<&'ctx EvalContext<'src, 'native, 'ctx>>,
 }
 
+impl<'src, 'ast, 'native, 'ctx> Default for EvalContext<'src, 'native, 'ctx> {
+    fn default() -> Self {
+        Self {
+            variables: Default::default(),
+            functions: std_functions(),
+            typedefs: Default::default(),
+            super_context: Default::default(),
+        }
+    }
+}
+
 impl<'src, 'ast, 'native, 'ctx> EvalContext<'src, 'native, 'ctx> {
     pub fn new() -> Self {
         Self {

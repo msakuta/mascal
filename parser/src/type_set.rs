@@ -74,7 +74,7 @@ impl TypeSetAnnotated {
     pub fn int() -> Self {
         Self {
             ts: TypeSet::int(),
-            annotated: true,
+            annotated: false,
         }
     }
 
@@ -100,11 +100,7 @@ impl TypeSetAnnotated {
 
     pub fn float() -> Self {
         Self {
-            ts: TypeSet::Set(TypeSetFlags {
-                f32: true,
-                f64: true,
-                ..TypeSetFlags::default()
-            }),
+            ts: TypeSet::float(),
             annotated: true,
         }
     }
@@ -136,6 +132,14 @@ impl TypeSet {
         TypeSet::Set(TypeSetFlags {
             i32: true,
             i64: true,
+            ..TypeSetFlags::default()
+        })
+    }
+
+    pub fn float() -> Self {
+        Self::Set(TypeSetFlags {
+            f32: true,
+            f64: true,
             ..TypeSetFlags::default()
         })
     }
