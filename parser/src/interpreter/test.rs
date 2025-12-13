@@ -20,12 +20,12 @@ fn span_expr<'a, 'b>(s: &'a str) -> IResult<Span, Expression> {
 }
 
 fn eval0(s: &Expression) -> RunResult {
-    let mut ctx = EvalContext::new();
+    let mut ctx = EvalContext::default();
     eval(s, &mut ctx).unwrap()
 }
 
 fn run0(s: &Vec<Statement>) -> Result<RunResult, EvalError> {
-    let mut ctx = EvalContext::new();
+    let mut ctx = EvalContext::default();
     run(s, &mut ctx)
 }
 
@@ -74,7 +74,7 @@ fn var_ident_test() {
 
 #[test]
 fn var_test() {
-    let mut ctx = EvalContext::new();
+    let mut ctx = EvalContext::default();
     ctx.variables
         .borrow_mut()
         .insert("x", Rc::new(RefCell::new(Value::F64(42.))));
@@ -98,7 +98,7 @@ fn bnl(value: Value, span: Span) -> Box<Expression> {
 
 #[test]
 fn var_assign_test() {
-    let mut ctx = EvalContext::new();
+    let mut ctx = EvalContext::default();
     ctx.variables
         .borrow_mut()
         .insert("x", Rc::new(RefCell::new(Value::F64(42.))));
@@ -160,7 +160,7 @@ fn fn_default_test() {
 fn fn_default_failure_test() {
     let span = Span::new("var b = 1; fn f(a: i32 = b) { a; } f()");
     let stmts = source(span).finish().unwrap().1;
-    let Err(err) = run(&stmts, &mut EvalContext::new()) else {
+    let Err(err) = run(&stmts, &mut EvalContext::default()) else {
         panic!("Should error");
     };
     assert!(matches!(err, EvalError::VarNotFound(_)));
@@ -695,7 +695,7 @@ fn array_index_test() {
     use Value::*;
     let span = Span::new("a[1]");
     assert_eq!(
-        array_index(span).finish().unwrap().1,
+        full_expression(span).finish().unwrap().1,
         Expression::new(
             ArrIndex(
                 var_r(span.subslice(0, 1)),
@@ -724,7 +724,7 @@ fn array_index_test() {
 #[test]
 fn array_index_eval_test() {
     use Value::*;
-    let mut ctx = EvalContext::new();
+    let mut ctx = EvalContext::default();
 
     // This is very verbose, but necessary to match against a variable in ctx.variables.
     let ast = span_source("var a: [i32] = [1,3,5]; a[1]").unwrap().1;

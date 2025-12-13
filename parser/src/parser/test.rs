@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use crate::format_ast::format_expr;
+use crate::{format_ast::format_expr, type_set::TypeSet};
 
 use super::*;
 use nom::Finish;
@@ -832,6 +832,67 @@ fn test_range_sz_array() {
         }
     );
 }
+
+#[test]
+fn test_array_index() {
+    let span = Span::new("a[0]");
+    assert_eq!(
+        statement(span).finish().unwrap().1,
+        Statement::Expression {
+            ex: Expression::new(
+                ExprEnum::ArrIndex(
+                    Box::new(Expression::new(
+                        ExprEnum::Variable("a"),
+                        span.subslice(0, 1)
+                    )),
+                    vec![Expression::new(
+                        ExprEnum::NumLiteral(Value::I64(0), TypeSetAnnotated::int_unannotated()),
+                        span.subslice(2, 1)
+                    )]
+                ),
+                span
+            ),
+            semicolon: false,
+        }
+    );
+}
+
+#[test]
+fn test_nested_array_index() {
+    let span = Span::new("a[0][1]");
+    assert_eq!(
+        statement(span).finish().unwrap().1,
+        Statement::Expression {
+            ex: Expression::new(
+                ExprEnum::ArrIndex(
+                    Box::new(Expression::new(
+                        ExprEnum::ArrIndex(
+                            Box::new(Expression::new(
+                                ExprEnum::Variable("a"),
+                                span.subslice(0, 1)
+                            )),
+                            vec![Expression::new(
+                                ExprEnum::NumLiteral(
+                                    Value::I64(0),
+                                    TypeSetAnnotated::int_unannotated()
+                                ),
+                                span.subslice(2, 1)
+                            )]
+                        ),
+                        span.subslice(0, 4)
+                    )),
+                    vec![Expression::new(
+                        ExprEnum::NumLiteral(Value::I64(1), TypeSetAnnotated::int_unannotated()),
+                        span.subslice(5, 1)
+                    )]
+                ),
+                span
+            ),
+            semicolon: false,
+        }
+    );
+}
+
 #[test]
 fn test_void_fn() {
     let span = Span::new("fn returns_void() -> void { print(\"Hello\")}");

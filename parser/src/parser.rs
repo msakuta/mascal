@@ -450,8 +450,8 @@ fn double_expr(input: Span) -> IResult<Span, Expression> {
         }
     } else {
         let ty = match value {
-            Value::I64(_) => TypeSetAnnotated::int(),
-            _ => TypeSetAnnotated::float(),
+            Value::I64(_) => TypeSetAnnotated::int_unannotated(),
+            _ => TypeSetAnnotated::float_unannotated(),
         };
         (value, ty)
     };
@@ -586,24 +586,29 @@ pub(crate) fn func_invoke(i: Span) -> IResult<Span, Expression> {
     ))
 }
 
-pub(crate) fn array_index(i: Span) -> IResult<Span, Expression> {
-    let (r, prim) = primary_expression(i)?;
+pub(crate) fn array_index<'src>(
+    start: Span<'src>,
+    prefix: Expression<'src>,
+    i: Span<'src>,
+) -> IResult<Span<'src>, Expression<'src>> {
+    dbg!(i);
     let (r, indices) = many1(delimited(
         multispace0,
-        delimited(
+        tuple((
             tag("["),
             separated_list1(ws(char(',')), full_expression),
             tag("]"),
-        ),
+        )),
         multispace0,
-    ))(r)?;
-    let prim_span = prim.span;
+    ))(i)?;
+    dbg!(&indices);
     Ok((
         r,
-        indices.into_iter().fold(prim, |acc, v| {
+        indices.into_iter().fold(prefix, |acc, (open, v, close)| {
+            let length = start.offset(&close) + close.len();
             Expression::new(
                 ExprEnum::ArrIndex(Box::new(acc), v),
-                i.subslice(i.offset(&prim_span), prim_span.offset(&r)),
+                start.subslice(0, length),
             )
         }),
     ))
@@ -711,14 +716,27 @@ fn struct_literal<'a>(name: Span<'a>, i: Span<'a>) -> IResult<Span<'a>, Expressi
 }
 
 fn postfix_expression(i: Span) -> IResult<Span, Expression> {
-    alt((
-        func_invoke,
-        array_index,
-        tuple_index,
-        field_access,
-        cast,
-        primary_expression,
-    ))(i)
+    let (r, prim) = primary_expression(i)?;
+    postfix(i, prim, r)
+}
+
+fn postfix<'src>(
+    start: Span<'src>,
+    prefix: Expression<'src>,
+    i: Span<'src>,
+) -> IResult<Span<'src>, Expression<'src>> {
+    if let Ok(res) = array_index(start, prefix.clone(), i) {
+        return Ok(res);
+    }
+
+    // alt((
+    //     func_invoke,
+    //     tuple_index,
+    //     field_access,
+    //     cast,
+    //     primary_expression,
+    // ))(i)
+    Ok((i, prefix))
 }
 
 fn not(i: Span) -> IResult<Span, Expression> {
