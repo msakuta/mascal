@@ -588,10 +588,9 @@ pub(crate) fn func_invoke(i: Span) -> IResult<Span, Expression> {
 
 pub(crate) fn array_index<'src>(
     start: Span<'src>,
-    prefix: Expression<'src>,
+    prefix: &Expression<'src>,
     i: Span<'src>,
 ) -> IResult<Span<'src>, Expression<'src>> {
-    dbg!(i);
     let (r, indices) = many1(delimited(
         multispace0,
         tuple((
@@ -601,22 +600,23 @@ pub(crate) fn array_index<'src>(
         )),
         multispace0,
     ))(i)?;
-    dbg!(&indices);
     Ok((
         r,
-        indices.into_iter().fold(prefix, |acc, (open, v, close)| {
-            let length = start.offset(&close) + close.len();
-            Expression::new(
-                ExprEnum::ArrIndex(Box::new(acc), v),
-                start.subslice(0, length),
-            )
-        }),
+        indices
+            .into_iter()
+            .fold(prefix.clone(), |acc, (_open, v, close)| {
+                let length = start.offset(&close) + close.len();
+                Expression::new(
+                    ExprEnum::ArrIndex(Box::new(acc), v),
+                    start.subslice(0, length),
+                )
+            }),
     ))
 }
 
 pub(crate) fn tuple_index<'src>(
     start: Span<'src>,
-    prefix: Expression<'src>,
+    prefix: &Expression<'src>,
     i: Span<'src>,
 ) -> IResult<Span<'src>, Expression<'src>> {
     let (r, indices) = many1(ws(preceded(tag("."), digit1)))(i)?;
@@ -625,7 +625,7 @@ pub(crate) fn tuple_index<'src>(
         r,
         indices
             .into_iter()
-            .fold(Ok(prefix), |acc, v: Span| -> Result<_, _> {
+            .fold(Ok(prefix.clone()), |acc, v: Span| -> Result<_, _> {
                 let prefix_start = start.offset(&prefix_span);
                 Ok(Expression::new(
                     ExprEnum::TupleIndex(
@@ -643,22 +643,26 @@ pub(crate) fn tuple_index<'src>(
     ))
 }
 
-pub(crate) fn field_access(i: Span) -> IResult<Span, Expression> {
-    let (r, prim) = primary_expression(i)?;
-    let (r, indices) = many1(ws(preceded(tag("."), ident_space)))(r)?;
-    let prim_span = prim.span;
+pub(crate) fn field_access<'src>(
+    start: Span<'src>,
+    prefix: &Expression<'src>,
+    i: Span<'src>,
+) -> IResult<Span<'src>, Expression<'src>> {
+    let (r, indices) = many1(ws(preceded(tag("."), ident_space)))(i)?;
+    let prefix_span = prefix.span;
     Ok((
         r,
         indices
             .into_iter()
-            .fold(Ok(prim), |acc, field: Span| -> Result<_, _> {
+            .fold(Ok(prefix.clone()), |acc, field: Span| -> Result<_, _> {
+                let prefix_start = start.offset(&prefix_span);
                 Ok(Expression::new(
                     ExprEnum::FieldAccess {
                         prefix: Box::new(acc?),
                         postfix: field,
                         def: None,
                     },
-                    i.subslice(i.offset(&prim_span), prim_span.offset(&r)),
+                    start.subslice(prefix_start, start.offset(&r).saturating_sub(prefix_start)),
                 ))
             })?,
     ))
@@ -736,17 +740,19 @@ fn postfix<'src>(
     prefix: Expression<'src>,
     i: Span<'src>,
 ) -> IResult<Span<'src>, Expression<'src>> {
-    if let Ok(res) = array_index(start, prefix.clone(), i) {
+    if let Ok(res) = array_index(start, &prefix, i) {
         return Ok(res);
     }
 
-    if let Ok(res) = tuple_index(start, prefix.clone(), i) {
+    if let Ok(res) = tuple_index(start, &prefix, i) {
+        return Ok(res);
+    }
+
+    if let Ok(res) = field_access(start, &prefix, i) {
         return Ok(res);
     }
 
     // alt((
-    //     tuple_index,
-    //     field_access,
     //     cast,
     //     primary_expression,
     // ))(i)

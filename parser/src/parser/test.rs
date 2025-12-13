@@ -1,10 +1,16 @@
 #![cfg(test)]
 
-use crate::{format_ast::format_expr, type_set::TypeSet};
+use crate::format_ast::format_expr;
 
 use super::*;
 use nom::Finish;
 use ExprEnum::*;
+
+impl<'src> Expression<'src> {
+    fn boxed(self) -> Box<Self> {
+        Box::new(self)
+    }
+}
 
 /// Shorthand for an expression statement without semicolon
 pub(crate) fn expr_nosemi(ex: Expression) -> Statement {
@@ -673,13 +679,14 @@ fn test_tuple_index() {
         full_expression(span).finish().unwrap().1,
         Expression::new(
             TupleIndex(
-                Box::new(Expression::new(
+                Expression::new(
                     TupleLiteral(vec![
                         Expression::new(int(1), span.subslice(1, 1)),
                         Expression::new(ExprEnum::StrLiteral("a".to_owned()), span.subslice(4, 3))
                     ]),
                     span.subslice(0, 8)
-                )),
+                )
+                .boxed(),
                 1
             ),
             span
@@ -841,10 +848,7 @@ fn test_array_index() {
         Statement::Expression {
             ex: Expression::new(
                 ExprEnum::ArrIndex(
-                    Box::new(Expression::new(
-                        ExprEnum::Variable("a"),
-                        span.subslice(0, 1)
-                    )),
+                    Expression::new(ExprEnum::Variable("a"), span.subslice(0, 1)).boxed(),
                     vec![Expression::new(int(0), span.subslice(2, 1))]
                 ),
                 span
@@ -862,16 +866,14 @@ fn test_nested_array_index() {
         Statement::Expression {
             ex: Expression::new(
                 ExprEnum::ArrIndex(
-                    Box::new(Expression::new(
+                    Expression::new(
                         ExprEnum::ArrIndex(
-                            Box::new(Expression::new(
-                                ExprEnum::Variable("a"),
-                                span.subslice(0, 1)
-                            )),
+                            Expression::new(ExprEnum::Variable("a"), span.subslice(0, 1)).boxed(),
                             vec![Expression::new(int(0), span.subslice(2, 1))]
                         ),
                         span.subslice(0, 4)
-                    )),
+                    )
+                    .boxed(),
                     vec![Expression::new(int(1), span.subslice(5, 1))]
                 ),
                 span
@@ -999,5 +1001,27 @@ fn test_struct() {
             ty_annotated: true,
             init: None
         }
+    );
+}
+
+#[test]
+fn test_field_access() {
+    let src = Span::new("s.a");
+    let (r, ex) = full_expression(src).finish().unwrap();
+    assert!(r.is_empty());
+    assert_eq!(
+        ex,
+        Expression::new(
+            ExprEnum::FieldAccess {
+                prefix: Expression::new(
+                    ExprEnum::Variable(*src.subslice(0, 1)),
+                    src.subslice(0, 1)
+                )
+                .boxed(),
+                postfix: src.subslice(2, 1),
+                def: None
+            },
+            src
+        )
     );
 }
