@@ -15,10 +15,10 @@ use crate::{
         LineInfo, NativeFn, OpCode,
     },
     format_ast::format_expr,
-    interpreter::{eval, EvalContext, RunResult, TypeMapRc},
+    interpreter::{eval, EvalContext, RunResult},
     parser::{ExprEnum, Expression, Statement, StructDecl, StructField},
     value::{ArrayInt, TupleEntry},
-    DebugInfo, Span, TypeDecl, Value,
+    DebugInfo, Span, TypeDecl, TypeMapRc, Value,
 };
 
 /// Extracted info of a field of a struct. Some information is determined by a position in the struct,
@@ -491,7 +491,7 @@ fn emit_stmts<'src>(
                             // Run the interpreter to fold the constant expression into a value.
                             // Note that the interpreter has an empty context, so it cannot access any
                             // global variables or user defined functions.
-                            match eval(init, &mut EvalContext::new())
+                            match eval(init, &mut EvalContext::new(compiler.env.typedefs.clone()))
                                 .map_err(|e| CompileError::new(*name, CEK::EvalError(e)))?
                             {
                                 RunResult::Yield(val) => Some(val),
@@ -637,7 +637,8 @@ fn emit_expr<'src>(
             .find_or_create_literal(&Value::Str(val.clone()))
             .into()),
         ExprEnum::ArrLiteral(val) => {
-            let mut ctx = EvalContext::new();
+            // TODO: improve clones
+            let mut ctx = EvalContext::new(compiler.env.typedefs.clone());
             let val = Value::Array(Rc::new(RefCell::new(ArrayInt {
                 type_decl: TypeDecl::Any,
                 values: val
@@ -656,7 +657,7 @@ fn emit_expr<'src>(
             Ok(compiler.find_or_create_literal(&val).into())
         }
         ExprEnum::TupleLiteral(values) => {
-            let mut ctx = EvalContext::new();
+            let mut ctx = EvalContext::new(compiler.env.typedefs.clone());
             let val = values
                 .iter()
                 .map(|v| {

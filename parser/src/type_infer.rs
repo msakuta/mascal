@@ -7,9 +7,9 @@ use std::{collections::HashMap, fmt::Display, rc::Rc};
 
 use crate::{
     format_ast::{format_expr, format_stmt},
-    interpreter::{std_functions, FuncCode, RetType, TypeMapRc},
+    interpreter::{std_functions, FuncCode, RetType},
     parser::{ExprEnum, Expression, Statement, StructDecl},
-    type_decl::{ArraySize, TypeDecl},
+    type_decl::{ArraySize, TypeDecl, TypeMapRc},
     type_set::TypeSet,
     FuncDef, Span,
 };

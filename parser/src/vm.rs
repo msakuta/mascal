@@ -490,9 +490,7 @@ impl<'a> Vm<'a> {
                 let ci = self.call_stack.clast()?;
                 self.stack_base = ci.stack_base;
                 self.stack[prev_ci.stack_base] = self.stack[retval].clone();
-                for (src, dst) in
-                    (retval..retval + inst.arg0 as usize).zip(prev_ci.stack_base..)
-                {
+                for (src, dst) in (retval..retval + inst.arg0 as usize).zip(prev_ci.stack_base..) {
                     self.stack[dst] = self.stack[src].clone();
                 }
                 self.stack.resize(ci.stack_size, Value::default());

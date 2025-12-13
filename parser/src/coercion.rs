@@ -1,10 +1,10 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
-    interpreter::{EvalResult, TypeMap},
+    interpreter::EvalResult,
     type_decl::ArraySize,
     value::{ArrayInt, TupleEntry},
-    EvalError, TypeDecl, Value,
+    EvalError, TypeDecl, TypeMapRc, Value,
 };
 
 pub(crate) fn coerce_f64(a: &Value) -> EvalResult<f64> {
@@ -63,7 +63,7 @@ fn coerce_str(a: &Value) -> EvalResult<String> {
     })
 }
 
-fn _coerce_var(value: &Value, target: &Value, typedefs: &TypeMap) -> Result<Value, EvalError> {
+fn _coerce_var(value: &Value, target: &Value, typedefs: &TypeMapRc) -> Result<Value, EvalError> {
     Ok(match target {
         Value::F64(_) => Value::F64(coerce_f64(value)?),
         Value::F32(_) => Value::F32(coerce_f64(value)? as f32),

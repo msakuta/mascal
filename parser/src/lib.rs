@@ -35,7 +35,7 @@ pub use self::format_ast::format_stmts;
 pub use self::interpreter::{run, EvalContext, FuncDef, RunResult};
 pub use self::iter_types::{iter_types, TypeParams};
 pub use self::parser::{span_source as source, ArgDecl, ReadError, Span};
-pub use self::type_decl::TypeDecl;
+pub use self::type_decl::{TypeDecl, TypeMapRc};
 pub use self::type_infer::{type_check, TypeCheckContext};
 pub use self::value::Value;
 pub use self::vm::*;

@@ -109,7 +109,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
             } else {
-                run(&result.1, &mut EvalContext::new())
+                run(&result.1, &mut EvalContext::new(TypeMapRc::new()))
                     .map_err(|e| format!("Error in run(): {}", e))?;
             }
 

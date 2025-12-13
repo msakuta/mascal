@@ -2,13 +2,23 @@ mod array_size;
 
 pub use self::array_size::ArraySize;
 use self::array_size::{read_array_size, write_array_size};
-use std::io::{Read, Write};
+use std::{
+    collections::HashMap,
+    io::{Read, Write},
+    rc::Rc,
+};
 
 use crate::{
     bytecode::{read_bool, write_bool},
+    parser::StructDecl,
     type_tags::*,
     ReadError, Value,
 };
+
+/// Type maps from a name to a StructDecl. In general, a typename should be able to point to anything,
+/// like typedefs.
+/// We use Rc because it is embedded into AST in type inference phase.
+pub type TypeMapRc<'src> = HashMap<String, Rc<StructDecl<'src>>>;
 
 #[derive(Debug, PartialEq, Clone)]
 #[repr(u8)]

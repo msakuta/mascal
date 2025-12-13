@@ -8,7 +8,7 @@ use crate::{
     parser::*,
     type_decl::ArraySize,
     value::{ArrayInt, StructInt, TupleEntry},
-    TypeDecl, Value,
+    TypeDecl, TypeMapRc, Value,
 };
 use std::{cell::RefCell, collections::HashMap, convert::TryInto, io::Write, rc::Rc};
 
@@ -265,7 +265,7 @@ where
                     // a constant expression, in order to match the semantics with the bytecode compiler.
                     // Theoretically, it is possible to evaluate the expression ahead of time to reduce
                     // computation, but our priority is bytecode compiler which already does constant folding.
-                    *arg = Some(eval(init, &mut EvalContext::new())?);
+                    *arg = Some(eval(init, &mut EvalContext::new(ctx.typedefs.clone()))?);
                 }
             }
 
@@ -759,9 +759,6 @@ impl<'src, 'native> FuncDef<'src, 'native> {
     }
 }
 
-pub(crate) type TypeMap<'src> = HashMap<String, StructDecl<'src>>;
-pub(crate) type TypeMapRc<'src> = HashMap<String, Rc<StructDecl<'src>>>;
-
 /// A context stat for evaluating a script.
 ///
 /// It has 3 lifetime arguments:
@@ -780,16 +777,16 @@ pub struct EvalContext<'src, 'native, 'ctx> {
     /// Unlike variables, functions cannot be overwritten in the outer scope, so it does not
     /// need to be wrapped in a RefCell.
     functions: HashMap<String, FuncDef<'src, 'native>>,
-    typedefs: TypeMap<'src>,
+    typedefs: TypeMapRc<'src>,
     super_context: Option<&'ctx EvalContext<'src, 'native, 'ctx>>,
 }
 
 impl<'src, 'ast, 'native, 'ctx> EvalContext<'src, 'native, 'ctx> {
-    pub fn new() -> Self {
+    pub fn new(typedefs: TypeMapRc<'src>) -> Self {
         Self {
             variables: RefCell::new(HashMap::new()),
             functions: std_functions(),
-            typedefs: HashMap::new(),
+            typedefs,
             super_context: None,
         }
     }
@@ -837,7 +834,7 @@ impl<'src, 'ast, 'native, 'ctx> EvalContext<'src, 'native, 'ctx> {
         }
     }
 
-    fn get_type(&self, name: &str) -> Option<&StructDecl<'src>> {
+    fn get_type(&self, name: &str) -> Option<&Rc<StructDecl<'src>>> {
         self.typedefs
             .get(name)
             .or_else(|| self.super_context.and_then(|sc| sc.get_type(name)))
@@ -1021,7 +1018,8 @@ where
                 return Ok(RunResult::Break);
             }
             Statement::Struct(str) => {
-                ctx.typedefs.insert(str.name.to_string(), str.clone());
+                ctx.typedefs
+                    .insert(str.name.to_string(), Rc::new(str.clone()));
             }
             _ => {}
         }
