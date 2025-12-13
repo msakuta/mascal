@@ -723,6 +723,9 @@ fn struct_literal<'a>(name: Span<'a>, i: Span<'a>) -> IResult<Span<'a>, Expressi
     ));
 }
 
+/// The parameter type for the postfix expression parseers. This tuple contains the state and also the span to parse
+/// next source text. The first element is the beginning of the whole postfix expression, the second is the parsed
+/// prefix expression so far, and the last is the span pointing the next source text.
 type PostfixInput<'src> = (Span<'src>, Expression<'src>, Span<'src>);
 
 fn postfix_expression(i: Span) -> IResult<Span, Expression> {

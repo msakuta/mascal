@@ -91,7 +91,7 @@ fn var_r(name: Span) -> Box<Expression> {
 /// Boxed numeric literal
 fn bnl(value: Value, span: Span) -> Box<Expression> {
     Box::new(Expression::new(
-        NumLiteral(value, TypeSetAnnotated::int()),
+        NumLiteral(value, TypeSetAnnotated::int_unannotated()),
         span,
     ))
 }
@@ -445,7 +445,7 @@ fn logic_eval_test() {
 
 /// Numeric literal without box
 fn nl(value: Value, span: Span) -> Expression {
-    Expression::new(NumLiteral(value, TypeSetAnnotated::int()), span)
+    Expression::new(NumLiteral(value, TypeSetAnnotated::int_unannotated()), span)
 }
 
 #[test]
@@ -769,14 +769,14 @@ fn array_index_assign_test() {
                         var_r(span.subslice(0, 1)),
                         vec![nl(I64(0), span.subslice(2, 1))]
                     ),
-                    span.subslice(0, 5)
+                    span.subslice(0, 4)
                 )),
                 Box::new(Expression::new(
                     ArrIndex(
                         var_r(span.subslice(7, 1)),
                         vec![nl(I64(0), span.subslice(9, 1))]
                     ),
-                    span.subslice(7, 4)
+                    span.subslice(6, 5)
                 )),
             ),
             span
@@ -1052,14 +1052,8 @@ fn for_test() {
         vec![Statement::For {
             var: span.subslice(5, 1),
             ty: None,
-            start: Expression::new(
-                NumLiteral(Value::I64(0), TypeSetAnnotated::int()),
-                span.subslice(10, 1)
-            ),
-            end: Expression::new(
-                NumLiteral(Value::I64(10), TypeSetAnnotated::int()),
-                span.subslice(13, 2)
-            ),
+            start: nl(Value::I64(0), span.subslice(10, 1)),
+            end: nl(Value::I64(10), span.subslice(13, 2)),
             stmts: vec![expr_semi(Expression::new(
                 FnInvoke("print", vec![FnArg::new(*var_r(span.subslice(24, 1)))],),
                 span.subslice(18, 8)

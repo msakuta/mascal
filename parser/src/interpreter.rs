@@ -788,7 +788,7 @@ impl<'src, 'ast, 'native, 'ctx> Default for EvalContext<'src, 'native, 'ctx> {
     fn default() -> Self {
         Self {
             variables: Default::default(),
-            functions: Default::default(),
+            functions: std_functions(),
             typedefs: Default::default(),
             super_context: Default::default(),
         }
