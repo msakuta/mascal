@@ -108,7 +108,7 @@ fn i64<'a>(i: i64) -> ExprEnum<'a> {
 
 /// Generic integer literal
 fn int<'a>(i: i64) -> ExprEnum<'a> {
-    ExprEnum::NumLiteral(Value::I64(i), TypeSetAnnotated::int_unannotated())
+    ExprEnum::NumLiteral(Value::I64(i), TypeSetAnnotated::int())
 }
 
 #[test]

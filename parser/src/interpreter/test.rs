@@ -91,7 +91,7 @@ fn var_r(name: Span) -> Box<Expression> {
 /// Boxed numeric literal
 fn bnl(value: Value, span: Span) -> Box<Expression> {
     Box::new(Expression::new(
-        NumLiteral(value, TypeSetAnnotated::int_unannotated()),
+        NumLiteral(value, TypeSetAnnotated::int()),
         span,
     ))
 }
@@ -445,7 +445,7 @@ fn logic_eval_test() {
 
 /// Numeric literal without box
 fn nl(value: Value, span: Span) -> Expression {
-    Expression::new(NumLiteral(value, TypeSetAnnotated::int_unannotated()), span)
+    Expression::new(NumLiteral(value, TypeSetAnnotated::int()), span)
 }
 
 #[test]

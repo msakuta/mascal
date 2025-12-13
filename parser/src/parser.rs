@@ -450,8 +450,8 @@ fn double_expr(input: Span) -> IResult<Span, Expression> {
         }
     } else {
         let ty = match value {
-            Value::I64(_) => TypeSetAnnotated::int_unannotated(),
-            _ => TypeSetAnnotated::float_unannotated(),
+            Value::I64(_) => TypeSetAnnotated::int(),
+            _ => TypeSetAnnotated::float(),
         };
         (value, ty)
     };

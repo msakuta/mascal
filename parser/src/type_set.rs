@@ -74,13 +74,6 @@ impl TypeSetAnnotated {
     pub fn int() -> Self {
         Self {
             ts: TypeSet::int(),
-            annotated: true,
-        }
-    }
-
-    pub fn int_unannotated() -> Self {
-        Self {
-            ts: TypeSet::int(),
             annotated: false,
         }
     }
@@ -106,13 +99,6 @@ impl TypeSetAnnotated {
     }
 
     pub fn float() -> Self {
-        Self {
-            ts: TypeSet::float(),
-            annotated: true,
-        }
-    }
-
-    pub fn float_unannotated() -> Self {
         Self {
             ts: TypeSet::float(),
             annotated: true,
