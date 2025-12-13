@@ -884,6 +884,84 @@ fn test_nested_array_index() {
 }
 
 #[test]
+fn test_tuple_array_index() {
+    let span = Span::new("a.0[1]");
+    assert_eq!(
+        statement(span).finish().unwrap().1,
+        Statement::Expression {
+            ex: Expression::new(
+                ExprEnum::ArrIndex(
+                    Expression::new(
+                        ExprEnum::TupleIndex(
+                            Expression::new(ExprEnum::Variable("a"), span.subslice(0, 1)).boxed(),
+                            0
+                        ),
+                        span.subslice(0, 3)
+                    )
+                    .boxed(),
+                    vec![Expression::new(int(1), span.subslice(4, 1))]
+                ),
+                span
+            ),
+            semicolon: false,
+        }
+    );
+}
+
+#[test]
+fn test_array_struct_index() {
+    let span = Span::new("a[0].a");
+    assert_eq!(
+        statement(span).finish().unwrap().1,
+        Statement::Expression {
+            ex: Expression::new(
+                ExprEnum::FieldAccess {
+                    prefix: Expression::new(
+                        ExprEnum::ArrIndex(
+                            Expression::new(ExprEnum::Variable("a"), span.subslice(0, 1)).boxed(),
+                            vec![Expression::new(int(0), span.subslice(2, 1))]
+                        ),
+                        span.subslice(0, 4)
+                    )
+                    .boxed(),
+                    postfix: span.subslice(5, 1),
+                    def: None
+                },
+                span
+            ),
+            semicolon: false,
+        }
+    );
+}
+
+#[test]
+fn test_struct_array_index() {
+    let span = Span::new("a.a[0]");
+    assert_eq!(
+        statement(span).finish().unwrap().1,
+        Statement::Expression {
+            ex: Expression::new(
+                ExprEnum::ArrIndex(
+                    Expression::new(
+                        ExprEnum::FieldAccess {
+                            prefix: Expression::new(ExprEnum::Variable("a"), span.subslice(0, 1))
+                                .boxed(),
+                            postfix: span.subslice(2, 1),
+                            def: None,
+                        },
+                        span.subslice(0, 3)
+                    )
+                    .boxed(),
+                    vec![Expression::new(int(0), span.subslice(4, 1))]
+                ),
+                span
+            ),
+            semicolon: false,
+        }
+    );
+}
+
+#[test]
 fn test_void_fn() {
     let span = Span::new("fn returns_void() -> void { print(\"Hello\")}");
     assert_eq!(
@@ -934,14 +1012,8 @@ fn test_expr_cast() {
                 ExprEnum::Cast(
                     Box::new(Expression::new(
                         ExprEnum::Add(
-                            Box::new(Expression::new(
-                                ExprEnum::Variable("a"),
-                                span.subslice(1, 1)
-                            )),
-                            Box::new(Expression::new(
-                                ExprEnum::Variable("b"),
-                                span.subslice(5, 1)
-                            ))
+                            Expression::new(ExprEnum::Variable("a"), span.subslice(1, 1)).boxed(),
+                            Expression::new(ExprEnum::Variable("b"), span.subslice(5, 1)).boxed()
                         ),
                         span.subslice(0, 8)
                     )),

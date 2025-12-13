@@ -348,14 +348,14 @@ pub(crate) fn type_decl(input: Span) -> IResult<Span, TypeDecl> {
     alt((type_array, type_tuple, type_scalar, type_name))(input)
 }
 
-fn cast(i: Span) -> IResult<Span, Expression> {
-    let (r, res) = primary_expression(i)?;
-    let (r, _) = ws(tag("as"))(r)?;
+fn cast<'src>((start, prefix, i): &PostfixInput<'src>) -> IResult<Span<'src>, Expression<'src>> {
+    let (r, _) = ws(tag("as"))(*i)?;
     let (r, decl) = type_decl(r)?;
-    let span = i.subslice(i.offset(&res.span), res.span.offset(&r));
+    let prefix_start = start.offset(&prefix.span);
+    let span = start.subslice(prefix_start, start.offset(&r).saturating_sub(prefix_start));
     Ok((
         r,
-        Expression::new(ExprEnum::Cast(Box::new(res), decl), span),
+        Expression::new(ExprEnum::Cast(Box::new(prefix.clone()), decl), span),
     ))
 }
 
@@ -587,9 +587,7 @@ pub(crate) fn func_invoke(i: Span) -> IResult<Span, Expression> {
 }
 
 pub(crate) fn array_index<'src>(
-    start: Span<'src>,
-    prefix: &Expression<'src>,
-    i: Span<'src>,
+    (start, prefix, i): &PostfixInput<'src>,
 ) -> IResult<Span<'src>, Expression<'src>> {
     let (r, indices) = many1(delimited(
         multispace0,
@@ -599,9 +597,10 @@ pub(crate) fn array_index<'src>(
             tag("]"),
         )),
         multispace0,
-    ))(i)?;
-    Ok((
-        r,
+    ))(*i)?;
+
+    postfix((
+        *start,
         indices
             .into_iter()
             .fold(prefix.clone(), |acc, (_open, v, close)| {
@@ -611,18 +610,18 @@ pub(crate) fn array_index<'src>(
                     start.subslice(0, length),
                 )
             }),
+        r,
     ))
 }
 
 pub(crate) fn tuple_index<'src>(
-    start: Span<'src>,
-    prefix: &Expression<'src>,
-    i: Span<'src>,
+    (start, prefix, i): &PostfixInput<'src>,
 ) -> IResult<Span<'src>, Expression<'src>> {
-    let (r, indices) = many1(ws(preceded(tag("."), digit1)))(i)?;
+    let (r, indices) = many1(ws(preceded(tag("."), digit1)))(*i)?;
     let prefix_span = prefix.span;
-    Ok((
-        r,
+
+    postfix((
+        *start,
         indices
             .into_iter()
             .fold(Ok(prefix.clone()), |acc, v: Span| -> Result<_, _> {
@@ -632,7 +631,7 @@ pub(crate) fn tuple_index<'src>(
                         Box::new(acc?),
                         v.parse().map_err(|_| {
                             nom::Err::Error(nom::error::Error {
-                                input: i,
+                                input: *i,
                                 code: nom::error::ErrorKind::Digit,
                             })
                         })?,
@@ -640,18 +639,18 @@ pub(crate) fn tuple_index<'src>(
                     start.subslice(prefix_start, start.offset(&r) - prefix_start),
                 ))
             })?,
+        r,
     ))
 }
 
 pub(crate) fn field_access<'src>(
-    start: Span<'src>,
-    prefix: &Expression<'src>,
-    i: Span<'src>,
+    (start, prefix, i): &PostfixInput<'src>,
 ) -> IResult<Span<'src>, Expression<'src>> {
-    let (r, indices) = many1(ws(preceded(tag("."), ident_space)))(i)?;
+    let (r, indices) = many1(ws(preceded(tag("."), ident_space)))(*i)?;
     let prefix_span = prefix.span;
-    Ok((
-        r,
+
+    postfix((
+        *start,
         indices
             .into_iter()
             .fold(Ok(prefix.clone()), |acc, field: Span| -> Result<_, _> {
@@ -665,6 +664,7 @@ pub(crate) fn field_access<'src>(
                     start.subslice(prefix_start, start.offset(&r).saturating_sub(prefix_start)),
                 ))
             })?,
+        r,
     ))
 }
 
@@ -723,6 +723,8 @@ fn struct_literal<'a>(name: Span<'a>, i: Span<'a>) -> IResult<Span<'a>, Expressi
     ));
 }
 
+type PostfixInput<'src> = (Span<'src>, Expression<'src>, Span<'src>);
+
 fn postfix_expression(i: Span) -> IResult<Span, Expression> {
     // Function call is a special case of a postfix expression, because we don't have a function object as a variable,
     // the prefix is always an identifier.
@@ -732,31 +734,32 @@ fn postfix_expression(i: Span) -> IResult<Span, Expression> {
     }
 
     let (r, prim) = primary_expression(i)?;
-    postfix(i, prim, r)
+    postfix((i, prim, r))
 }
 
-fn postfix<'src>(
-    start: Span<'src>,
-    prefix: Expression<'src>,
-    i: Span<'src>,
-) -> IResult<Span<'src>, Expression<'src>> {
-    if let Ok(res) = array_index(start, &prefix, i) {
+/// Parse postfix expression's postfix part. The prefix should be parsed beforehand and passed as a parameter.
+/// This will prevent backtracking which could grow exponentially if it is nested.
+/// Unfortunately nom doesn't have a good combinator that takes a shared state and works like `alt`, so we manually
+/// switch parsers.
+/// It can clone a subtree at most once, but it should not be too expensive.
+fn postfix<'src>(arg: PostfixInput<'src>) -> IResult<Span<'src>, Expression<'src>> {
+    if let Ok(res) = array_index(&arg) {
         return Ok(res);
     }
 
-    if let Ok(res) = tuple_index(start, &prefix, i) {
+    if let Ok(res) = tuple_index(&arg) {
         return Ok(res);
     }
 
-    if let Ok(res) = field_access(start, &prefix, i) {
+    if let Ok(res) = field_access(&arg) {
         return Ok(res);
     }
 
-    // alt((
-    //     cast,
-    //     primary_expression,
-    // ))(i)
-    Ok((i, prefix))
+    if let Ok(res) = cast(&arg) {
+        return Ok(res);
+    }
+
+    Ok((arg.2, arg.1.clone()))
 }
 
 fn not(i: Span) -> IResult<Span, Expression> {
