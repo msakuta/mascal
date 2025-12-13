@@ -1,0 +1,20 @@
+
+struct S {
+    a: i32,
+    b: str,
+    c: f64
+}
+
+var aa = [S {
+    a: 1,
+    c: 3.14,
+    b: "Hello",
+}];
+
+fn print_S(s: S) {
+    print("a: ", s.a, type(s.a));
+    print("b: ", s.b, type(s.b));
+    print("c: ", s.c, type(s.c));
+}
+
+print(aa[0].a);
