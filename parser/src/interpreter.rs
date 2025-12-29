@@ -205,6 +205,11 @@ where
         )))),
         ExprEnum::Variable(str) => RunResult::Yield(
             ctx.get_var(str)
+                .or_else(|| {
+                    ctx.functions
+                        .get(*str)
+                        .map(|_| Value::Func(str.to_string()))
+                })
                 .ok_or_else(|| EvalError::VarNotFound(str.to_string()))?,
         ),
         ExprEnum::Cast(ex, decl) => {
@@ -225,11 +230,7 @@ where
             RunResult::Yield(rhs_value)
         }
         ExprEnum::FnInvoke(fname, args) => {
-            let fn_args = ctx
-                .get_fn(*fname)
-                .ok_or_else(|| EvalError::FnNotFound(fname.to_string()))?
-                .args()
-                .clone();
+            let fn_args = ctx.get_fn(*fname)?.args().clone();
 
             let mut eval_args = vec![None; fn_args.len().max(args.len())];
 
@@ -269,9 +270,7 @@ where
                 }
             }
 
-            let func = ctx
-                .get_fn(*fname)
-                .ok_or_else(|| EvalError::FnNotFound(fname.to_string()))?;
+            let func = ctx.get_fn(*fname)?;
 
             let mut subctx = EvalContext::push_stack(ctx);
             match func {
@@ -527,6 +526,7 @@ pub(crate) fn s_print(out: &mut dyn Write, vals: &[Value]) -> EvalResult<Value> 
                 }
                 write!(out, ")")?;
             }
+            Value::Func(name) => write!(out, "<Func {name}>")?,
         }
         Ok(())
     }
@@ -554,6 +554,7 @@ pub(crate) fn s_puts(out: &mut dyn Write, vals: &[Value]) -> Result<Value, EvalE
                 Value::Array(val) => puts_inner(out, &mut val.borrow().values.iter())?,
                 Value::Tuple(val) => puts_inner(out, &mut val.borrow().iter().map(|v| &v.value))?,
                 Value::Struct(val) => puts_inner(out, &mut val.borrow().fields.iter())?,
+                Value::Func(name) => write!(out, "<Func {name}>")?,
             }
         }
         Ok(())
@@ -582,6 +583,7 @@ pub(crate) fn s_type(vals: &[Value]) -> Result<Value, EvalError> {
                 })
             ),
             Value::Struct(inner) => inner.borrow().name.clone(),
+            Value::Func(_s) => "fn".to_string(),
         }
     }
     if let [val, ..] = vals {
@@ -838,11 +840,25 @@ impl<'src, 'ast, 'native, 'ctx> EvalContext<'src, 'native, 'ctx> {
         }
     }
 
-    fn get_fn(&self, name: &str) -> Option<&FuncDef<'src, 'native>> {
+    fn get_fn(&self, fname: &str) -> Result<&FuncDef<'src, 'native>, EvalError> {
+        self.get_fn_raw(fname)
+            .or_else(|| {
+                self.get_var(fname).and_then(|fname| {
+                    if let Value::Func(ref fname) = fname {
+                        self.get_fn_raw(fname)
+                    } else {
+                        None
+                    }
+                })
+            })
+            .ok_or_else(|| EvalError::FnNotFound(fname.to_string()))
+    }
+
+    fn get_fn_raw(&self, name: &str) -> Option<&FuncDef<'src, 'native>> {
         if let Some(val) = self.functions.get(name) {
             Some(val)
         } else if let Some(super_ctx) = self.super_context {
-            super_ctx.get_fn(name)
+            super_ctx.get_fn_raw(name)
         } else {
             None
         }

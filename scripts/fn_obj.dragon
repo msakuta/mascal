@@ -1,0 +1,10 @@
+
+/* add two values */
+fn add(a: i32, b: i32) {
+    a + b;
+}
+
+var alias = add;
+print(alias(123, 456));
+
+var alias2 = alias;

@@ -22,6 +22,7 @@ pub enum TypeDecl {
     Array(Box<TypeDecl>, ArraySize),
     Tuple(Vec<TypeDecl>),
     TypeName(String),
+    Func,
 }
 
 impl TypeDecl {
@@ -40,6 +41,7 @@ impl TypeDecl {
                     .collect(),
             ),
             Value::Struct(a) => Self::TypeName(a.borrow().name.clone()),
+            Value::Func(_) => Self::Func,
         }
     }
 
@@ -65,6 +67,7 @@ impl TypeDecl {
                 return Ok(());
             }
             Self::TypeName(_) => todo!(),
+            Self::Func => FUNC_TAG,
         };
         writer.write_all(&tag.to_le_bytes())?;
         Ok(())
@@ -125,6 +128,7 @@ impl std::fmt::Display for TypeDecl {
                 })
             )?,
             Self::TypeName(name) => write!(f, "{name}")?,
+            Self::Func => write!(f, "fn()")?,
         }
         Ok(())
     }

@@ -149,6 +149,7 @@ fn _coerce_var(value: &Value, target: &Value, typedefs: &TypeMap) -> Result<Valu
             };
             Value::Struct(value.clone())
         }
+        Value::Func(str) => Value::Func(str.clone()),
     })
 }
 
@@ -197,6 +198,12 @@ pub fn coerce_type(value: &Value, target: &TypeDecl) -> Result<Value, EvalError>
                 value.to_string(),
                 format!("typename {name}"),
             ));
+        }
+        TypeDecl::Func => {
+            if let Value::Func(_str) = value {
+                return Ok(value.clone());
+            }
+            return Err(EvalError::CoerceError(value.to_string(), format!("Func")));
         }
     })
 }

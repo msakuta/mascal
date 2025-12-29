@@ -54,6 +54,7 @@ pub struct TypeSetFlags {
     pub array: Option<(Box<TypeSet>, ArraySize)>,
     pub tuple: Option<Vec<TypeSet>>,
     pub type_name: Vec<String>,
+    pub func: bool,
 }
 
 impl TypeSetAnnotated {
@@ -109,6 +110,13 @@ impl TypeSetAnnotated {
         Self {
             ts: TypeSet::Any,
             annotated: false,
+        }
+    }
+
+    pub fn func() -> Self {
+        Self {
+            ts: TypeSet::func(),
+            annotated: true,
         }
     }
 }
@@ -172,6 +180,13 @@ impl TypeSet {
         })
     }
 
+    pub fn func() -> Self {
+        Self::Set(TypeSetFlags {
+            func: true,
+            ..TypeSetFlags::default()
+        })
+    }
+
     pub fn void() -> Self {
         Self::Set(TypeSetFlags {
             void: true,
@@ -196,6 +211,7 @@ impl TypeSet {
                     && set.array.is_none()
                     && set.tuple.is_none()
                     && set.type_name.is_empty()
+                    && set.func
             }
         }
     }
@@ -326,6 +342,7 @@ impl std::ops::BitAnd for TypeSet {
                 .filter_map(|name| rhs.type_name.iter().find(|name2| name == *name2))
                 .cloned()
                 .collect(),
+            func: set.func && rhs.func,
         })
     }
 }
@@ -393,6 +410,7 @@ impl TypeSet {
                 .filter_map(|name| rhs.type_name.iter().find(|name2| name == *name2))
                 .cloned()
                 .collect(),
+            func: set.func & rhs.func,
         });
 
         if ret.is_none() {
@@ -427,6 +445,9 @@ impl From<&TypeDecl> for TypeSet {
             }
             TypeDecl::TypeName(name) => {
                 return TypeSet::type_name(name.clone());
+            }
+            TypeDecl::Func => {
+                return TypeSet::func();
             }
         }
         Self::Set(ret)
