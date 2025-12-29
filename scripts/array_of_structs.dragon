@@ -11,10 +11,10 @@ var aa = [S {
     b: "Hello",
 }];
 
-fn print_S(s: S) {
-    print("a: ", s.a, type(s.a));
-    print("b: ", s.b, type(s.b));
-    print("c: ", s.c, type(s.c));
-}
+// fn print_S(s: S) {
+//     print("a: ", s.a, type(s.a));
+//     print("b: ", s.b, type(s.b));
+//     print("c: ", s.c, type(s.c));
+// }
 
 print(aa[0].a);

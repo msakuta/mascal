@@ -150,18 +150,21 @@ where
     Ok(match &e.expr {
         ExprEnum::NumLiteral(val, _) => RunResult::Yield(val.clone()),
         ExprEnum::StrLiteral(val) => RunResult::Yield(Value::Str(val.clone())),
-        ExprEnum::ArrLiteral(val) => RunResult::Yield(Value::Array(ArrayInt::new(
-            TypeDecl::Any,
-            val.iter()
-                .map(|v| {
-                    if let RunResult::Yield(y) = eval(v, ctx)? {
-                        Ok(y)
-                    } else {
-                        Err(EvalError::DisallowedBreak)
-                    }
-                })
-                .collect::<Result<Vec<_>, _>>()?,
-        ))),
+        ExprEnum::ArrLiteral(val) => {
+            RunResult::Yield(Value::Array(ArrayInt::new(TypeDecl::Any, {
+                let mut vals = Vec::with_capacity(val.len());
+                for v in val {
+                    let RunResult::Yield(y) = eval(v, ctx)? else {
+                        return Err(EvalError::DisallowedBreak);
+                    };
+                    match y {
+                        Value::Struct(s) => vals.extend(s.borrow().fields.iter().cloned()),
+                        _ => vals.push(y),
+                    };
+                }
+                vals
+            })))
+        }
         ExprEnum::StructLiteral { name, fields, .. } => {
             // TODO: work around clone for the borrow checker
             let st_ty = ctx

@@ -26,7 +26,7 @@ use crate::{
 struct FieldInfo<'src> {
     field: &'src StructField<'src>,
     offset: usize,
-    size: usize,
+    _size: usize,
 }
 
 impl<'src> StructDecl<'src> {
@@ -35,11 +35,11 @@ impl<'src> StructDecl<'src> {
         for field in &self.fields {
             let size = ty_size_of(Span::new(""), &field.ty, typedefs).ok()?;
             if *field.name == name {
-                println!("offsetof({}, {name}) = {offset}", self.name);
+                dbg_println!("offsetof({}, {name}) = {offset}", self.name);
                 return Some(FieldInfo {
                     field,
                     offset,
-                    size,
+                    _size: size,
                 });
             }
             offset += size;
