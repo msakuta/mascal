@@ -190,6 +190,16 @@ impl<'src, 'native, 'ctx> TypeCheckContext<'src, 'native, 'ctx> {
     }
 
     fn get_fn(&self, name: &str) -> Option<&FuncDef<'src, 'native>> {
+        self.get_var(name).map_or_else(
+            || self.get_fn_raw(name),
+            |var| {
+                var.ts
+                    .and_then(|ts| ts.func.iter().next().and_then(|name| self.get_fn_raw(name)))
+            },
+        )
+    }
+
+    fn get_fn_raw(&self, name: &str) -> Option<&FuncDef<'src, 'native>> {
         if let Some(val) = self.functions.get(name) {
             Some(val)
         } else if let Some(super_ctx) = self.super_context {
@@ -307,11 +317,11 @@ where
                 .collect::<Result<Vec<_>, _>>()?;
             TypeSet::tuple(type_sets)
         }
-        ExprEnum::Variable(str) => {
-            ctx.get_var(str)
-                .ok_or_else(|| TypeCheckError::undefined_var(str, e.span, ctx.source_file))?
-                .ts
-        }
+        ExprEnum::Variable(str) => ctx
+            .get_var(str)
+            .map(|v| v.ts)
+            .or_else(|| ctx.get_fn(*str).map(|_f| TypeSet::func(str.to_string())))
+            .ok_or_else(|| TypeCheckError::undefined_var(str, e.span, ctx.source_file))?,
         ExprEnum::Cast(_ex, decl) => decl.into(),
         ExprEnum::VarAssign(lhs, rhs) => {
             let span = lhs.span;

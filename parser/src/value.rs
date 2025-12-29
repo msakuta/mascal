@@ -373,7 +373,10 @@ impl std::convert::TryFrom<&Value> for usize {
                     TypeDecl::I64,
                 ))
             }
-            Value::Func(_) => Err(ValueError::Invalid(TypeDecl::Func, TypeDecl::I64)),
+            Value::Func(name) => Err(ValueError::Invalid(
+                TypeDecl::Func(name.clone()),
+                TypeDecl::I64,
+            )),
         }
     }
 }

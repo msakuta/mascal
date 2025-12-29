@@ -199,11 +199,14 @@ pub fn coerce_type(value: &Value, target: &TypeDecl) -> Result<Value, EvalError>
                 format!("typename {name}"),
             ));
         }
-        TypeDecl::Func => {
+        TypeDecl::Func(name) => {
             if let Value::Func(_str) = value {
                 return Ok(value.clone());
             }
-            return Err(EvalError::CoerceError(value.to_string(), format!("Func")));
+            return Err(EvalError::CoerceError(
+                value.to_string(),
+                format!("Func {name}"),
+            ));
         }
     })
 }

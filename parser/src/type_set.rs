@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::{interpreter::RetType, type_decl::ArraySize, TypeDecl};
 
 /// TypeSet with a flag whether it was annotated in the original source code.
@@ -41,6 +43,13 @@ impl TypeSet {
             Self::Set(set) => f(set),
         }
     }
+
+    pub fn is_any_or<'a>(&'a self, f: impl Fn(&'a TypeSetFlags) -> bool) -> bool {
+        match self {
+            Self::Any => true,
+            Self::Set(set) => f(set),
+        }
+    }
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
@@ -54,7 +63,7 @@ pub struct TypeSetFlags {
     pub array: Option<(Box<TypeSet>, ArraySize)>,
     pub tuple: Option<Vec<TypeSet>>,
     pub type_name: Vec<String>,
-    pub func: bool,
+    pub func: Option<String>,
 }
 
 impl TypeSetAnnotated {
@@ -113,9 +122,9 @@ impl TypeSetAnnotated {
         }
     }
 
-    pub fn func() -> Self {
+    pub fn func(name: String) -> Self {
         Self {
-            ts: TypeSet::func(),
+            ts: TypeSet::func(name),
             annotated: true,
         }
     }
@@ -180,9 +189,9 @@ impl TypeSet {
         })
     }
 
-    pub fn func() -> Self {
+    pub fn func(name: String) -> Self {
         Self::Set(TypeSetFlags {
-            func: true,
+            func: Some(name),
             ..TypeSetFlags::default()
         })
     }
@@ -211,7 +220,7 @@ impl TypeSet {
                     && set.array.is_none()
                     && set.tuple.is_none()
                     && set.type_name.is_empty()
-                    && set.func
+                    && set.func.is_none()
             }
         }
     }
@@ -244,6 +253,11 @@ impl TypeSet {
             return Some(RetType::Some(TypeDecl::F64));
         } else if self == &TypeDecl::Str.into() {
             return Some(RetType::Some(TypeDecl::Str));
+        } else if let Self::Set(TypeSetFlags {
+            func: Some(func), ..
+        }) = self
+        {
+            return Some(RetType::Some(TypeDecl::Func(func.clone())));
         } else if self == &TypeSet::void() {
             return Some(RetType::Void);
         } else if let TypeSet::Set(set) = self {
@@ -342,7 +356,11 @@ impl std::ops::BitAnd for TypeSet {
                 .filter_map(|name| rhs.type_name.iter().find(|name2| name == *name2))
                 .cloned()
                 .collect(),
-            func: set.func && rhs.func,
+            func: if set.func == rhs.func {
+                set.func.clone()
+            } else {
+                None
+            },
         })
     }
 }
@@ -410,7 +428,11 @@ impl TypeSet {
                 .filter_map(|name| rhs.type_name.iter().find(|name2| name == *name2))
                 .cloned()
                 .collect(),
-            func: set.func & rhs.func,
+            func: if set.func == rhs.func {
+                set.func.clone()
+            } else {
+                None
+            },
         });
 
         if ret.is_none() {
@@ -446,8 +468,8 @@ impl From<&TypeDecl> for TypeSet {
             TypeDecl::TypeName(name) => {
                 return TypeSet::type_name(name.clone());
             }
-            TypeDecl::Func => {
-                return TypeSet::func();
+            TypeDecl::Func(name) => {
+                return TypeSet::func(name.clone());
             }
         }
         Self::Set(ret)
