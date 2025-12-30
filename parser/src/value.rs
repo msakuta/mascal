@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::{
-    interpreter::{EGetExt, EvalResult, RetType},
+    interpreter::{EGetExt, EvalResult},
     type_decl::{ArraySize, FuncDecl, TypeDecl},
     type_tags::*,
     EvalError, ReadError,

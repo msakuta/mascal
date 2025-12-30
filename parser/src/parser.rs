@@ -291,6 +291,17 @@ fn type_scalar(input: Span) -> IResult<Span, TypeDecl> {
     ))
 }
 
+fn func_ty_args(i: Span) -> IResult<Span, Vec<ArgDecl>> {
+    ws(delimited(
+        tag("("),
+        terminated(
+            separated_list0(ws(tag(",")), func_ty_arg),
+            opt(ws(char(','))),
+        ),
+        tag(")"),
+    ))(i)
+}
+
 fn fn_type(i: Span) -> IResult<Span, TypeDecl> {
     let (r, kw) = ident_space(i)?;
     if *kw != "fn" {
@@ -300,7 +311,7 @@ fn fn_type(i: Span) -> IResult<Span, TypeDecl> {
         }));
     }
 
-    let (r, args) = func_decl_args(r)?;
+    let (r, args) = func_ty_args(r)?;
     let (r, ret_ty) = opt(preceded(ws(tag("->")), ret_type))(r)?;
 
     Ok((
@@ -381,7 +392,7 @@ fn type_name(i: Span) -> IResult<Span, TypeDecl> {
 }
 
 pub(crate) fn type_decl(input: Span) -> IResult<Span, TypeDecl> {
-    alt((type_array, type_tuple, type_scalar, type_name))(input)
+    alt((type_array, type_tuple, fn_type, type_scalar, type_name))(input)
 }
 
 fn cast<'src>((start, prefix, i): &PostfixInput<'src>) -> IResult<Span<'src>, Expression<'src>> {
@@ -1027,6 +1038,19 @@ fn expression_statement(input: Span) -> IResult<Span, Statement> {
         Statement::Expression {
             ex: val,
             semicolon: false,
+        },
+    ))
+}
+
+/// A parser for an argument in function object type. The difference from func_arg is that the name is omitted.
+pub(crate) fn func_ty_arg(r: Span) -> IResult<Span, ArgDecl> {
+    let (r, ty) = ws(type_decl)(r)?;
+    Ok((
+        r,
+        ArgDecl {
+            name: Span::new(""),
+            ty,
+            init: None,
         },
     ))
 }

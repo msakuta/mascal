@@ -148,14 +148,7 @@ impl std::fmt::Display for TypeDecl {
                 })
             )?,
             Self::TypeName(name) => write!(f, "{name}")?,
-            Self::Func(FuncDecl { args, .. }) => {
-                let args_formatted = args
-                    .iter()
-                    .map(|arg| arg.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                write!(f, "fn({args_formatted})")?;
-            }
+            Self::Func(decl) => decl.fmt(f)?,
         }
         Ok(())
     }
@@ -170,20 +163,52 @@ pub struct ArgDeclOwned {
 
 impl std::fmt::Display for ArgDeclOwned {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.name)?;
-        if let TypeDecl::Any = self.ty {
-        } else {
-            write!(f, "{}", self.ty)?;
+        self.name.fmt(f)?;
+        if !matches!(self.ty, TypeDecl::Any) {
+            if !self.name.is_empty() {
+                write!(f, ": ")?;
+            }
+            self.ty.fmt(f)?;
         }
         Ok(())
     }
 }
 
 /// Function object type
-#[derive(Debug, PartialEq, Eq, Clone, Default)]
+#[derive(Debug, Eq, Clone, Default)]
 pub struct FuncDecl {
     pub args: Vec<ArgDeclOwned>,
     pub ret_ty: Box<RetType>,
+}
+
+impl std::fmt::Display for FuncDecl {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let args_formatted = self
+            .args
+            .iter()
+            .map(|arg| arg.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        write!(f, "fn({args_formatted})")?;
+        if let RetType::Some(ret_ty) = &*self.ret_ty {
+            write!(f, " -> {ret_ty}")?;
+        }
+        Ok(())
+    }
+}
+
+/// Functionn object types are equal even if the parameter names differ,
+/// if the number and types of the parameters are compatible.
+impl std::cmp::PartialEq for FuncDecl {
+    fn eq(&self, other: &Self) -> bool {
+        self.args.len() == other.args.len()
+            && self
+                .args
+                .iter()
+                .zip(other.args.iter())
+                .all(|(lhs, rhs)| lhs.ty == rhs.ty)
+            && self.ret_ty == other.ret_ty
+    }
 }
 
 #[allow(dead_code)]

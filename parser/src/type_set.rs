@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use crate::{
     interpreter::RetType,
     type_decl::{ArraySize, FuncDecl},
@@ -44,13 +42,6 @@ impl TypeSet {
     ) -> Option<T> {
         match self {
             Self::Any => None,
-            Self::Set(set) => f(set),
-        }
-    }
-
-    pub fn is_any_or<'a>(&'a self, f: impl Fn(&'a TypeSetFlags) -> bool) -> bool {
-        match self {
-            Self::Any => true,
             Self::Set(set) => f(set),
         }
     }
@@ -123,13 +114,6 @@ impl TypeSetAnnotated {
         Self {
             ts: TypeSet::Any,
             annotated: false,
-        }
-    }
-
-    pub fn func(func: FuncDecl) -> Self {
-        Self {
-            ts: TypeSet::func(func),
-            annotated: true,
         }
     }
 }
@@ -580,6 +564,10 @@ impl std::fmt::Display for TypeSetFlags {
 
         for tn in &self.type_name {
             write_ty(true, tn)?;
+        }
+
+        if let Some(func) = &self.func {
+            write_ty(true, &func.to_string())?;
         }
 
         if !written {

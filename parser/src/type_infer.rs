@@ -7,10 +7,10 @@ use std::{collections::HashMap, fmt::Display, marker::PhantomData, rc::Rc};
 
 use crate::{
     format_ast::{format_expr, format_stmt},
-    interpreter::{std_functions, FuncCode, RetType, TypeMapRc},
+    interpreter::{std_functions, RetType, TypeMapRc},
     parser::{ExprEnum, Expression, Statement, StructDecl},
     type_decl::{ArraySize, FuncDecl, TypeDecl},
-    type_set::{TypeSet, TypeSetFlags},
+    type_set::TypeSet,
     FuncDef, Span,
 };
 
