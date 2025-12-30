@@ -1,7 +1,7 @@
 use crate::{
     coercion::{coerce_f32, coerce_f64, coerce_i32, coerce_i64},
     interpreter::RetType,
-    type_decl::{ArraySize, TypeDecl},
+    type_decl::{ArgDeclOwned, ArraySize, FuncDecl, TypeDecl},
     type_set::TypeSetAnnotated,
     Value,
 };
@@ -73,6 +73,15 @@ impl<'a> ArgDecl<'a> {
             name: name.into(),
             ty,
             init: None,
+        }
+    }
+
+    /// Create a "deep-cloned" owned copy of this ArgDecl.
+    /// The result owns the string so that it does not contain references to the source text.
+    pub fn to_deep_owned(&self) -> ArgDeclOwned {
+        ArgDeclOwned {
+            name: self.name.to_string(),
+            ty: self.ty.clone(),
         }
     }
 }
@@ -279,6 +288,33 @@ fn type_scalar(input: Span) -> IResult<Span, TypeDecl> {
                 unreachable!("Type should have recognized by the parser: \"{}\"", unknown)
             }
         },
+    ))
+}
+
+fn fn_type(i: Span) -> IResult<Span, TypeDecl> {
+    let (r, kw) = ident_space(i)?;
+    if *kw != "fn" {
+        return Err(nom::Err::Error(nom::error::Error {
+            input: i,
+            code: nom::error::ErrorKind::AlphaNumeric,
+        }));
+    }
+
+    let (r, args) = func_decl_args(r)?;
+    let (r, ret_ty) = opt(preceded(ws(tag("->")), ret_type))(r)?;
+
+    Ok((
+        r,
+        TypeDecl::Func(FuncDecl {
+            args: args
+                .into_iter()
+                .map(|arg| ArgDeclOwned {
+                    name: arg.name.to_string(),
+                    ty: arg.ty,
+                })
+                .collect(),
+            ret_ty: Box::new(ret_ty.unwrap_or(RetType::Some(TypeDecl::Any))),
+        }),
     ))
 }
 
@@ -1019,14 +1055,18 @@ fn ret_type(input: Span) -> IResult<Span, RetType> {
     )
 }
 
-pub(crate) fn func_decl(input: Span) -> IResult<Span, Statement> {
-    let (r, _) = ws(tag("fn"))(input)?;
-    let (r, name) = identifier(r)?;
-    let (r, args) = ws(delimited(
+fn func_decl_args(i: Span) -> IResult<Span, Vec<ArgDecl>> {
+    ws(delimited(
         tag("("),
         terminated(separated_list0(ws(tag(",")), func_arg), opt(ws(char(',')))),
         tag(")"),
-    ))(r)?;
+    ))(i)
+}
+
+pub(crate) fn func_decl(input: Span) -> IResult<Span, Statement> {
+    let (r, _) = ws(tag("fn"))(input)?;
+    let (r, name) = identifier(r)?;
+    let (r, args) = func_decl_args(r)?;
     let (r, ret_type) = opt(preceded(ws(tag("->")), ret_type))(r)?;
     let (r, stmts) = delimited(ws(char('{')), source, ws(char('}')))(r)?;
     Ok((

@@ -2,7 +2,7 @@ use std::{cell::RefCell, rc::Rc};
 
 use crate::{
     interpreter::{EvalResult, TypeMap},
-    type_decl::ArraySize,
+    type_decl::{ArraySize, FuncDecl},
     value::{ArrayInt, TupleEntry},
     EvalError, TypeDecl, Value,
 };
@@ -199,13 +199,13 @@ pub fn coerce_type(value: &Value, target: &TypeDecl) -> Result<Value, EvalError>
                 format!("typename {name}"),
             ));
         }
-        TypeDecl::Func(name) => {
+        TypeDecl::Func(FuncDecl { args, ret_ty }) => {
             if let Value::Func(_str) = value {
                 return Ok(value.clone());
             }
             return Err(EvalError::CoerceError(
                 value.to_string(),
-                format!("Func {name}"),
+                format!("fn({args:?}) -> {ret_ty}"),
             ));
         }
     })

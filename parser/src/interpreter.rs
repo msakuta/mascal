@@ -6,7 +6,7 @@ use crate::{
     coercion::{coerce_f64, coerce_i64, coerce_type},
     eval_error::EvalError,
     parser::*,
-    type_decl::ArraySize,
+    type_decl::{ArraySize, FuncDecl},
     value::{ArrayInt, StructInt, TupleEntry},
     TypeDecl, Value,
 };
@@ -672,8 +672,9 @@ impl<'src> FuncCode<'src> {
 /// which is Void. It merely wraps TypeDecl and Void in an enum.
 /// It is almost equivalent to std::option::Option, except it has intention to
 /// indicate Void-able type.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Default)]
 pub enum RetType {
+    #[default]
     Void,
     Some(TypeDecl),
 }
@@ -759,6 +760,33 @@ impl<'src, 'native> FuncDef<'src, 'native> {
             FuncDef::Native(NativeCode { args, .. }) => args,
         }
     }
+
+    pub(crate) fn ret_ty(&self) -> RetType {
+        match self {
+            FuncDef::Code(FuncCode { ret_type, .. }) => ret_type.clone(),
+            FuncDef::Native(NativeCode { ret_type, .. }) => ret_type
+                .as_ref()
+                .map_or_else(|| RetType::Void, |ty| RetType::Some(ty.clone())),
+        }
+    }
+
+    pub(crate) fn to_decl(&self) -> FuncDecl {
+        match self {
+            FuncDef::Code(FuncCode { args, ret_type, .. }) => FuncDecl {
+                args: args.iter().map(|arg| arg.to_deep_owned()).collect(),
+                ret_ty: Box::new(ret_type.clone()),
+            },
+            FuncDef::Native(NativeCode { args, ret_type, .. }) => FuncDecl {
+                args: args.iter().map(|arg| arg.to_deep_owned()).collect(),
+                ret_ty: Box::new(
+                    ret_type
+                        .as_ref()
+                        .map_or_else(|| RetType::Void, |ty| RetType::Some(ty.clone()))
+                        .clone(),
+                ),
+            },
+        }
+    }
 }
 
 pub(crate) type TypeMap<'src> = HashMap<String, StructDecl<'src>>;
@@ -840,7 +868,7 @@ impl<'src, 'ast, 'native, 'ctx> EvalContext<'src, 'native, 'ctx> {
         }
     }
 
-    fn get_fn(&self, fname: &str) -> Result<&FuncDef<'src, 'native>, EvalError> {
+    pub(super) fn get_fn(&self, fname: &str) -> Result<&FuncDef<'src, 'native>, EvalError> {
         self.get_fn_raw(fname)
             .or_else(|| {
                 self.get_var(fname).and_then(|fname| {

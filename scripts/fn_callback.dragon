@@ -1,0 +1,11 @@
+
+/* add two values */
+fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+fn call_arg(f: fn) -> i32 {
+    f(123, 456)
+}
+
+print(call_arg(add));

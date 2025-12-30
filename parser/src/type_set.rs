@@ -1,6 +1,10 @@
 use std::collections::HashSet;
 
-use crate::{interpreter::RetType, type_decl::ArraySize, TypeDecl};
+use crate::{
+    interpreter::RetType,
+    type_decl::{ArraySize, FuncDecl},
+    TypeDecl,
+};
 
 /// TypeSet with a flag whether it was annotated in the original source code.
 /// It can keep track of existence of type annotation even after type inference
@@ -63,7 +67,7 @@ pub struct TypeSetFlags {
     pub array: Option<(Box<TypeSet>, ArraySize)>,
     pub tuple: Option<Vec<TypeSet>>,
     pub type_name: Vec<String>,
-    pub func: Option<String>,
+    pub func: Option<FuncDecl>,
 }
 
 impl TypeSetAnnotated {
@@ -122,9 +126,9 @@ impl TypeSetAnnotated {
         }
     }
 
-    pub fn func(name: String) -> Self {
+    pub fn func(func: FuncDecl) -> Self {
         Self {
-            ts: TypeSet::func(name),
+            ts: TypeSet::func(func),
             annotated: true,
         }
     }
@@ -189,9 +193,9 @@ impl TypeSet {
         })
     }
 
-    pub fn func(name: String) -> Self {
+    pub fn func(func: FuncDecl) -> Self {
         Self::Set(TypeSetFlags {
-            func: Some(name),
+            func: Some(func),
             ..TypeSetFlags::default()
         })
     }
@@ -205,6 +209,10 @@ impl TypeSet {
 
     pub fn all() -> Self {
         Self::Any
+    }
+
+    pub fn none() -> Self {
+        Self::Set(TypeSetFlags::default())
     }
 
     pub fn is_none(&self) -> bool {
@@ -468,8 +476,8 @@ impl From<&TypeDecl> for TypeSet {
             TypeDecl::TypeName(name) => {
                 return TypeSet::type_name(name.clone());
             }
-            TypeDecl::Func(name) => {
-                return TypeSet::func(name.clone());
+            TypeDecl::Func(func) => {
+                return TypeSet::func(func.clone());
             }
         }
         Self::Set(ret)

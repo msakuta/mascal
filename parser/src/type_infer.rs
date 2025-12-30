@@ -3,14 +3,14 @@
 //! modify the AST to resolve missing type annotations.
 //! We name this module after inference because it represents the value more.
 
-use std::{collections::HashMap, fmt::Display, rc::Rc};
+use std::{collections::HashMap, fmt::Display, marker::PhantomData, rc::Rc};
 
 use crate::{
     format_ast::{format_expr, format_stmt},
     interpreter::{std_functions, FuncCode, RetType, TypeMapRc},
     parser::{ExprEnum, Expression, Statement, StructDecl},
-    type_decl::{ArraySize, TypeDecl},
-    type_set::TypeSet,
+    type_decl::{ArraySize, FuncDecl, TypeDecl},
+    type_set::{TypeSet, TypeSetFlags},
     FuncDef, Span,
 };
 
@@ -158,26 +158,31 @@ pub struct TypeCheckContext<'src, 'native, 'ctx> {
     /// Variables table for type checking.
     pub(crate) variables: HashMap<&'src str, VariableType>,
     /// Function names are owned strings because it can be either from source or native.
-    functions: HashMap<String, FuncDef<'src, 'native>>,
+    functions: HashMap<String, FuncDecl>,
     super_context: Option<&'ctx TypeCheckContext<'src, 'native, 'ctx>>,
     source_file: Option<&'src str>,
     pub(crate) typedefs: TypeMapRc<'src>,
+    _phantom: PhantomData<&'native ()>,
 }
 
 impl<'src, 'native, 'ctx> TypeCheckContext<'src, 'native, 'ctx> {
     pub fn new(source_file: Option<&'src str>) -> Self {
         Self {
             variables: HashMap::new(),
-            functions: std_functions(),
+            functions: std_functions()
+                .into_iter()
+                .map(|(k, v)| (k, v.to_decl()))
+                .collect(),
             super_context: None,
             source_file,
             typedefs: HashMap::new(),
+            _phantom: PhantomData,
         }
     }
 
-    fn get_var(&self, name: &str) -> Option<VariableType> {
+    fn get_var(&self, name: &str) -> Option<&VariableType> {
         if let Some(val) = self.variables.get(name) {
-            Some(val.clone())
+            Some(val)
         } else if let Some(super_ctx) = self.super_context {
             super_ctx.get_var(name)
         } else {
@@ -186,20 +191,17 @@ impl<'src, 'native, 'ctx> TypeCheckContext<'src, 'native, 'ctx> {
     }
 
     pub fn set_fn(&mut self, name: &str, fun: FuncDef<'src, 'native>) {
-        self.functions.insert(name.to_string(), fun);
+        self.functions.insert(name.to_string(), fun.to_decl());
     }
 
-    fn get_fn(&self, name: &str) -> Option<&FuncDef<'src, 'native>> {
+    fn get_fn(&self, name: &str) -> Option<&FuncDecl> {
         self.get_var(name).map_or_else(
             || self.get_fn_raw(name),
-            |var| {
-                var.ts
-                    .and_then(|ts| ts.func.iter().next().and_then(|name| self.get_fn_raw(name)))
-            },
+            |var| var.ts.and_then(|ts| ts.func.as_ref()),
         )
     }
 
-    fn get_fn_raw(&self, name: &str) -> Option<&FuncDef<'src, 'native>> {
+    fn get_fn_raw(&self, name: &str) -> Option<&FuncDecl> {
         if let Some(val) = self.functions.get(name) {
             Some(val)
         } else if let Some(super_ctx) = self.super_context {
@@ -222,6 +224,7 @@ impl<'src, 'native, 'ctx> TypeCheckContext<'src, 'native, 'ctx> {
             super_context: Some(super_ctx),
             source_file: super_ctx.source_file,
             typedefs: HashMap::new(),
+            _phantom: PhantomData,
         }
     }
 
@@ -319,8 +322,8 @@ where
         }
         ExprEnum::Variable(str) => ctx
             .get_var(str)
-            .map(|v| v.ts)
-            .or_else(|| ctx.get_fn(*str).map(|_f| TypeSet::func(str.to_string())))
+            .map(|v| v.ts.clone())
+            .or_else(|| ctx.get_fn(*str).map(|func| TypeSet::func(func.clone())))
             .ok_or_else(|| TypeCheckError::undefined_var(str, e.span, ctx.source_file))?,
         ExprEnum::Cast(_ex, decl) => decl.into(),
         ExprEnum::VarAssign(lhs, rhs) => {
@@ -342,7 +345,7 @@ where
             let fn_args = ctx
                 .get_fn(*fname)
                 .ok_or_else(|| TypeCheckError::undefined_fn(*fname, e.span, ctx.source_file))?
-                .args()
+                .args
                 .clone();
 
             let mut ty_args = vec![None; fn_args.len().max(args.len())];
@@ -360,7 +363,7 @@ where
                     if let Some(ty_arg) = fn_args
                         .iter()
                         .enumerate()
-                        .find(|f| *f.1.name == *name)
+                        .find(|f| f.1.name == *name)
                         .and_then(|(i, _)| ty_args.get_mut(i))
                     {
                         *ty_arg = Some(tc_expr_forward(&arg.expr, ctx)?);
@@ -376,7 +379,7 @@ where
 
             for (ty_arg, decl) in ty_args.iter().zip(fn_args.iter()) {
                 let ty_arg = ty_arg.as_ref().ok_or_else(|| {
-                    TypeCheckError::unassigned_arg(*decl.name, e.span, ctx.source_file)
+                    TypeCheckError::unassigned_arg(&decl.name, e.span, ctx.source_file)
                 })?;
                 tc_coerce_type(&ty_arg, &decl.ty, e.span, ctx)?;
             }
@@ -384,12 +387,9 @@ where
             let func = ctx
                 .get_fn(*fname)
                 .ok_or_else(|| TypeCheckError::undefined_fn(fname, e.span, ctx.source_file))?;
-            match func {
-                FuncDef::Code(code) => (&code.ret_type).into(),
-                FuncDef::Native(native) => native
-                    .ret_type
-                    .as_ref()
-                    .map_or(TypeSet::void(), |v| v.into()),
+            match &*func.ret_ty {
+                RetType::Void => TypeSet::none(),
+                RetType::Some(ty) => ty.into(),
             }
         }
         ExprEnum::ArrIndex(ex, args) => {
@@ -613,7 +613,7 @@ where
             let fn_decl = ctx
                 .get_fn(*fname)
                 .ok_or_else(|| TypeCheckError::undefined_fn(fname, span, ctx.source_file))?;
-            let params = fn_decl.args().clone();
+            let params = fn_decl.args.clone();
             for (i, arg) in args.iter_mut().enumerate().rev() {
                 let ty = params
                     .get(i)
@@ -910,7 +910,10 @@ where
             // Function declaration needs to be added first to allow recursive calls
             ctx.functions.insert(
                 name.to_string(),
-                FuncDef::Code(FuncCode::new(stmts.clone(), args.clone(), ret_type.clone())),
+                FuncDecl {
+                    args: args.iter().map(|arg| arg.to_deep_owned()).collect(),
+                    ret_ty: Box::new(ret_type.clone()),
+                },
             );
             let mut subctx = TypeCheckContext::push_stack(ctx);
             for arg in args.iter() {
@@ -1121,11 +1124,14 @@ where
                 name,
                 args,
                 ret_type,
-                stmts,
+                ..
             } => {
                 ctx.functions.insert(
                     name.to_string(),
-                    FuncDef::Code(FuncCode::new(stmts.clone(), args.clone(), ret_type.clone())),
+                    FuncDecl {
+                        args: args.iter().map(|arg| arg.to_deep_owned()).collect(),
+                        ret_ty: Box::new(ret_type.clone()),
+                    },
                 );
             }
             _ => {}

@@ -6,11 +6,12 @@ use std::io::{Read, Write};
 
 use crate::{
     bytecode::{read_bool, write_bool},
+    interpreter::RetType,
     type_tags::*,
-    ReadError, Value,
+    EvalContext, ReadError, Value,
 };
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 #[repr(u8)]
 pub enum TypeDecl {
     Any,
@@ -22,11 +23,11 @@ pub enum TypeDecl {
     Array(Box<TypeDecl>, ArraySize),
     Tuple(Vec<TypeDecl>),
     TypeName(String),
-    Func(String),
+    Func(FuncDecl),
 }
 
 impl TypeDecl {
-    pub(crate) fn from_value(value: &Value) -> Self {
+    pub(crate) fn from_value_with_context(value: &Value, ctx: &EvalContext) -> Self {
         match value {
             Value::F64(_) => Self::F64,
             Value::F32(_) => Self::F32,
@@ -37,12 +38,31 @@ impl TypeDecl {
             Value::Tuple(a) => Self::Tuple(
                 a.borrow()
                     .iter()
-                    .map(|val| Self::from_value(&val.value))
+                    .map(|val| Self::from_value_with_context(&val.value, ctx))
                     .collect(),
             ),
             Value::Struct(a) => Self::TypeName(a.borrow().name.clone()),
-            Value::Func(name) => Self::Func(name.clone()),
+            Value::Func(name) => ctx.get_fn(name).map_or_else(
+                |_| Self::Any,
+                |func| {
+                    Self::Func(FuncDecl {
+                        args: func
+                            .args()
+                            .iter()
+                            .map(|arg| ArgDeclOwned {
+                                name: arg.name.to_string(),
+                                ty: arg.ty.clone(),
+                            })
+                            .collect(),
+                        ret_ty: Box::new(func.ret_ty()),
+                    })
+                },
+            ),
         }
+    }
+
+    pub(crate) fn from_value(value: &Value) -> Self {
+        Self::from_value_with_context(value, &EvalContext::new())
     }
 
     pub(crate) fn serialize(&self, writer: &mut impl Write) -> std::io::Result<()> {
@@ -67,7 +87,7 @@ impl TypeDecl {
                 return Ok(());
             }
             Self::TypeName(_) => todo!(),
-            Self::Func(_) => FUNC_TAG,
+            Self::Func { .. } => FUNC_TAG,
         };
         writer.write_all(&tag.to_le_bytes())?;
         Ok(())
@@ -128,10 +148,42 @@ impl std::fmt::Display for TypeDecl {
                 })
             )?,
             Self::TypeName(name) => write!(f, "{name}")?,
-            Self::Func(name) => write!(f, "fn {name}()")?,
+            Self::Func(FuncDecl { args, .. }) => {
+                let args_formatted = args
+                    .iter()
+                    .map(|arg| arg.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(f, "fn({args_formatted})")?;
+            }
         }
         Ok(())
     }
+}
+
+/// Similar to [`ArgDecl`], but uses owned strings so that it won't require reference to the source.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct ArgDeclOwned {
+    pub name: String,
+    pub ty: TypeDecl,
+}
+
+impl std::fmt::Display for ArgDeclOwned {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.name)?;
+        if let TypeDecl::Any = self.ty {
+        } else {
+            write!(f, "{}", self.ty)?;
+        }
+        Ok(())
+    }
+}
+
+/// Function object type
+#[derive(Debug, PartialEq, Eq, Clone, Default)]
+pub struct FuncDecl {
+    pub args: Vec<ArgDeclOwned>,
+    pub ret_ty: Box<RetType>,
 }
 
 #[allow(dead_code)]

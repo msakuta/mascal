@@ -5,8 +5,8 @@ use std::{
 };
 
 use crate::{
-    interpreter::{EGetExt, EvalResult},
-    type_decl::{ArraySize, TypeDecl},
+    interpreter::{EGetExt, EvalResult, RetType},
+    type_decl::{ArraySize, FuncDecl, TypeDecl},
     type_tags::*,
     EvalError, ReadError,
 };
@@ -373,8 +373,8 @@ impl std::convert::TryFrom<&Value> for usize {
                     TypeDecl::I64,
                 ))
             }
-            Value::Func(name) => Err(ValueError::Invalid(
-                TypeDecl::Func(name.clone()),
+            Value::Func(_name) => Err(ValueError::Invalid(
+                TypeDecl::Func(FuncDecl::default()),
                 TypeDecl::I64,
             )),
         }
