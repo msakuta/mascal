@@ -205,11 +205,7 @@ where
         )))),
         ExprEnum::Variable(str) => RunResult::Yield(
             ctx.get_var(str)
-                .or_else(|| {
-                    ctx.functions
-                        .get(*str)
-                        .map(|_| Value::Func(str.to_string()))
-                })
+                .or_else(|| ctx.get_fn(*str).map(|_| Value::Func(str.to_string())).ok())
                 .ok_or_else(|| EvalError::VarNotFound(str.to_string()))?,
         ),
         ExprEnum::Cast(ex, decl) => {
@@ -229,8 +225,14 @@ where
             }
             RunResult::Yield(rhs_value)
         }
-        ExprEnum::FnInvoke(fname, args) => {
-            let fn_args = ctx.get_fn(*fname)?.args().clone();
+        ExprEnum::FnInvoke(fn_expr, args) => {
+            let fn_obj = unwrap_run!(eval(fn_expr, ctx)?);
+            let Value::Func(fname) = fn_obj else {
+                return Err(EvalError::ExpectFn(
+                    TypeDecl::from_value_with_context(&fn_obj, ctx).to_string(),
+                ));
+            };
+            let fn_args = ctx.get_fn(&fname)?.args().clone();
 
             let mut eval_args = vec![None; fn_args.len().max(args.len())];
 
@@ -270,7 +272,7 @@ where
                 }
             }
 
-            let func = ctx.get_fn(*fname)?;
+            let func = ctx.get_fn(&fname)?;
 
             let mut subctx = EvalContext::push_stack(ctx);
             match func {

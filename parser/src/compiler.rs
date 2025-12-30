@@ -667,9 +667,19 @@ fn emit_expr<'src>(
                 }
             }
         }
-        ExprEnum::FnInvoke(fname, args) => {
+        ExprEnum::FnInvoke(fn_expr, args) => {
+            // TODO: emit an expression that yields a function object
+            let ExprEnum::Variable(fname) = fn_expr.expr else {
+                let mut buf = vec![0u8; 0];
+                format_expr(fn_expr, 0, &mut buf)?;
+                return Err(CompileError::new(
+                    expr.span,
+                    CEK::FnNotFound(String::from_utf8_lossy(&buf).into_owned()),
+                ));
+            };
+
             let params = {
-                let fun = compiler.env.functions.get(*fname).ok_or_else(|| {
+                let fun = compiler.env.functions.get(fname).ok_or_else(|| {
                     CompileError::new(expr.span, CEK::FnNotFound(fname.to_string()))
                 })?;
 
@@ -718,7 +728,7 @@ fn emit_expr<'src>(
 
             let stk_fname = compiler.find_or_create_literal(&Value::Str(fname.to_string()));
 
-            let Some(_fun) = compiler.env.functions.get(*fname) else {
+            let Some(_fun) = compiler.env.functions.get(fname) else {
                 return Err(CompileError::new(
                     expr.span,
                     CEK::FnNotFound(fname.to_string()),

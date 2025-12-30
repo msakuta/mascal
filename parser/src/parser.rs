@@ -157,7 +157,7 @@ pub(crate) enum ExprEnum<'a> {
     Variable(&'a str),
     Cast(Box<Expression<'a>>, TypeDecl),
     VarAssign(Box<Expression<'a>>, Box<Expression<'a>>),
-    FnInvoke(&'a str, Vec<FnArg<'a>>),
+    FnInvoke(Box<Expression<'a>>, Vec<FnArg<'a>>),
     ArrIndex(Box<Expression<'a>>, Vec<Expression<'a>>),
     TupleIndex(Box<Expression<'a>>, usize),
     FieldAccess {
@@ -609,9 +609,9 @@ pub(crate) fn fn_invoke_arg(i: Span) -> IResult<Span, FnArg> {
     ))
 }
 
-pub(crate) fn func_invoke(i: Span) -> IResult<Span, Expression> {
-    let (r, ident) = ws(identifier)(i)?;
-    // println!("func_invoke ident: {}", ident);
+pub(crate) fn func_invoke<'src>(
+    (start, prefix, i): &PostfixInput<'src>,
+) -> IResult<Span<'src>, Expression<'src>> {
     let (r, args) = delimited(
         multispace0,
         delimited(
@@ -623,13 +623,16 @@ pub(crate) fn func_invoke(i: Span) -> IResult<Span, Expression> {
             char(')'),
         ),
         multispace0,
-    )(r)?;
-    Ok((
-        r,
+    )(*i)?;
+
+    let length = start.offset(&r);
+    postfix((
+        *start,
         Expression::new(
-            ExprEnum::FnInvoke(*ident, args),
-            i.subslice(i.offset(&ident), ident.offset(&r)),
+            ExprEnum::FnInvoke(Box::new(prefix.clone()), args),
+            start.subslice(0, length),
         ),
+        r,
     ))
 }
 
@@ -770,19 +773,12 @@ fn struct_literal<'a>(name: Span<'a>, i: Span<'a>) -> IResult<Span<'a>, Expressi
     ));
 }
 
-/// The parameter type for the postfix expression parseers. This tuple contains the state and also the span to parse
+/// The parameter type for the postfix expression parsers. This tuple contains the state and also the span to parse
 /// next source text. The first element is the beginning of the whole postfix expression, the second is the parsed
 /// prefix expression so far, and the last is the span pointing the next source text.
 type PostfixInput<'src> = (Span<'src>, Expression<'src>, Span<'src>);
 
 fn postfix_expression(i: Span) -> IResult<Span, Expression> {
-    // Function call is a special case of a postfix expression, because we don't have a function object as a variable,
-    // the prefix is always an identifier.
-    // It is also very cheap to backtrack, since parsing an identifier is a terminal symbol.
-    if let Ok(res) = func_invoke(i) {
-        return Ok(res);
-    }
-
     let (r, prim) = primary_expression(i)?;
     postfix((i, prim, r))
 }
@@ -793,6 +789,10 @@ fn postfix_expression(i: Span) -> IResult<Span, Expression> {
 /// switch parsers.
 /// It can clone a subtree at most once, but it should not be too expensive.
 fn postfix<'src>(arg: PostfixInput<'src>) -> IResult<Span<'src>, Expression<'src>> {
+    if let Ok(res) = func_invoke(&arg) {
+        return Ok(res);
+    }
+
     if let Ok(res) = array_index(&arg) {
         return Ok(res);
     }
@@ -884,11 +884,17 @@ pub(crate) fn expr(i: Span) -> IResult<Span, Expression> {
     let (r, init) = arithm_expr(i)?;
 
     fold_many0(
-        pair(tag("|>"), ident_space),
+        pair(tag("|>"), arithm_expr),
         move || init.clone(),
-        move |acc, (_op, val): (Span, Span)| {
-            let span = i.subslice(i.offset(&acc.span), acc.span.offset(&val) + val.len());
-            Expression::new(ExprEnum::FnInvoke(*val, vec![FnArg::new(acc)]), span)
+        move |acc, (_op, val): (Span, Expression)| {
+            let span = i.subslice(
+                i.offset(&acc.span),
+                acc.span.offset(&val.span) + val.span.len(),
+            );
+            Expression::new(
+                ExprEnum::FnInvoke(Box::new(val), vec![FnArg::new(acc)]),
+                span,
+            )
         },
     )(r)
 }

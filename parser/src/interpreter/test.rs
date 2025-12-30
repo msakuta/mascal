@@ -125,7 +125,13 @@ fn fn_invoke_test() {
     assert_eq!(
         source(span).finish().unwrap().1,
         vec![Statement::Expression {
-            ex: Expression::new(FnInvoke("f", vec![]), span.subslice(0, 3)),
+            ex: Expression::new(
+                FnInvoke(
+                    Box::new(Expression::new(Variable("f"), span.subslice(0, 1))),
+                    vec![]
+                ),
+                span.subslice(0, 3)
+            ),
             semicolon: true
         }]
     );

@@ -341,12 +341,12 @@ where
 
             binary_op(&lhs, &rhs, e.span, ctx, "Assignment")?
         }
-        ExprEnum::FnInvoke(fname, args) => {
-            let fn_args = ctx
-                .get_fn(*fname)
-                .ok_or_else(|| TypeCheckError::undefined_fn(*fname, e.span, ctx.source_file))?
-                .args
-                .clone();
+        ExprEnum::FnInvoke(fn_expr, args) => {
+            let fn_expr = tc_expr_forward(fn_expr, ctx)?;
+            let Some(RetType::Some(TypeDecl::Func(func))) = fn_expr.determine() else {
+                return Err(TypeCheckError::indeterminant_type(e.span, ctx.source_file));
+            };
+            let fn_args = func.args.clone();
 
             let mut ty_args = vec![None; fn_args.len().max(args.len())];
 
@@ -384,9 +384,6 @@ where
                 tc_coerce_type(&ty_arg, &decl.ty, e.span, ctx)?;
             }
 
-            let func = ctx
-                .get_fn(*fname)
-                .ok_or_else(|| TypeCheckError::undefined_fn(fname, e.span, ctx.source_file))?;
             match &*func.ret_ty {
                 RetType::Void => TypeSet::none(),
                 RetType::Some(ty) => ty.into(),
@@ -609,10 +606,18 @@ where
             tc_expr_reverse(lhs, ts, ctx)?;
             tc_expr_reverse(rhs, &tc_expr_forward(lhs, ctx)?, ctx)?
         }
-        ExprEnum::FnInvoke(fname, args) => {
-            let fn_decl = ctx
-                .get_fn(*fname)
-                .ok_or_else(|| TypeCheckError::undefined_fn(fname, span, ctx.source_file))?;
+        ExprEnum::FnInvoke(fn_expr, args) => {
+            let fn_ts = tc_expr_forward(fn_expr, ctx)?;
+            let fn_decl = fn_ts
+                .determine()
+                .ok_or_else(|| TypeCheckError::indeterminant_type(span, ctx.source_file))?;
+            let RetType::Some(TypeDecl::Func(fn_decl)) = fn_decl else {
+                return Err(TypeCheckError::undefined_fn(
+                    *fn_expr.span,
+                    span,
+                    ctx.source_file,
+                ));
+            };
             let params = fn_decl.args.clone();
             for (i, arg) in args.iter_mut().enumerate().rev() {
                 let ty = params
