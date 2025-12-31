@@ -549,7 +549,10 @@ fn test_bit_or_arg() {
         full_expression(span).finish().unwrap().1,
         Expression::new(
             ExprEnum::FnInvoke(
-                "a",
+                Box::new(Expression::new(
+                    ExprEnum::Variable("a"),
+                    span.subslice(0, 1)
+                )),
                 vec![FnArg::new(Expression::new(
                     ExprEnum::BitOr(
                         Box::new(Expression::new(int(1), span.subslice(2, 1))),
@@ -972,7 +975,10 @@ fn test_void_fn() {
             ret_type: RetType::Void,
             stmts: Rc::new(vec![expr_nosemi(Expression::new(
                 FnInvoke(
-                    "print",
+                    Box::new(Expression::new(
+                        ExprEnum::Variable("print"),
+                        span.subslice(28, 5)
+                    )),
                     vec![FnArg::new(Expression::new(
                         ExprEnum::StrLiteral("Hello".to_string()),
                         span.subslice(34, 7)
@@ -992,7 +998,10 @@ fn test_fn_call() {
         Statement::Expression {
             ex: Expression::new(
                 ExprEnum::FnInvoke(
-                    "a",
+                    Box::new(Expression::new(
+                        ExprEnum::Variable("a"),
+                        span.subslice(0, 1)
+                    )),
                     vec![FnArg::new(Expression::new(int(0), span.subslice(2, 1)))]
                 ),
                 span
