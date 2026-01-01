@@ -38,7 +38,7 @@ pub(super) fn emit_lvalue<'src, 'env, 'c>(
         )),
         ExprEnum::VarAssign(ex, _) => emit_lvalue(ex, compiler),
         ExprEnum::ArrIndex(ex, idx) => {
-            let idx = emit_expr(&idx[0], compiler)?;
+            let idx = emit_expr(&idx[0], compiler)?.as_stack()?;
             let arr = emit_lvalue(ex, compiler)?;
             match arr {
                 LValue::Variable(name) => Ok(LValue::ArrayRef(

@@ -443,7 +443,7 @@ impl<'a> Vm<'a> {
             }
             OpCode::Call => {
                 let arg_name = self.get(inst.arg1);
-                let arg_name = if let Value::Str(s) = arg_name {
+                let arg_name = if let Value::Str(s) | Value::Func(s) = arg_name {
                     s
                 } else {
                     return Err(EvalError::NonNameFnRef(format!("{arg_name:?}")));

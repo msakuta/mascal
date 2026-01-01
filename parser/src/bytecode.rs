@@ -23,6 +23,7 @@ use crate::{
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
 pub enum OpCode {
+    /// Copy a literal from literal table at index arg0 to stack at arg1.
     LoadLiteral,
     /// Move values between stack elements, from arg0 to arg1.
     Move,

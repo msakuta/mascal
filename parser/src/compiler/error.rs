@@ -15,8 +15,10 @@ pub enum CompileErrorKind {
     NonLValue(String),
     TypeNameNotFound(String),
     FieldNotFound(String),
+    ExpectStackValue,
     FromUtf8Error(std::string::FromUtf8Error),
     IoError(std::io::Error),
+    TypeCheck(String),
 }
 
 #[derive(Debug)]
@@ -43,7 +45,7 @@ impl std::fmt::Display for CompileErrorKind {
             Self::BreakInArrayLiteral => write!(f, "Break in array literal not supported"),
             Self::DisallowedBreak => write!(f, "Break in function default arg is not allowed"),
             Self::EvalError(e) => write!(f, "Evaluation error: {e}"),
-            Self::VarNotFound(name) => write!(f, "Variable {name} not found in scope"),
+            Self::VarNotFound(name) => write!(f, "Variable {name} not found during compiling"),
             Self::FnNotFound(name) => write!(f, "Function {name} is not defined"),
             Self::InsufficientNamedArgs => {
                 write!(f, "Named arguments does not cover all required args")
@@ -57,8 +59,10 @@ impl std::fmt::Display for CompileErrorKind {
             ),
             Self::TypeNameNotFound(name) => write!(f, "Struct {name} is not defined"),
             Self::FieldNotFound(name) => write!(f, "Field {name} is not defined"),
+            Self::ExpectStackValue => write!(f, "Expect a stack value"),
             Self::FromUtf8Error(e) => e.fmt(f),
             Self::IoError(e) => e.fmt(f),
+            Self::TypeCheck(e) => write!(f, "Type check error: {e}"),
         }
     }
 }
