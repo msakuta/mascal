@@ -745,31 +745,23 @@ fn emit_expr<'src>(
             }
         }
         ExprEnum::FnInvoke(fn_expr, args) => {
-            // TODO: emit an expression that yields a function object
-            let ExprEnum::Variable(fname) = fn_expr.expr else {
-                let mut buf = vec![0u8; 0];
-                format_expr(fn_expr, 0, &mut buf)?;
-                return Err(CompileError::new(
-                    expr.span,
-                    CEK::FnNotFound(String::from_utf8_lossy(&buf).into_owned()),
-                ));
+            let uv_fname = emit_expr(&*fn_expr, compiler)?;
+            let fname = match &uv_fname {
+                UniversalVar::Func { name, .. } => Some(name),
+                _ => None,
             };
 
-            let params = {
-                let fun = compiler.find_universal(fname, fn_expr.span)?;
-
-                match fun {
-                    UniversalVar::Func { proto, .. } => proto.args().map(|args| args.to_vec()),
-                    UniversalVar::Local(_local) => {
-                        // let ts = tc_expr_forward(fn_expr, &mut TypeCheckContext::new(None))
-                        //     .map_err(|e| CompileError::new(fn_expr.span, CEK::TypeCheck(e.to_string())))?;
-                        // let ty = ts.determine().ok_or_else(|| CompileError::new(fn_expr.span, CEK::TypeCheck("Indeterminant type".to_string())))?;
-                        // let RetType::Some(TypeDecl::Func(func_ty)) = ty else {
-                        //     return Err(CompileError::new(expr.span, CEK::FnNotFound(fn_expr.span.to_string())));
-                        // };
-                        // Some(func_ty.args.to_vec())
-                        None
-                    }
+            let params = match &uv_fname {
+                UniversalVar::Func { proto, .. } => proto.args().map(|args| args.to_vec()),
+                UniversalVar::Local(_local) => {
+                    // let ts = tc_expr_forward(fn_expr, &mut TypeCheckContext::new(None))
+                    //     .map_err(|e| CompileError::new(fn_expr.span, CEK::TypeCheck(e.to_string())))?;
+                    // let ty = ts.determine().ok_or_else(|| CompileError::new(fn_expr.span, CEK::TypeCheck("Indeterminant type".to_string())))?;
+                    // let RetType::Some(TypeDecl::Func(func_ty)) = ty else {
+                    //     return Err(CompileError::new(expr.span, CEK::FnNotFound(fn_expr.span.to_string())));
+                    // };
+                    // Some(func_ty.args.to_vec())
+                    None
                 }
             };
 
@@ -816,8 +808,6 @@ fn emit_expr<'src>(
                 }
             }
 
-            let uv_fname = compiler.find_universal(fname, fn_expr.span)?;
-
             if let UniversalVar::Func { name, .. } = &uv_fname {
                 let Some(_fun) = compiler.env.functions.get(name) else {
                     return Err(CompileError::new(
@@ -825,9 +815,9 @@ fn emit_expr<'src>(
                         CEK::FnNotFound(name.to_string()),
                     ));
                 };
-                dbg_println!("FnProto found for: {fname}, args: {:?}", _fun.args());
+                dbg_println!("FnProto found for: {fname:?}, args: {:?}", _fun.args());
             } else {
-                dbg_println!("FnProto is behind a local var: {fname}");
+                dbg_println!("FnProto is behind a local var: {fname:?}");
             }
 
             let stk_fname = uv_fname.into_stack(compiler);
