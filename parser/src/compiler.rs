@@ -532,7 +532,7 @@ fn emit_stmts<'src>(
                 compiler.env.debug.insert(name.to_string(), debug);
             }
             Statement::Expression { ref ex, semicolon } => {
-                let res = emit_expr(ex, compiler)?.as_stack()?;
+                let res = emit_expr(ex, compiler)?.into_stack(compiler);
                 last_target = if *semicolon { None } else { Some(res) };
             }
             Statement::Loop(stmts) => {
@@ -833,13 +833,30 @@ fn emit_expr<'src>(
                 .ok_or_else(|| CompileError::new(expr.span, CEK::InsufficientNamedArgs))?;
 
             // Align arguments to the stack to prepare a call.
-            for arg in &arg_values {
-                arg.into_stack(compiler);
+            let mut args_stack: Vec<_> = std::iter::once(stk_fname)
+                .chain(arg_values.iter().map(|arg| arg.into_stack(compiler)))
+                .collect();
+
+            // If the function and the arguments are not contiguous, copy them over so that they will be.
+            if !args_stack
+                .windows(2)
+                .all(|window| window[0] + 1 == window[1])
+            {
+                for arg in args_stack.iter_mut() {
+                    let stk_base = compiler.target_stack.len();
+                    compiler.push_inst(OpCode::Move, *arg as u8, stk_base as u16);
+                    *arg = compiler.target_stack.len();
+                    compiler.target_stack.push(Target::None);
+                }
             }
 
-            compiler.push_inst(OpCode::Call, arg_values.len() as u8, stk_fname as u16);
+            // The new stack index for the function object to call, and also the index that the return value will be stored.
+            // `args_stack` will always have at least one element, which is the function object.
+            let stk_ret = *args_stack.first().unwrap();
+
+            compiler.push_inst(OpCode::Call, arg_values.len() as u8, stk_ret as u16);
             compiler.target_stack.push(Target::None);
-            Ok(stk_fname)
+            Ok(stk_ret)
         }
         ExprEnum::ArrIndex(ex, args) => {
             let stk_ex = emit_expr(ex, compiler)?.into_stack(compiler);
