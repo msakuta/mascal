@@ -82,6 +82,7 @@ impl<'a> ArgDecl<'a> {
         ArgDeclOwned {
             name: self.name.to_string(),
             ty: self.ty.clone(),
+            init: self.init.is_some(),
         }
     }
 }
@@ -322,6 +323,7 @@ fn fn_type(i: Span) -> IResult<Span, TypeDecl> {
                 .map(|arg| ArgDeclOwned {
                     name: arg.name.to_string(),
                     ty: arg.ty,
+                    init: false,
                 })
                 .collect(),
             ret_ty: Box::new(ret_ty.unwrap_or(RetType::Some(TypeDecl::Any))),

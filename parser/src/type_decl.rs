@@ -46,14 +46,7 @@ impl TypeDecl {
                 |_| Self::Any,
                 |func| {
                     Self::Func(FuncDecl {
-                        args: func
-                            .args()
-                            .iter()
-                            .map(|arg| ArgDeclOwned {
-                                name: arg.name.to_string(),
-                                ty: arg.ty.clone(),
-                            })
-                            .collect(),
+                        args: func.args().iter().map(|arg| arg.to_deep_owned()).collect(),
                         ret_ty: Box::new(func.ret_ty()),
                     })
                 },
@@ -159,6 +152,9 @@ impl std::fmt::Display for TypeDecl {
 pub struct ArgDeclOwned {
     pub name: String,
     pub ty: TypeDecl,
+    /// Unlike `ArgDecl`, we do not contain the expression for the initializer.
+    /// Instead, we only note that the initializer exists, and its type should match `ty`.
+    pub init: bool,
 }
 
 impl std::fmt::Display for ArgDeclOwned {

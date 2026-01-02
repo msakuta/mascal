@@ -377,13 +377,22 @@ where
                 }
             }
 
+            // Assign default values if they are not assigned by invocator
+            for (arg, fn_arg) in ty_args.iter_mut().zip(fn_args.iter()) {
+                if arg.is_some() {
+                    continue;
+                }
+                if fn_arg.init {
+                    *arg = Some(TypeSet::from(fn_arg.ty.clone()));
+                }
+            }
+
             for (ty_arg, decl) in ty_args.iter().zip(fn_args.iter()) {
                 let ty_arg = ty_arg.as_ref().ok_or_else(|| {
                     TypeCheckError::unassigned_arg(&decl.name, e.span, ctx.source_file)
                 })?;
                 tc_coerce_type(&ty_arg, &decl.ty, e.span, ctx)?;
             }
-
             match &*func.ret_ty {
                 RetType::Void => TypeSet::none(),
                 RetType::Some(ty) => ty.into(),
