@@ -1,7 +1,7 @@
 
 /* add two values */
-fn add(a: i32 = 123, b: i32 = 456) {
-    a + b;
+fn add(a: i32 = 123, b: i32 = 456) -> i32 {
+    a + b
 }
 
 // print(add(123, 456));
