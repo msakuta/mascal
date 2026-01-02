@@ -460,7 +460,7 @@ fn emit_stmts<'src>(
                     .ok_or_else(|| CompileError::new(*var, CEK::LocalsStackUnderflow))?
                     .len();
                 let init_val = if let Some(init_expr) = init {
-                    let stk_var = emit_expr(init_expr, compiler)?.as_stack()?;
+                    let stk_var = emit_expr(init_expr, compiler)?.into_stack(compiler);
                     compiler.target_stack[stk_var] = Target::Local(locals);
                     stk_var
                 } else {
@@ -683,9 +683,11 @@ fn emit_expr<'src>(
                 Ok(stk_ret)
             }
         }
-        ExprEnum::Variable(str) => Ok(compiler
-            .find_universal(*str, expr.span)?
-            .into_stack(compiler)),
+        ExprEnum::Variable(str) => {
+            let ret = Ok(compiler.find_universal(*str, expr.span)?);
+            compiler.end_src_pos(expr.span.into());
+            return ret;
+        }
         ExprEnum::Cast(ex, decl) => {
             let val = emit_expr(ex, compiler)?.into_stack(compiler);
             // Make a copy of the value to avoid overwriting original variable
@@ -794,6 +796,7 @@ fn emit_expr<'src>(
             }
 
             if let Some(params) = params.as_ref() {
+                // Assign default values if they are not assigned by invocator
                 for (param, arg_value) in params.iter().zip(arg_values.iter_mut()) {
                     if arg_value.is_some() {
                         continue;
