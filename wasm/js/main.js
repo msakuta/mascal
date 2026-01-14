@@ -75,6 +75,7 @@ const samples = document.getElementById("samples");
     "pipe.dragon",
     "cmp.dragon",
     "struct.dragon", "struct_infer.dragon", "struct_nested.dragon",
+    "fn_obj.dragon", "fn_obj_ret.dragon", "fn_callback.dragon",
 ]
     .forEach(fileName => {
     const link = document.createElement("a");
