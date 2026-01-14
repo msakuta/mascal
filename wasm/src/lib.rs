@@ -57,6 +57,7 @@ fn s_puts(vals: &[Value]) -> Result<Value, EvalError> {
                         .collect::<Vec<_>>(),
                 ),
                 Value::Struct(val) => puts_inner(val.borrow().fields()),
+                Value::Func(f) => wasm_print(&format!("{}()", f)),
             }
         }
     }
