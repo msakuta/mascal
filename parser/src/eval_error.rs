@@ -44,6 +44,7 @@ pub enum EvalError {
     NoFieldFound(String),
     TypeCheck(String),
     ExpectStruct(TypeDecl),
+    ExpectFn(String),
 }
 
 impl std::convert::From<ValueError> for EvalError {
@@ -126,6 +127,7 @@ impl std::fmt::Display for EvalError {
             Self::NoFieldFound(name) => write!(f, "Field {name} not found"),
             Self::TypeCheck(name) => write!(f, "Type check error: {name}"),
             Self::ExpectStruct(ty) => write!(f, "Expect a struct, but got a {ty}"),
+            Self::ExpectFn(ty) => write!(f, "Expect a function, but got a {ty}"),
         }
     }
 }

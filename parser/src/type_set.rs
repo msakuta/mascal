@@ -1,4 +1,8 @@
-use crate::{interpreter::RetType, type_decl::ArraySize, TypeDecl};
+use crate::{
+    interpreter::RetType,
+    type_decl::{ArraySize, FuncDecl},
+    TypeDecl,
+};
 
 /// TypeSet with a flag whether it was annotated in the original source code.
 /// It can keep track of existence of type annotation even after type inference
@@ -54,6 +58,7 @@ pub struct TypeSetFlags {
     pub array: Option<(Box<TypeSet>, ArraySize)>,
     pub tuple: Option<Vec<TypeSet>>,
     pub type_name: Vec<String>,
+    pub func: Option<FuncDecl>,
 }
 
 impl TypeSetAnnotated {
@@ -172,6 +177,13 @@ impl TypeSet {
         })
     }
 
+    pub fn func(func: FuncDecl) -> Self {
+        Self::Set(TypeSetFlags {
+            func: Some(func),
+            ..TypeSetFlags::default()
+        })
+    }
+
     pub fn void() -> Self {
         Self::Set(TypeSetFlags {
             void: true,
@@ -181,6 +193,10 @@ impl TypeSet {
 
     pub fn all() -> Self {
         Self::Any
+    }
+
+    pub fn none() -> Self {
+        Self::Set(TypeSetFlags::default())
     }
 
     pub fn is_none(&self) -> bool {
@@ -196,6 +212,7 @@ impl TypeSet {
                     && set.array.is_none()
                     && set.tuple.is_none()
                     && set.type_name.is_empty()
+                    && set.func.is_none()
             }
         }
     }
@@ -228,6 +245,11 @@ impl TypeSet {
             return Some(RetType::Some(TypeDecl::F64));
         } else if self == &TypeDecl::Str.into() {
             return Some(RetType::Some(TypeDecl::Str));
+        } else if let Self::Set(TypeSetFlags {
+            func: Some(func), ..
+        }) = self
+        {
+            return Some(RetType::Some(TypeDecl::Func(func.clone())));
         } else if self == &TypeSet::void() {
             return Some(RetType::Void);
         } else if let TypeSet::Set(set) = self {
@@ -326,6 +348,11 @@ impl std::ops::BitAnd for TypeSet {
                 .filter_map(|name| rhs.type_name.iter().find(|name2| name == *name2))
                 .cloned()
                 .collect(),
+            func: if set.func == rhs.func {
+                set.func.clone()
+            } else {
+                None
+            },
         })
     }
 }
@@ -393,6 +420,11 @@ impl TypeSet {
                 .filter_map(|name| rhs.type_name.iter().find(|name2| name == *name2))
                 .cloned()
                 .collect(),
+            func: if set.func == rhs.func {
+                set.func.clone()
+            } else {
+                None
+            },
         });
 
         if ret.is_none() {
@@ -427,6 +459,9 @@ impl From<&TypeDecl> for TypeSet {
             }
             TypeDecl::TypeName(name) => {
                 return TypeSet::type_name(name.clone());
+            }
+            TypeDecl::Func(func) => {
+                return TypeSet::func(func.clone());
             }
         }
         Self::Set(ret)
@@ -529,6 +564,10 @@ impl std::fmt::Display for TypeSetFlags {
 
         for tn in &self.type_name {
             write_ty(true, tn)?;
+        }
+
+        if let Some(func) = &self.func {
+            write_ty(true, &func.to_string())?;
         }
 
         if !written {

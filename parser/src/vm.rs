@@ -226,14 +226,7 @@ fn interpret_fn(
     );
     dbg_println!("size callInfo: {}", std::mem::size_of::<CallInfo>());
     dbg_println!("literals: {:?}", bytecode.literals);
-    #[cfg(debug_assertions)]
-    {
-        let mut buf = vec![0u8; 0];
-        bytecode.disasm(&mut buf).unwrap();
-        if let Ok(s) = String::from_utf8(buf) {
-            dbg_println!("instructions: {}", s);
-        }
-    }
+
     let mut vm = Vm::new(bytecode, functions);
     let value = loop {
         if let Some(res) = vm.next_inst()? {
@@ -443,40 +436,39 @@ impl<'a> Vm<'a> {
             }
             OpCode::Call => {
                 let arg_name = self.get(inst.arg1);
-                let arg_name = if let Value::Str(s) = arg_name {
+                let arg_name = if let Value::Str(s) | Value::Func(s) = arg_name {
                     s
                 } else {
                     return Err(EvalError::NonNameFnRef(format!("{arg_name:?}")));
                 };
                 let fun = self.functions.iter().find(|(fname, _)| *fname == arg_name);
-                if let Some((_, fun)) = fun {
-                    match fun {
-                        FnProto::Code(fun) => {
-                            // dbg_println!("Calling code function with stack size (base:{}) + (fn: 1) + (params: {}) + (cur stack:{})", inst.arg1, inst.arg0, fun.stack_size);
-                            // +1 for function name and return slot
-                            self.stack_base += inst.arg1 as usize;
-                            self.stack.resize(
-                                self.stack_base + inst.arg0 as usize + fun.stack_size + 1,
-                                Value::default(),
-                            );
-                            self.call_stack.push(CallInfo {
-                                fun,
-                                ip: 0,
-                                stack_size: self.stack.len(),
-                                stack_base: self.stack_base,
-                            });
-                            return Ok(None);
-                        }
-                        FnProto::Native(nat) => {
-                            let ret = nat(&self.slice(
-                                inst.arg1 as usize + 1,
-                                inst.arg1 as usize + 1 + inst.arg0 as usize,
-                            ));
-                            self.set(inst.arg1, ret?);
-                        }
-                    }
-                } else {
+                let Some((_, fun)) = fun else {
                     return Err(EvalError::FnNotFound(arg_name.clone()));
+                };
+                match fun {
+                    FnProto::Code(fun) => {
+                        // dbg_println!("Calling code function with stack size (base:{}) + (fn: 1) + (params: {}) + (cur stack:{})", inst.arg1, inst.arg0, fun.stack_size);
+                        // +1 for function name and return slot
+                        self.stack_base += inst.arg1 as usize;
+                        self.stack.resize(
+                            self.stack_base + inst.arg0 as usize + fun.stack_size + 1,
+                            Value::default(),
+                        );
+                        self.call_stack.push(CallInfo {
+                            fun,
+                            ip: 0,
+                            stack_size: self.stack.len(),
+                            stack_base: self.stack_base,
+                        });
+                        return Ok(None);
+                    }
+                    FnProto::Native(nat) => {
+                        let ret = nat(&self.slice(
+                            inst.arg1 as usize + 1,
+                            inst.arg1 as usize + 1 + inst.arg0 as usize,
+                        ));
+                        self.set(inst.arg1, ret?);
+                    }
                 }
             }
             OpCode::Ret => {

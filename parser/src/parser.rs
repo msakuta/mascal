@@ -1,7 +1,7 @@
 use crate::{
     coercion::{coerce_f32, coerce_f64, coerce_i32, coerce_i64},
     interpreter::RetType,
-    type_decl::{ArraySize, TypeDecl},
+    type_decl::{ArgDeclOwned, ArraySize, FuncDecl, TypeDecl},
     type_set::TypeSetAnnotated,
     Value,
 };
@@ -73,6 +73,16 @@ impl<'a> ArgDecl<'a> {
             name: name.into(),
             ty,
             init: None,
+        }
+    }
+
+    /// Create a "deep-cloned" owned copy of this ArgDecl.
+    /// The result owns the string so that it does not contain references to the source text.
+    pub fn to_deep_owned(&self) -> ArgDeclOwned {
+        ArgDeclOwned {
+            name: self.name.to_string(),
+            ty: self.ty.clone(),
+            init: self.init.is_some(),
         }
     }
 }
@@ -148,7 +158,7 @@ pub(crate) enum ExprEnum<'a> {
     Variable(&'a str),
     Cast(Box<Expression<'a>>, TypeDecl),
     VarAssign(Box<Expression<'a>>, Box<Expression<'a>>),
-    FnInvoke(&'a str, Vec<FnArg<'a>>),
+    FnInvoke(Box<Expression<'a>>, Vec<FnArg<'a>>),
     ArrIndex(Box<Expression<'a>>, Vec<Expression<'a>>),
     TupleIndex(Box<Expression<'a>>, usize),
     FieldAccess {
@@ -282,6 +292,45 @@ fn type_scalar(input: Span) -> IResult<Span, TypeDecl> {
     ))
 }
 
+fn func_ty_args(i: Span) -> IResult<Span, Vec<ArgDecl>> {
+    ws(delimited(
+        tag("("),
+        terminated(
+            separated_list0(ws(tag(",")), func_ty_arg),
+            opt(ws(char(','))),
+        ),
+        tag(")"),
+    ))(i)
+}
+
+fn fn_type(i: Span) -> IResult<Span, TypeDecl> {
+    let (r, kw) = ident_space(i)?;
+    if *kw != "fn" {
+        return Err(nom::Err::Error(nom::error::Error {
+            input: i,
+            code: nom::error::ErrorKind::AlphaNumeric,
+        }));
+    }
+
+    let (r, args) = func_ty_args(r)?;
+    let (r, ret_ty) = opt(preceded(ws(tag("->")), ret_type))(r)?;
+
+    Ok((
+        r,
+        TypeDecl::Func(FuncDecl {
+            args: args
+                .into_iter()
+                .map(|arg| ArgDeclOwned {
+                    name: arg.name.to_string(),
+                    ty: arg.ty,
+                    init: false,
+                })
+                .collect(),
+            ret_ty: Box::new(ret_ty.unwrap_or(RetType::Some(TypeDecl::Any))),
+        }),
+    ))
+}
+
 fn array_size_range(input: Span) -> IResult<Span, ArraySize> {
     let (r, start) = opt(ws(decimal))(input)?;
     let (r, _) = ws(tag(".."))(r)?;
@@ -345,7 +394,7 @@ fn type_name(i: Span) -> IResult<Span, TypeDecl> {
 }
 
 pub(crate) fn type_decl(input: Span) -> IResult<Span, TypeDecl> {
-    alt((type_array, type_tuple, type_scalar, type_name))(input)
+    alt((type_array, type_tuple, fn_type, type_scalar, type_name))(input)
 }
 
 fn cast<'src>((start, prefix, i): &PostfixInput<'src>) -> IResult<Span<'src>, Expression<'src>> {
@@ -562,9 +611,9 @@ pub(crate) fn fn_invoke_arg(i: Span) -> IResult<Span, FnArg> {
     ))
 }
 
-pub(crate) fn func_invoke(i: Span) -> IResult<Span, Expression> {
-    let (r, ident) = ws(identifier)(i)?;
-    // println!("func_invoke ident: {}", ident);
+pub(crate) fn func_invoke<'src>(
+    (start, prefix, i): &PostfixInput<'src>,
+) -> IResult<Span<'src>, Expression<'src>> {
     let (r, args) = delimited(
         multispace0,
         delimited(
@@ -576,13 +625,16 @@ pub(crate) fn func_invoke(i: Span) -> IResult<Span, Expression> {
             char(')'),
         ),
         multispace0,
-    )(r)?;
-    Ok((
-        r,
+    )(*i)?;
+
+    let length = start.offset(&r);
+    postfix((
+        *start,
         Expression::new(
-            ExprEnum::FnInvoke(*ident, args),
-            i.subslice(i.offset(&ident), ident.offset(&r)),
+            ExprEnum::FnInvoke(Box::new(prefix.clone()), args),
+            start.subslice(0, length),
         ),
+        r,
     ))
 }
 
@@ -723,19 +775,12 @@ fn struct_literal<'a>(name: Span<'a>, i: Span<'a>) -> IResult<Span<'a>, Expressi
     ));
 }
 
-/// The parameter type for the postfix expression parseers. This tuple contains the state and also the span to parse
+/// The parameter type for the postfix expression parsers. This tuple contains the state and also the span to parse
 /// next source text. The first element is the beginning of the whole postfix expression, the second is the parsed
 /// prefix expression so far, and the last is the span pointing the next source text.
 type PostfixInput<'src> = (Span<'src>, Expression<'src>, Span<'src>);
 
 fn postfix_expression(i: Span) -> IResult<Span, Expression> {
-    // Function call is a special case of a postfix expression, because we don't have a function object as a variable,
-    // the prefix is always an identifier.
-    // It is also very cheap to backtrack, since parsing an identifier is a terminal symbol.
-    if let Ok(res) = func_invoke(i) {
-        return Ok(res);
-    }
-
     let (r, prim) = primary_expression(i)?;
     postfix((i, prim, r))
 }
@@ -746,6 +791,10 @@ fn postfix_expression(i: Span) -> IResult<Span, Expression> {
 /// switch parsers.
 /// It can clone a subtree at most once, but it should not be too expensive.
 fn postfix<'src>(arg: PostfixInput<'src>) -> IResult<Span<'src>, Expression<'src>> {
+    if let Ok(res) = func_invoke(&arg) {
+        return Ok(res);
+    }
+
     if let Ok(res) = array_index(&arg) {
         return Ok(res);
     }
@@ -837,11 +886,17 @@ pub(crate) fn expr(i: Span) -> IResult<Span, Expression> {
     let (r, init) = arithm_expr(i)?;
 
     fold_many0(
-        pair(tag("|>"), ident_space),
+        pair(tag("|>"), arithm_expr),
         move || init.clone(),
-        move |acc, (_op, val): (Span, Span)| {
-            let span = i.subslice(i.offset(&acc.span), acc.span.offset(&val) + val.len());
-            Expression::new(ExprEnum::FnInvoke(*val, vec![FnArg::new(acc)]), span)
+        move |acc, (_op, val): (Span, Expression)| {
+            let span = i.subslice(
+                i.offset(&acc.span),
+                acc.span.offset(&val.span) + val.span.len(),
+            );
+            Expression::new(
+                ExprEnum::FnInvoke(Box::new(val), vec![FnArg::new(acc)]),
+                span,
+            )
         },
     )(r)
 }
@@ -995,6 +1050,19 @@ fn expression_statement(input: Span) -> IResult<Span, Statement> {
     ))
 }
 
+/// A parser for an argument in function object type. The difference from func_arg is that the name is omitted.
+pub(crate) fn func_ty_arg(r: Span) -> IResult<Span, ArgDecl> {
+    let (r, ty) = ws(type_decl)(r)?;
+    Ok((
+        r,
+        ArgDecl {
+            name: Span::new(""),
+            ty,
+            init: None,
+        },
+    ))
+}
+
 pub(crate) fn func_arg(r: Span) -> IResult<Span, ArgDecl> {
     let (r, id) = identifier(r)?;
     let (r, ty) = opt(ws(type_spec))(r)?;
@@ -1019,14 +1087,18 @@ fn ret_type(input: Span) -> IResult<Span, RetType> {
     )
 }
 
-pub(crate) fn func_decl(input: Span) -> IResult<Span, Statement> {
-    let (r, _) = ws(tag("fn"))(input)?;
-    let (r, name) = identifier(r)?;
-    let (r, args) = ws(delimited(
+fn func_decl_args(i: Span) -> IResult<Span, Vec<ArgDecl>> {
+    ws(delimited(
         tag("("),
         terminated(separated_list0(ws(tag(",")), func_arg), opt(ws(char(',')))),
         tag(")"),
-    ))(r)?;
+    ))(i)
+}
+
+pub(crate) fn func_decl(input: Span) -> IResult<Span, Statement> {
+    let (r, _) = ws(tag("fn"))(input)?;
+    let (r, name) = identifier(r)?;
+    let (r, args) = func_decl_args(r)?;
     let (r, ret_type) = opt(preceded(ws(tag("->")), ret_type))(r)?;
     let (r, stmts) = delimited(ws(char('{')), source, ws(char('}')))(r)?;
     Ok((

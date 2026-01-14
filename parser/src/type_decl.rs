@@ -6,11 +6,12 @@ use std::io::{Read, Write};
 
 use crate::{
     bytecode::{read_bool, write_bool},
+    interpreter::RetType,
     type_tags::*,
-    ReadError, Value,
+    EvalContext, ReadError, Value,
 };
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 #[repr(u8)]
 pub enum TypeDecl {
     Any,
@@ -22,10 +23,11 @@ pub enum TypeDecl {
     Array(Box<TypeDecl>, ArraySize),
     Tuple(Vec<TypeDecl>),
     TypeName(String),
+    Func(FuncDecl),
 }
 
 impl TypeDecl {
-    pub(crate) fn from_value(value: &Value) -> Self {
+    pub(crate) fn from_value_with_context(value: &Value, ctx: &EvalContext) -> Self {
         match value {
             Value::F64(_) => Self::F64,
             Value::F32(_) => Self::F32,
@@ -36,11 +38,24 @@ impl TypeDecl {
             Value::Tuple(a) => Self::Tuple(
                 a.borrow()
                     .iter()
-                    .map(|val| Self::from_value(&val.value))
+                    .map(|val| Self::from_value_with_context(&val.value, ctx))
                     .collect(),
             ),
             Value::Struct(a) => Self::TypeName(a.borrow().name.clone()),
+            Value::Func(name) => ctx.get_fn(name).map_or_else(
+                |_| Self::Any,
+                |func| {
+                    Self::Func(FuncDecl {
+                        args: func.args().iter().map(|arg| arg.to_deep_owned()).collect(),
+                        ret_ty: Box::new(func.ret_ty()),
+                    })
+                },
+            ),
         }
+    }
+
+    pub(crate) fn from_value(value: &Value) -> Self {
+        Self::from_value_with_context(value, &EvalContext::new())
     }
 
     pub(crate) fn serialize(&self, writer: &mut impl Write) -> std::io::Result<()> {
@@ -65,6 +80,7 @@ impl TypeDecl {
                 return Ok(());
             }
             Self::TypeName(_) => todo!(),
+            Self::Func { .. } => FUNC_TAG,
         };
         writer.write_all(&tag.to_le_bytes())?;
         Ok(())
@@ -125,8 +141,69 @@ impl std::fmt::Display for TypeDecl {
                 })
             )?,
             Self::TypeName(name) => write!(f, "{name}")?,
+            Self::Func(decl) => decl.fmt(f)?,
         }
         Ok(())
+    }
+}
+
+/// Similar to [`ArgDecl`], but uses owned strings so that it won't require reference to the source.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct ArgDeclOwned {
+    pub name: String,
+    pub ty: TypeDecl,
+    /// Unlike `ArgDecl`, we do not contain the expression for the initializer.
+    /// Instead, we only note that the initializer exists, and its type should match `ty`.
+    pub init: bool,
+}
+
+impl std::fmt::Display for ArgDeclOwned {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.name.fmt(f)?;
+        if !matches!(self.ty, TypeDecl::Any) {
+            if !self.name.is_empty() {
+                write!(f, ": ")?;
+            }
+            self.ty.fmt(f)?;
+        }
+        Ok(())
+    }
+}
+
+/// Function object type
+#[derive(Debug, Eq, Clone, Default)]
+pub struct FuncDecl {
+    pub args: Vec<ArgDeclOwned>,
+    pub ret_ty: Box<RetType>,
+}
+
+impl std::fmt::Display for FuncDecl {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let args_formatted = self
+            .args
+            .iter()
+            .map(|arg| arg.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        write!(f, "fn({args_formatted})")?;
+        if let RetType::Some(ret_ty) = &*self.ret_ty {
+            write!(f, " -> {ret_ty}")?;
+        }
+        Ok(())
+    }
+}
+
+/// Functionn object types are equal even if the parameter names differ,
+/// if the number and types of the parameters are compatible.
+impl std::cmp::PartialEq for FuncDecl {
+    fn eq(&self, other: &Self) -> bool {
+        self.args.len() == other.args.len()
+            && self
+                .args
+                .iter()
+                .zip(other.args.iter())
+                .all(|(lhs, rhs)| lhs.ty == rhs.ty)
+            && self.ret_ty == other.ret_ty
     }
 }
 

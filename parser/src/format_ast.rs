@@ -30,7 +30,8 @@ pub fn format_expr(
             Ok(())
         }
         ExprEnum::FnInvoke(fname, args) => {
-            write!(f, "{fname}(")?;
+            format_expr(fname, level, f)?;
+            write!(f, "(")?;
             for (i, arg) in args.iter().enumerate() {
                 format_expr(&arg.expr, level, f)?;
                 if i != args.len() - 1 {

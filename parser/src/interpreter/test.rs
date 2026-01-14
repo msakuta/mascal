@@ -125,7 +125,13 @@ fn fn_invoke_test() {
     assert_eq!(
         source(span).finish().unwrap().1,
         vec![Statement::Expression {
-            ex: Expression::new(FnInvoke("f", vec![]), span.subslice(0, 3)),
+            ex: Expression::new(
+                FnInvoke(
+                    Box::new(Expression::new(Variable("f"), span.subslice(0, 1))),
+                    vec![]
+                ),
+                span.subslice(0, 3)
+            ),
             semicolon: true
         }]
     );
@@ -135,7 +141,10 @@ fn fn_invoke_test() {
         vec![Statement::Expression {
             ex: Expression::new(
                 FnInvoke(
-                    "f",
+                    Box::new(Expression::new(
+                        ExprEnum::Variable("f"),
+                        span.subslice(0, 1)
+                    )),
                     vec![FnArg {
                         name: None,
                         expr: *bnl(Value::I64(1), span.subslice(2, 1))
@@ -1055,7 +1064,13 @@ fn for_test() {
             start: nl(Value::I64(0), span.subslice(10, 1)),
             end: nl(Value::I64(10), span.subslice(13, 2)),
             stmts: vec![expr_semi(Expression::new(
-                FnInvoke("print", vec![FnArg::new(*var_r(span.subslice(24, 1)))],),
+                FnInvoke(
+                    Box::new(Expression::new(
+                        ExprEnum::Variable("print"),
+                        span.subslice(18, 5)
+                    )),
+                    vec![FnArg::new(*var_r(span.subslice(24, 1)))],
+                ),
                 span.subslice(18, 8)
             ))]
         }]

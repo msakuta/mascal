@@ -6,7 +6,7 @@ use crate::{
     coercion::{coerce_f64, coerce_i64, coerce_type},
     eval_error::EvalError,
     parser::*,
-    type_decl::ArraySize,
+    type_decl::{ArraySize, FuncDecl},
     value::{ArrayInt, StructInt, TupleEntry},
     TypeDecl, Value,
 };
@@ -205,6 +205,7 @@ where
         )))),
         ExprEnum::Variable(str) => RunResult::Yield(
             ctx.get_var(str)
+                .or_else(|| ctx.get_fn(*str).map(|_| Value::Func(str.to_string())).ok())
                 .ok_or_else(|| EvalError::VarNotFound(str.to_string()))?,
         ),
         ExprEnum::Cast(ex, decl) => {
@@ -224,12 +225,14 @@ where
             }
             RunResult::Yield(rhs_value)
         }
-        ExprEnum::FnInvoke(fname, args) => {
-            let fn_args = ctx
-                .get_fn(*fname)
-                .ok_or_else(|| EvalError::FnNotFound(fname.to_string()))?
-                .args()
-                .clone();
+        ExprEnum::FnInvoke(fn_expr, args) => {
+            let fn_obj = unwrap_run!(eval(fn_expr, ctx)?);
+            let Value::Func(fname) = fn_obj else {
+                return Err(EvalError::ExpectFn(
+                    TypeDecl::from_value_with_context(&fn_obj, ctx).to_string(),
+                ));
+            };
+            let fn_args = ctx.get_fn(&fname)?.args().clone();
 
             let mut eval_args = vec![None; fn_args.len().max(args.len())];
 
@@ -269,9 +272,7 @@ where
                 }
             }
 
-            let func = ctx
-                .get_fn(*fname)
-                .ok_or_else(|| EvalError::FnNotFound(fname.to_string()))?;
+            let func = ctx.get_fn(&fname)?;
 
             let mut subctx = EvalContext::push_stack(ctx);
             match func {
@@ -527,6 +528,7 @@ pub(crate) fn s_print(out: &mut dyn Write, vals: &[Value]) -> EvalResult<Value> 
                 }
                 write!(out, ")")?;
             }
+            Value::Func(name) => write!(out, "<Func {name}>")?,
         }
         Ok(())
     }
@@ -554,6 +556,7 @@ pub(crate) fn s_puts(out: &mut dyn Write, vals: &[Value]) -> Result<Value, EvalE
                 Value::Array(val) => puts_inner(out, &mut val.borrow().values.iter())?,
                 Value::Tuple(val) => puts_inner(out, &mut val.borrow().iter().map(|v| &v.value))?,
                 Value::Struct(val) => puts_inner(out, &mut val.borrow().fields.iter())?,
+                Value::Func(name) => write!(out, "<Func {name}>")?,
             }
         }
         Ok(())
@@ -582,6 +585,7 @@ pub(crate) fn s_type(vals: &[Value]) -> Result<Value, EvalError> {
                 })
             ),
             Value::Struct(inner) => inner.borrow().name.clone(),
+            Value::Func(_s) => "fn".to_string(),
         }
     }
     if let [val, ..] = vals {
@@ -670,8 +674,9 @@ impl<'src> FuncCode<'src> {
 /// which is Void. It merely wraps TypeDecl and Void in an enum.
 /// It is almost equivalent to std::option::Option, except it has intention to
 /// indicate Void-able type.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Default)]
 pub enum RetType {
+    #[default]
     Void,
     Some(TypeDecl),
 }
@@ -757,6 +762,33 @@ impl<'src, 'native> FuncDef<'src, 'native> {
             FuncDef::Native(NativeCode { args, .. }) => args,
         }
     }
+
+    pub(crate) fn ret_ty(&self) -> RetType {
+        match self {
+            FuncDef::Code(FuncCode { ret_type, .. }) => ret_type.clone(),
+            FuncDef::Native(NativeCode { ret_type, .. }) => ret_type
+                .as_ref()
+                .map_or_else(|| RetType::Void, |ty| RetType::Some(ty.clone())),
+        }
+    }
+
+    pub(crate) fn to_decl(&self) -> FuncDecl {
+        match self {
+            FuncDef::Code(FuncCode { args, ret_type, .. }) => FuncDecl {
+                args: args.iter().map(|arg| arg.to_deep_owned()).collect(),
+                ret_ty: Box::new(ret_type.clone()),
+            },
+            FuncDef::Native(NativeCode { args, ret_type, .. }) => FuncDecl {
+                args: args.iter().map(|arg| arg.to_deep_owned()).collect(),
+                ret_ty: Box::new(
+                    ret_type
+                        .as_ref()
+                        .map_or_else(|| RetType::Void, |ty| RetType::Some(ty.clone()))
+                        .clone(),
+                ),
+            },
+        }
+    }
 }
 
 pub(crate) type TypeMap<'src> = HashMap<String, StructDecl<'src>>;
@@ -838,11 +870,25 @@ impl<'src, 'ast, 'native, 'ctx> EvalContext<'src, 'native, 'ctx> {
         }
     }
 
-    fn get_fn(&self, name: &str) -> Option<&FuncDef<'src, 'native>> {
+    pub(super) fn get_fn(&self, fname: &str) -> Result<&FuncDef<'src, 'native>, EvalError> {
+        self.get_fn_raw(fname)
+            .or_else(|| {
+                self.get_var(fname).and_then(|fname| {
+                    if let Value::Func(ref fname) = fname {
+                        self.get_fn_raw(fname)
+                    } else {
+                        None
+                    }
+                })
+            })
+            .ok_or_else(|| EvalError::FnNotFound(fname.to_string()))
+    }
+
+    fn get_fn_raw(&self, name: &str) -> Option<&FuncDef<'src, 'native>> {
         if let Some(val) = self.functions.get(name) {
             Some(val)
         } else if let Some(super_ctx) = self.super_context {
-            super_ctx.get_fn(name)
+            super_ctx.get_fn_raw(name)
         } else {
             None
         }

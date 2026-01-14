@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     interpreter::{EGetExt, EvalResult},
-    type_decl::{ArraySize, TypeDecl},
+    type_decl::{ArraySize, FuncDecl, TypeDecl},
     type_tags::*,
     EvalError, ReadError,
 };
@@ -44,6 +44,7 @@ pub enum Value {
     Array(Rc<RefCell<ArrayInt>>),
     Tuple(Rc<RefCell<TupleInt>>),
     Struct(Rc<RefCell<StructInt>>),
+    Func(String),
 }
 
 impl Default for Value {
@@ -97,6 +98,7 @@ impl std::fmt::Display for Value {
                     })
                 )
             }
+            Self::Func(name) => write!(f, "<Func {name}>"),
         }
     }
 }
@@ -154,6 +156,13 @@ impl Value {
                 for value in values.fields.iter() {
                     value.serialize(writer)?;
                 }
+                Ok(())
+            }
+            Self::Func(name) => {
+                // Only global functions are serializable; no closures allowed
+                writer.write_all(&FUNC_TAG.to_le_bytes())?;
+                writer.write_all(&(name.len() as u32).to_le_bytes())?;
+                writer.write_all(name.as_bytes())?;
                 Ok(())
             }
         }
@@ -364,6 +373,10 @@ impl std::convert::TryFrom<&Value> for usize {
                     TypeDecl::I64,
                 ))
             }
+            Value::Func(_name) => Err(ValueError::Invalid(
+                TypeDecl::Func(FuncDecl::default()),
+                TypeDecl::I64,
+            )),
         }
     }
 }
