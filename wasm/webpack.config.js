@@ -15,7 +15,11 @@ module.exports = {
     filename: "[name].js"
   },
   devServer: {
-    contentBase: dist,
+    static: dist,
+  },
+  performance: {
+    hints: false,
+    maxAssetSize: 1024000
   },
   experiments: { syncWebAssembly: true },
   plugins: [
