@@ -1,0 +1,8 @@
+
+fn square(x: i32) {
+    x * x;
+}
+
+print(square(10));
+print(square(100));
+print(square(square(10)));

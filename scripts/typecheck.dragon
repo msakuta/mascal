@@ -1,0 +1,30 @@
+var a: i32 = 123 + 321 - 100;
+var b: f32 = 321. + 123. * 10.;
+var c: str = "Hello" + ", world!";
+
+var aa: [i32] = [1,2,3];
+var as: [str] = ["Hey", "there"];
+
+print(len(aa));
+push(aa, aa[1]);
+print(hex_string(64));
+
+fn accept_i32(arg: i32) {
+    var a: i32 = arg;
+}
+fn accept_i64(arg: [i32]) {
+    var b: [i32] = arg;
+    var c: i32 = arg[0];
+}
+
+var s: str = "hey";
+s = "hoy";
+
+accept_i32(a);
+accept_i64(aa);
+
+if a < 100 {
+    print(1);
+} else {
+    print(2);
+}

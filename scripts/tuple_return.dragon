@@ -1,0 +1,16 @@
+
+fn return_tuple() -> (i32, str, f64) {
+    (1, "a", 3.14)
+}
+
+var a = return_tuple();
+
+print("a: ", a, type(a));
+
+fn make_tuple(a: i32, s: str, f: f64) -> (i32, str, f64) {
+    (a, s, f)
+}
+
+var b = make_tuple(s: "Hello", f: 1.732, a: 42);
+
+print("b: ", b, type(b));
