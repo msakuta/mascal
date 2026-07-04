@@ -106,6 +106,10 @@ impl<'a> Vm<'a> {
         &self.stack[self.stack_base + from..self.stack_base + to]
     }
 
+    pub fn top(&self) -> &Value {
+        self.get(0usize)
+    }
+
     pub fn dump_stack(&self, f: &mut impl Write) -> std::io::Result<()> {
         writeln!(
             f,
@@ -194,6 +198,61 @@ impl<'a> Vm<'a> {
             functions: self.functions,
         }
     }
+
+    /// Initialize invocation of a function in the VM with the given function name and arguments.
+    /// The function would not run to completion by just calling this.
+    /// Poll `Vm::next_inst()` until completion to get the result.
+    pub fn init_fn(&mut self, name: &str, args: &[Value]) -> EvalResult<()> {
+        if let Some(fun) = self.functions.get(name) {
+            self.stack.extend(args.iter().cloned());
+            call_fn(
+                fun,
+                &mut self.stack,
+                &mut self.stack_base,
+                &mut self.call_stack,
+                args.len(),
+                0,
+            )
+        } else {
+            Err(EvalError::FnNotFound(name.to_string()))
+        }
+    }
+}
+
+/// Common logic outside of `impl Vm` to allow mutable access by parts
+fn call_fn<'a>(
+    fun: &'a FnProto,
+    stack: &mut Vec<Value>,
+    stack_base: &mut usize,
+    call_stack: &mut Vec<CallInfo<'a>>,
+    num_args: usize,
+    fun_idx: usize,
+) -> EvalResult<()> {
+    match fun {
+        FnProto::Code(fun) => {
+            // dbg_println!("Calling code function with stack size (base:{}) + (fn: 1) + (params: {}) + (cur stack:{})", inst.arg1, inst.arg0, fun.stack_size);
+            // +1 for function name and return slot
+            *stack_base += fun_idx;
+            stack.resize(
+                *stack_base + num_args + fun.stack_size + 1,
+                Value::default(),
+            );
+            call_stack.push(CallInfo {
+                fun,
+                ip: 0,
+                stack_size: stack.len(),
+                stack_base: *stack_base,
+            });
+            return Ok(());
+        }
+        FnProto::Native(nat) => {
+            let from = fun_idx + 1;
+            let to = fun_idx + 1 + num_args;
+            let ret = nat(&stack[*stack_base + from..*stack_base + to])?;
+            stack[*stack_base + fun_idx] = ret;
+        }
+    }
+    Ok(())
 }
 
 /// An extension trait for `Vec` to write a shorthand for
@@ -445,31 +504,14 @@ impl<'a> Vm<'a> {
                 let Some((_, fun)) = fun else {
                     return Err(EvalError::FnNotFound(arg_name.clone()));
                 };
-                match fun {
-                    FnProto::Code(fun) => {
-                        // dbg_println!("Calling code function with stack size (base:{}) + (fn: 1) + (params: {}) + (cur stack:{})", inst.arg1, inst.arg0, fun.stack_size);
-                        // +1 for function name and return slot
-                        self.stack_base += inst.arg1 as usize;
-                        self.stack.resize(
-                            self.stack_base + inst.arg0 as usize + fun.stack_size + 1,
-                            Value::default(),
-                        );
-                        self.call_stack.push(CallInfo {
-                            fun,
-                            ip: 0,
-                            stack_size: self.stack.len(),
-                            stack_base: self.stack_base,
-                        });
-                        return Ok(None);
-                    }
-                    FnProto::Native(nat) => {
-                        let ret = nat(&self.slice(
-                            inst.arg1 as usize + 1,
-                            inst.arg1 as usize + 1 + inst.arg0 as usize,
-                        ));
-                        self.set(inst.arg1, ret?);
-                    }
-                }
+                call_fn(
+                    fun,
+                    &mut self.stack,
+                    &mut self.stack_base,
+                    &mut self.call_stack,
+                    inst.arg0 as usize,
+                    inst.arg1 as usize,
+                )?;
             }
             OpCode::Ret => {
                 let retval = self.stack_base + inst.arg1 as usize;
