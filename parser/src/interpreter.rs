@@ -794,6 +794,12 @@ impl<'src, 'native> FuncDef<'src, 'native> {
 pub(crate) type TypeMap<'src> = HashMap<String, StructDecl<'src>>;
 pub(crate) type TypeMapRc<'src> = HashMap<String, Rc<StructDecl<'src>>>;
 
+/// A context variables that are passed to callee functions
+#[derive(Clone)]
+pub struct VarContext<'src> {
+    pub variables: RefCell<HashMap<&'src str, Rc<RefCell<Value>>>>,
+}
+
 /// A context stat for evaluating a script.
 ///
 /// It has 3 lifetime arguments:
@@ -813,6 +819,7 @@ pub struct EvalContext<'src, 'native, 'ctx> {
     /// need to be wrapped in a RefCell.
     functions: HashMap<String, FuncDef<'src, 'native>>,
     typedefs: TypeMap<'src>,
+    contexts: HashMap<String, VarContext<'src>>,
     super_context: Option<&'ctx EvalContext<'src, 'native, 'ctx>>,
 }
 
@@ -822,6 +829,7 @@ impl<'src, 'ast, 'native, 'ctx> Default for EvalContext<'src, 'native, 'ctx> {
             variables: Default::default(),
             functions: std_functions(),
             typedefs: Default::default(),
+            contexts: Default::default(),
             super_context: Default::default(),
         }
     }
@@ -833,6 +841,7 @@ impl<'src, 'ast, 'native, 'ctx> EvalContext<'src, 'native, 'ctx> {
             variables: RefCell::new(HashMap::new()),
             functions: std_functions(),
             typedefs: HashMap::new(),
+            contexts: Default::default(),
             super_context: None,
         }
     }
@@ -846,6 +855,7 @@ impl<'src, 'ast, 'native, 'ctx> EvalContext<'src, 'native, 'ctx> {
             variables: RefCell::new(HashMap::new()),
             functions: HashMap::new(),
             typedefs: HashMap::new(),
+            contexts: Default::default(),
             super_context: Some(super_ctx),
         }
     }
