@@ -6,6 +6,7 @@ use crate::{
     bytecode::{Bytecode, FnBytecode, FnProto, FnProtos, OpCode},
     coercion::{coerce_i64, coerce_type},
     eval_error::EvalError,
+    func::UserData,
     interpreter::{binary_op, binary_op_int, binary_op_str, compare_op, truthy, EvalResult},
     type_decl::TypeDecl,
     value::{StructInt, TupleEntry},
@@ -63,10 +64,11 @@ pub struct Vm<'a> {
     /// a fixed length arguments in an instruction for Set operation.
     set_register: usize,
     functions: &'a FnProtos,
+    user_data: UserData,
 }
 
 impl<'a> Vm<'a> {
-    fn new(bytecode: &'a FnBytecode, functions: &'a FnProtos) -> Self {
+    fn new(bytecode: &'a FnBytecode, functions: &'a FnProtos, user_data: UserData) -> Self {
         let stack_size = bytecode.stack_size;
         Self {
             stack: vec![Value::I64(0); stack_size],
@@ -79,12 +81,13 @@ impl<'a> Vm<'a> {
             stack_base: 0,
             set_register: 0,
             functions,
+            user_data,
         }
     }
 
     pub fn start_main(bytecode: &'a Bytecode) -> EvalResult<Self> {
         if let Some(FnProto::Code(main)) = bytecode.functions.get("") {
-            Ok(Self::new(main, &bytecode.functions))
+            Ok(Self::new(main, &bytecode.functions, Rc::new(())))
         } else {
             Err(EvalError::NoMainFound)
         }
@@ -102,7 +105,7 @@ impl<'a> Vm<'a> {
         self.stack[self.stack_base + idx.into()] = val;
     }
 
-    fn slice(&self, from: usize, to: usize) -> &[Value] {
+    fn _slice(&self, from: usize, to: usize) -> &[Value] {
         &self.stack[self.stack_base + from..self.stack_base + to]
     }
 
@@ -196,6 +199,7 @@ impl<'a> Vm<'a> {
             call_stack: self.call_stack.clone(),
             set_register: self.set_register,
             functions: self.functions,
+            user_data: self.user_data.clone(),
         }
     }
 
@@ -212,6 +216,7 @@ impl<'a> Vm<'a> {
                 &mut self.call_stack,
                 args.len(),
                 0,
+                &self.user_data,
             )
         } else {
             Err(EvalError::FnNotFound(name.to_string()))
@@ -227,6 +232,7 @@ fn call_fn<'a>(
     call_stack: &mut Vec<CallInfo<'a>>,
     num_args: usize,
     fun_idx: usize,
+    user_data: &UserData,
 ) -> EvalResult<()> {
     match fun {
         FnProto::Code(fun) => {
@@ -248,7 +254,7 @@ fn call_fn<'a>(
         FnProto::Native(nat) => {
             let from = fun_idx + 1;
             let to = fun_idx + 1 + num_args;
-            let ret = nat(&stack[*stack_base + from..*stack_base + to])?;
+            let ret = nat(user_data, &stack[*stack_base + from..*stack_base + to])?;
             stack[*stack_base + fun_idx] = ret;
         }
     }
@@ -286,7 +292,7 @@ fn interpret_fn(
     dbg_println!("size callInfo: {}", std::mem::size_of::<CallInfo>());
     dbg_println!("literals: {:?}", bytecode.literals);
 
-    let mut vm = Vm::new(bytecode, functions);
+    let mut vm = Vm::new(bytecode, functions, Rc::new(()));
     let value = loop {
         if let Some(res) = vm.next_inst()? {
             break res;
@@ -511,6 +517,7 @@ impl<'a> Vm<'a> {
                     &mut self.call_stack,
                     inst.arg0 as usize,
                     inst.arg1 as usize,
+                    &self.user_data,
                 )?;
             }
             OpCode::Ret => {

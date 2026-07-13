@@ -5,6 +5,7 @@ use self::lvalue::{eval_lvalue, LValue};
 use crate::{
     coercion::{coerce_f64, coerce_i64, coerce_type},
     eval_error::EvalError,
+    func::{NativeFnRef, UserData},
     parser::*,
     type_decl::{ArraySize, FuncDecl},
     value::{ArrayInt, StructInt, TupleEntry},
@@ -268,7 +269,7 @@ where
                     // a constant expression, in order to match the semantics with the bytecode compiler.
                     // Theoretically, it is possible to evaluate the expression ahead of time to reduce
                     // computation, but our priority is bytecode compiler which already does constant folding.
-                    *arg = Some(eval(init, &mut EvalContext::new())?);
+                    *arg = Some(eval(init, &mut EvalContext::default())?);
                 }
             }
 
@@ -297,6 +298,7 @@ where
                     }
                 }
                 FuncDef::Native(native) => RunResult::Yield((native.code)(
+                    &ctx.user_data,
                     &eval_args
                         .into_iter()
                         .map(|e| match e {
@@ -565,7 +567,7 @@ pub(crate) fn s_puts(out: &mut dyn Write, vals: &[Value]) -> Result<Value, EvalE
     Ok(Value::I32(0))
 }
 
-pub(crate) fn s_type(vals: &[Value]) -> Result<Value, EvalError> {
+pub(crate) fn s_type(_: &UserData, vals: &[Value]) -> Result<Value, EvalError> {
     fn type_str(val: &Value) -> String {
         match val {
             Value::F64(_) => "f64".to_string(),
@@ -595,7 +597,7 @@ pub(crate) fn s_type(vals: &[Value]) -> Result<Value, EvalError> {
     }
 }
 
-pub(crate) fn s_strlen(vals: &[Value]) -> Result<Value, EvalError> {
+pub(crate) fn s_strlen(_: &UserData, vals: &[Value]) -> Result<Value, EvalError> {
     if let [val, ..] = vals {
         Ok(Value::I64(val.str_len()? as i64))
     } else {
@@ -603,7 +605,7 @@ pub(crate) fn s_strlen(vals: &[Value]) -> Result<Value, EvalError> {
     }
 }
 
-pub(crate) fn s_len(vals: &[Value]) -> Result<Value, EvalError> {
+pub(crate) fn s_len(_: &UserData, vals: &[Value]) -> Result<Value, EvalError> {
     if let [val, ..] = vals {
         Ok(Value::I64(val.array_len()? as i64))
     } else {
@@ -611,7 +613,7 @@ pub(crate) fn s_len(vals: &[Value]) -> Result<Value, EvalError> {
     }
 }
 
-pub(crate) fn s_push(vals: &[Value]) -> Result<Value, EvalError> {
+pub(crate) fn s_push(_: &UserData, vals: &[Value]) -> Result<Value, EvalError> {
     if let [arr, val, ..] = vals {
         let val = val.clone();
         arr.array_push(val).map(|_| Value::I32(0))
@@ -622,7 +624,7 @@ pub(crate) fn s_push(vals: &[Value]) -> Result<Value, EvalError> {
     }
 }
 
-pub(crate) fn s_resize(vals: &[Value]) -> Result<Value, EvalError> {
+pub(crate) fn s_resize(_: &UserData, vals: &[Value]) -> Result<Value, EvalError> {
     if let [arr, len, ..] = vals {
         let new_len = len.try_into()?;
         arr.array_resize(new_len, &Value::default())
@@ -634,7 +636,7 @@ pub(crate) fn s_resize(vals: &[Value]) -> Result<Value, EvalError> {
     }
 }
 
-pub(crate) fn s_hex_string(vals: &[Value]) -> Result<Value, EvalError> {
+pub(crate) fn s_hex_string(_: &UserData, vals: &[Value]) -> Result<Value, EvalError> {
     if let [val, ..] = vals {
         match coerce_type(val, &TypeDecl::I64)? {
             Value::I64(i) => Ok(Value::Str(format!("{:02x}", i))),
@@ -721,12 +723,12 @@ impl std::fmt::Display for RetType {
 pub struct NativeCode<'native> {
     args: Vec<ArgDecl<'native>>,
     pub(crate) ret_type: Option<TypeDecl>,
-    code: &'native dyn Fn(&[Value]) -> Result<Value, EvalError>,
+    code: &'native NativeFnRef,
 }
 
 impl<'native> NativeCode<'native> {
-    pub(crate) fn new(
-        code: &'native dyn Fn(&[Value]) -> Result<Value, EvalError>,
+    pub fn new(
+        code: &'native NativeFnRef,
         args: Vec<ArgDecl<'native>>,
         ret_type: Option<TypeDecl>,
     ) -> Self {
@@ -746,7 +748,7 @@ pub enum FuncDef<'src, 'native> {
 
 impl<'src, 'native> FuncDef<'src, 'native> {
     pub fn new_native(
-        code: &'native dyn Fn(&[Value]) -> Result<Value, EvalError>,
+        code: &'native NativeFnRef,
         args: Vec<ArgDecl<'native>>,
         ret_type: Option<TypeDecl>,
     ) -> Self {
@@ -814,6 +816,7 @@ pub struct EvalContext<'src, 'native, 'ctx> {
     functions: HashMap<String, FuncDef<'src, 'native>>,
     typedefs: TypeMap<'src>,
     super_context: Option<&'ctx EvalContext<'src, 'native, 'ctx>>,
+    user_data: UserData,
 }
 
 impl<'src, 'ast, 'native, 'ctx> Default for EvalContext<'src, 'native, 'ctx> {
@@ -823,17 +826,20 @@ impl<'src, 'ast, 'native, 'ctx> Default for EvalContext<'src, 'native, 'ctx> {
             functions: std_functions(),
             typedefs: Default::default(),
             super_context: Default::default(),
+            // Put a unit to a Any box to indicate no user data.
+            user_data: Rc::new(()),
         }
     }
 }
 
 impl<'src, 'ast, 'native, 'ctx> EvalContext<'src, 'native, 'ctx> {
-    pub fn new() -> Self {
+    pub fn new(user_data: UserData) -> Self {
         Self {
             variables: RefCell::new(HashMap::new()),
             functions: std_functions(),
             typedefs: HashMap::new(),
             super_context: None,
+            user_data,
         }
     }
 
@@ -847,6 +853,7 @@ impl<'src, 'ast, 'native, 'ctx> EvalContext<'src, 'native, 'ctx> {
             functions: HashMap::new(),
             typedefs: HashMap::new(),
             super_context: Some(super_ctx),
+            user_data: super_ctx.user_data.clone(),
         }
     }
 
@@ -905,12 +912,16 @@ pub(crate) fn std_functions<'src, 'native>() -> HashMap<String, FuncDef<'src, 'n
     let mut functions = HashMap::new();
     functions.insert(
         "print".to_string(),
-        FuncDef::new_native(&|vals| s_print(&mut std::io::stdout(), vals), vec![], None),
+        FuncDef::new_native(
+            &|_, vals| s_print(&mut std::io::stdout(), vals),
+            vec![],
+            None,
+        ),
     );
     functions.insert(
         "puts".to_string(),
         FuncDef::new_native(
-            &|vals| s_puts(&mut std::io::stdout(), vals),
+            &|_, vals| s_puts(&mut std::io::stdout(), vals),
             vec![ArgDecl::new("val", TypeDecl::Any)],
             None,
         ),

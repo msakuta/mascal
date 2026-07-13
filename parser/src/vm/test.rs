@@ -140,7 +140,7 @@ fn compile_and_run_with(src: &str, fun: impl Fn(&[Value]) + 'static) -> Result<V
     let mut bytecode = compile(&span_source(src).unwrap().1, HashMap::new()).unwrap();
     bytecode.add_ext_fn(
         "print".to_string(),
-        Box::new(move |vals| {
+        Box::new(move |_, vals| {
             fun(vals);
             Ok(Value::I64(0))
         }),

@@ -14,6 +14,7 @@ pub use self::debug_info::{DebugInfo, FunctionInfo, LineInfo};
 
 use crate::{
     eval_error::EvalError,
+    func::NativeFn,
     interpreter::{s_hex_string, s_len, s_print, s_push, s_puts, s_resize, s_strlen, s_type},
     parser::ReadError,
     value::Value,
@@ -255,8 +256,6 @@ pub(crate) fn read_opt_value(reader: &mut impl Read) -> Result<Option<Value>, Re
     })
 }
 
-pub type NativeFn = Box<dyn Fn(&[Value]) -> Result<Value, EvalError>>;
-
 /// A mapping from function name to function prototypes, which can be a bytecode or a native extension.
 pub(crate) type FnProtos = HashMap<String, FnProto>;
 
@@ -289,11 +288,7 @@ impl Bytecode {
     }
 
     /// Add a user-application provided native function to this bytecode.
-    pub fn add_ext_fn(
-        &mut self,
-        name: String,
-        f: Box<dyn Fn(&[Value]) -> Result<Value, EvalError>>,
-    ) {
+    pub fn add_ext_fn(&mut self, name: String, f: NativeFn) {
         self.functions.insert(name, FnProto::Native(f));
     }
 
@@ -418,14 +413,11 @@ impl Bytecode {
 }
 
 /// Add standard common functions, such as `print`, `len` and `push`, to this bytecode.
-pub fn std_functions(
-    out: Rc<RefCell<dyn Write>>,
-    f: &mut impl FnMut(String, Box<dyn Fn(&[Value]) -> Result<Value, EvalError>>),
-) {
+pub fn std_functions(out: Rc<RefCell<dyn Write>>, f: &mut impl FnMut(String, NativeFn)) {
     let out2 = out.clone();
     f(
         "print".to_string(),
-        Box::new(move |values| {
+        Box::new(move |_, values| {
             let mut borrow = out2.borrow_mut();
             s_print(&mut *borrow, values)
         }),
@@ -433,7 +425,7 @@ pub fn std_functions(
     let out3 = out.clone();
     f(
         "puts".to_string(),
-        Box::new(move |values: &[Value]| -> Result<Value, EvalError> {
+        Box::new(move |_, values: &[Value]| -> Result<Value, EvalError> {
             s_puts(&mut *out3.borrow_mut(), values)
         }),
     );
