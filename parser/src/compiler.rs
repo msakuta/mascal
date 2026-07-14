@@ -3,7 +3,7 @@ mod lvalue;
 
 use std::{cell::RefCell, collections::HashMap, io::Write, rc::Rc};
 
-pub(crate) use self::error::CompileError;
+pub use self::error::CompileError;
 use self::{
     error::CompileErrorKind as CEK,
     lvalue::{emit_lvalue, LValue},
@@ -12,9 +12,10 @@ use self::{
 use crate::{
     bytecode::{
         std_functions, Bytecode, BytecodeArg, FnBytecode, FnProto, FunctionInfo, Instruction,
-        LineInfo, NativeFn, OpCode,
+        LineInfo, OpCode,
     },
     format_ast::format_expr,
+    func::NativeFn,
     interpreter::{eval, EvalContext, RunResult, TypeMap},
     parser::{ExprEnum, Expression, Statement},
     value::{ArrayInt, TupleEntry},
@@ -503,7 +504,7 @@ fn emit_stmts<'src>(
                             // Run the interpreter to fold the constant expression into a value.
                             // Note that the interpreter has an empty context, so it cannot access any
                             // global variables or user defined functions.
-                            match eval(init, &mut EvalContext::new())
+                            match eval(init, &mut EvalContext::default())
                                 .map_err(|e| CompileError::new(*name, CEK::EvalError(e)))?
                             {
                                 RunResult::Yield(val) => Some(val),
@@ -620,7 +621,7 @@ fn emit_expr<'src>(
         ExprEnum::NumLiteral(val, _) => Ok(compiler.find_or_create_literal(val)),
         ExprEnum::StrLiteral(val) => Ok(compiler.find_or_create_literal(&Value::Str(val.clone()))),
         ExprEnum::ArrLiteral(val) => {
-            let mut ctx = EvalContext::new();
+            let mut ctx = EvalContext::default();
             let val = Value::Array(Rc::new(RefCell::new(ArrayInt {
                 type_decl: TypeDecl::Any,
                 values: val
@@ -639,7 +640,7 @@ fn emit_expr<'src>(
             Ok(compiler.find_or_create_literal(&val))
         }
         ExprEnum::TupleLiteral(values) => {
-            let mut ctx = EvalContext::new();
+            let mut ctx = EvalContext::default();
             let val = values
                 .iter()
                 .map(|v| {

@@ -16,7 +16,7 @@ extern "C" {
     pub(crate) fn wasm_set_fill_style(s: &str);
 }
 
-fn s_print(vals: &[Value]) -> Result<Value, EvalError> {
+fn s_print(_: &UserData, vals: &[Value]) -> Result<Value, EvalError> {
     wasm_print("print:");
     let output = vals
         .iter()
@@ -34,7 +34,7 @@ fn s_print(vals: &[Value]) -> Result<Value, EvalError> {
     Ok(Value::I32(0))
 }
 
-fn s_puts(vals: &[Value]) -> Result<Value, EvalError> {
+fn s_puts(_: &UserData, vals: &[Value]) -> Result<Value, EvalError> {
     fn puts_inner(vals: &[Value]) {
         for val in vals {
             match val {
@@ -65,7 +65,7 @@ fn s_puts(vals: &[Value]) -> Result<Value, EvalError> {
     Ok(Value::I32(0))
 }
 
-fn s_rectangle(vals: &[Value]) -> Result<Value, EvalError> {
+fn s_rectangle(_: &UserData, vals: &[Value]) -> Result<Value, EvalError> {
     let mut i32vals = vals.iter().take(4).map(|val| {
         if let Ok(Value::I32(v)) = coerce_type(val, &TypeDecl::I32) {
             Ok(v)
@@ -82,7 +82,7 @@ fn s_rectangle(vals: &[Value]) -> Result<Value, EvalError> {
     Ok(Value::I32(0))
 }
 
-fn s_set_fill_style(vals: &[Value]) -> Result<Value, EvalError> {
+fn s_set_fill_style(_: &UserData, vals: &[Value]) -> Result<Value, EvalError> {
     if let [Value::Str(s), ..] = vals {
         wasm_set_fill_style(s);
     }
@@ -231,7 +231,9 @@ fn compile_and_run_wrap<'src>(src: &'src str) -> Result<(), Box<dyn std::error::
     Ok(())
 }
 
-fn extra_functions(f: &mut impl FnMut(String, Box<dyn Fn(&[Value]) -> Result<Value, EvalError>>)) {
+fn extra_functions(
+    f: &mut impl FnMut(String, Box<dyn Fn(&UserData, &[Value]) -> Result<Value, EvalError>>),
+) {
     f("print".to_string(), Box::new(s_print));
     f("puts".to_string(), Box::new(s_puts));
     f("set_fill_style".to_string(), Box::new(s_set_fill_style));

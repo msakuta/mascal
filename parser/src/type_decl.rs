@@ -55,7 +55,7 @@ impl TypeDecl {
     }
 
     pub(crate) fn from_value(value: &Value) -> Self {
-        Self::from_value_with_context(value, &EvalContext::new())
+        Self::from_value_with_context(value, &EvalContext::default())
     }
 
     pub(crate) fn serialize(&self, writer: &mut impl Write) -> std::io::Result<()> {
