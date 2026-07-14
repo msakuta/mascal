@@ -8,6 +8,7 @@ use crate::{
     func::{NativeFnRef, UserData},
     parser::*,
     type_decl::{ArraySize, FuncDecl},
+    type_set::TypeSet,
     value::{ArrayInt, StructInt, TupleEntry},
     TypeDecl, Value,
 };
@@ -17,6 +18,7 @@ use std::{cell::RefCell, collections::HashMap, convert::TryInto, io::Write, rc::
 pub enum RunResult {
     Yield(Value),
     Break,
+    Return(Option<Value>),
 }
 
 pub type EvalResult<T> = Result<T, EvalError>;
@@ -56,6 +58,7 @@ macro_rules! unwrap_run {
         match unwrap_deref($e)? {
             RunResult::Yield(v) => v,
             RunResult::Break => return Ok(RunResult::Break),
+            RunResult::Return(v) => return Ok(RunResult::Return(v)),
         }
     };
 }
@@ -290,11 +293,12 @@ where
                     }
                     let run_result = run(&func.stmts, &mut subctx)?;
                     match unwrap_deref(run_result)? {
-                        RunResult::Yield(v) => match &func.ret_type {
+                        RunResult::Yield(v) | RunResult::Return(Some(v)) => match &func.ret_type {
                             RetType::Some(ty) => RunResult::Yield(coerce_type(&v, ty)?),
                             RetType::Void => RunResult::Yield(v),
                         },
                         RunResult::Break => return Err(EvalError::BreakInToplevel),
+                        RunResult::Return(None) => RunResult::Yield(Value::I32(0)),
                     }
                 }
                 FuncDef::Native(native) => RunResult::Yield((native.code)(
@@ -326,6 +330,7 @@ where
                 RunResult::Break => {
                     return Ok(RunResult::Break);
                 }
+                RunResult::Return(v) => return Ok(RunResult::Return(v)),
             };
             let result = unwrap_run!(eval(ex, ctx)?);
             RunResult::Yield(result.array_get(arg0)?)
@@ -719,6 +724,15 @@ impl std::fmt::Display for RetType {
     }
 }
 
+impl From<RetType> for TypeSet {
+    fn from(value: RetType) -> Self {
+        match value {
+            RetType::Some(ty) => ty.into(),
+            _ => TypeSet::void(),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct NativeCode<'native> {
     args: Vec<ArgDecl<'native>>,
@@ -997,6 +1011,7 @@ macro_rules! unwrap_break {
         match $e {
             RunResult::Yield(v) => v,
             RunResult::Break => break,
+            RunResult::Return(v) => return Ok(RunResult::Return(v)),
         }
     };
 }
@@ -1049,6 +1064,7 @@ where
                         }
                     }
                     RunResult::Break => return Ok(ex_res),
+                    RunResult::Return(v) => return Ok(RunResult::Return(v)),
                 }
                 // println!("Expression evaluates to: {:?}", res);
             }
@@ -1063,10 +1079,12 @@ where
                         }
                     }
                     RunResult::Break => break,
+                    RunResult::Return(v) => return Ok(RunResult::Return(v)),
                 }
                 res = match unwrap_deref(run(e, ctx)?)? {
                     RunResult::Yield(v) => RunResult::Yield(v),
                     RunResult::Break => break,
+                    RunResult::Return(v) => return Ok(RunResult::Return(v)),
                 };
             },
             Statement::For {
@@ -1088,10 +1106,18 @@ where
             Statement::Break => {
                 return Ok(RunResult::Break);
             }
+            Statement::Return(ex) => {
+                let ex_res = if let Some(ex) = ex {
+                    RunResult::Return(Some(unwrap_break!(eval(&ex, ctx)?)))
+                } else {
+                    RunResult::Return(None)
+                };
+                return Ok(ex_res);
+            }
             Statement::Struct(str) => {
                 ctx.typedefs.insert(str.name.to_string(), str.clone());
             }
-            _ => {}
+            Statement::Comment(_) => {}
         }
     }
     Ok(res)

@@ -75,7 +75,7 @@ pub enum OpCode {
     Jf,
     /// Call a function with arg0 aruguments on the stack with index arg1.
     Call,
-    /// Returns from current call stack.
+    /// Returns from current call stack and yield with the value on the stack at arg1.
     Ret,
     /// Casts a value at arg0 to a type indicated by arg1. I'm feeling this should be a standard library function
     /// rather than a opcode, but let's finish implementation compatible with AST interpreter first.

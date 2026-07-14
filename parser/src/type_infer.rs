@@ -159,7 +159,7 @@ pub struct TypeCheckContext<'src, 'native, 'ctx> {
     pub(crate) variables: HashMap<&'src str, VariableType>,
     /// Function names are owned strings because it can be either from source or native.
     functions: HashMap<String, FuncDecl>,
-    super_context: Option<&'ctx TypeCheckContext<'src, 'native, 'ctx>>,
+    super_context: Option<(&'ctx TypeCheckContext<'src, 'native, 'ctx>, RetType)>,
     source_file: Option<&'src str>,
     pub(crate) typedefs: TypeMapRc<'src>,
     _phantom: PhantomData<&'native ()>,
@@ -183,7 +183,7 @@ impl<'src, 'native, 'ctx> TypeCheckContext<'src, 'native, 'ctx> {
     fn get_var(&self, name: &str) -> Option<&VariableType> {
         if let Some(val) = self.variables.get(name) {
             Some(val)
-        } else if let Some(super_ctx) = self.super_context {
+        } else if let Some((super_ctx, _)) = self.super_context {
             super_ctx.get_var(name)
         } else {
             None
@@ -204,7 +204,7 @@ impl<'src, 'native, 'ctx> TypeCheckContext<'src, 'native, 'ctx> {
     fn get_fn_raw(&self, name: &str) -> Option<&FuncDecl> {
         if let Some(val) = self.functions.get(name) {
             Some(val)
-        } else if let Some(super_ctx) = self.super_context {
+        } else if let Some((super_ctx, _)) = self.super_context {
             super_ctx.get_fn(name)
         } else {
             None
@@ -212,16 +212,18 @@ impl<'src, 'native, 'ctx> TypeCheckContext<'src, 'native, 'ctx> {
     }
 
     fn get_type(&self, name: &str) -> Option<&Rc<StructDecl<'src>>> {
-        self.typedefs
-            .get(name)
-            .or_else(|| self.super_context.and_then(|sc| sc.get_type(name)))
+        self.typedefs.get(name).or_else(|| {
+            self.super_context
+                .as_ref()
+                .and_then(|(sc, _)| sc.get_type(name))
+        })
     }
 
-    fn push_stack(super_ctx: &'ctx Self) -> Self {
+    fn push_stack(super_ctx: &'ctx Self, ret_ty: RetType) -> Self {
         Self {
             variables: HashMap::new(),
             functions: HashMap::new(),
-            super_context: Some(super_ctx),
+            super_context: Some((super_ctx, ret_ty)),
             source_file: super_ctx.source_file,
             typedefs: HashMap::new(),
             _phantom: PhantomData,
@@ -513,7 +515,7 @@ where
             }
         }
         ExprEnum::Brace(stmts) => {
-            let mut subctx = TypeCheckContext::push_stack(ctx);
+            let mut subctx = TypeCheckContext::push_stack(ctx, RetType::Void);
             tc_stmts_forward(stmts, &mut subctx)?
         }
         ExprEnum::StructLiteral { name, fields, .. } => {
@@ -720,7 +722,11 @@ where
             }
         }
         ExprEnum::Brace(stmts) => {
-            let mut subctx = TypeCheckContext::push_stack(ctx);
+            let mut subctx = TypeCheckContext::push_stack(
+                ctx,
+                ts.determine()
+                    .ok_or_else(|| TypeCheckError::indeterminant_type(span, ctx.source_file))?,
+            );
             tc_stmts_forward(stmts, &mut subctx)?;
             tc_stmts_reverse(stmts, ts, &mut subctx)?
         }
@@ -929,7 +935,7 @@ where
                     ret_ty: Box::new(ret_type.clone()),
                 },
             );
-            let mut subctx = TypeCheckContext::push_stack(ctx);
+            let mut subctx = TypeCheckContext::push_stack(ctx, ret_type.clone());
             for arg in args.iter() {
                 if let Some(ref init) = arg.init {
                     // Use a new context to denote constant expression
@@ -1002,6 +1008,11 @@ where
         }
         Statement::Break => {
             // TODO: check types in break out site. For now we disallow break with values like Rust.
+        }
+        Statement::Return(ex) => {
+            if let Some(ex) = ex {
+                tc_expr_forward(ex, ctx)?;
+            }
         }
         // Struct should be definitely typed, until we have generic types.
         Statement::Struct(st) => {
@@ -1100,6 +1111,17 @@ where
         Statement::Break => {
             // TODO: check types in break out site. For now we disallow break with values like Rust.
         }
+        Statement::Return(ex) => {
+            if let Some(ex) = ex {
+                tc_expr_reverse(
+                    ex,
+                    &ctx.super_context
+                        .as_ref()
+                        .map_or(TypeSet::void(), |(_, r)| r.into()),
+                    ctx,
+                )?;
+            }
+        }
         // Struct should be definitely typed, until we have generic types.
         Statement::Struct(_) | Statement::Comment(_) => (),
     }
@@ -1160,7 +1182,7 @@ where
                 ret_type,
                 stmts,
             } => {
-                let mut inferer = TypeCheckContext::push_stack(ctx);
+                let mut inferer = TypeCheckContext::push_stack(ctx, ret_type.clone());
                 inferer.variables = args
                     .iter()
                     .map(|param| {
