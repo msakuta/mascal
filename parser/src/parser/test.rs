@@ -1106,3 +1106,26 @@ fn test_field_access() {
         )
     );
 }
+
+#[test]
+fn test_return() {
+    let src = Span::new("return a + b");
+    let (r, s) = statement(src).unwrap();
+    assert!(r.is_empty());
+    assert_eq!(
+        s,
+        Statement::Return(Some(Expression::new(
+            ExprEnum::Add(
+                Box::new(Expression::new(
+                    ExprEnum::Variable(*src.subslice(7, 1)),
+                    src.subslice(7, 1)
+                )),
+                Box::new(Expression::new(
+                    ExprEnum::Variable(*src.subslice(11, 1)),
+                    src.subslice(11, 1)
+                )),
+            ),
+            src.subslice(7, 5)
+        )))
+    );
+}

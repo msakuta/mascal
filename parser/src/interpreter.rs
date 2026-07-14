@@ -8,6 +8,7 @@ use crate::{
     func::{NativeFnRef, UserData},
     parser::*,
     type_decl::{ArraySize, FuncDecl},
+    type_set::TypeSet,
     value::{ArrayInt, StructInt, TupleEntry},
     TypeDecl, Value,
 };
@@ -715,6 +716,15 @@ impl std::fmt::Display for RetType {
         match self {
             Self::Some(v) => v.fmt(f),
             _ => write!(f, "void"),
+        }
+    }
+}
+
+impl From<RetType> for TypeSet {
+    fn from(value: RetType) -> Self {
+        match value {
+            RetType::Some(ty) => ty.into(),
+            _ => TypeSet::void(),
         }
     }
 }

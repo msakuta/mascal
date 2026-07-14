@@ -599,6 +599,12 @@ fn emit_stmts<'src>(
                 compiler.push_inst(OpCode::Jmp, 0, 0);
                 compiler.break_ips.push(break_ip);
             }
+            Statement::Return(ex) => {
+                if let Some(ex) = ex {
+                    emit_expr(ex, compiler)?.into_stack(compiler);
+                }
+                compiler.push_inst(OpCode::Ret, 0, 0);
+            }
             // For now, structs are concepts only at compile time.
             Statement::Struct(st) => {
                 compiler

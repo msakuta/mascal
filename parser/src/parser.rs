@@ -128,6 +128,7 @@ pub enum Statement<'a> {
         stmts: Vec<Statement<'a>>,
     },
     Break,
+    Return(Option<Expression<'a>>),
     Struct(StructDecl<'a>),
 }
 
@@ -139,6 +140,7 @@ impl<'a> Statement<'a> {
                 semicolon: false,
                 ..
             } | Self::Break
+                | Self::Return(_)
         )
     }
 }
@@ -1146,8 +1148,26 @@ fn for_stmt(input: Span) -> IResult<Span, Statement> {
 }
 
 fn break_stmt(input: Span) -> IResult<Span, Statement> {
-    let (r, _) = ws(tag("break"))(input)?;
+    let (r, id) = ident_space(input)?;
+    if *id != "break" {
+        return Err(nom::Err::Error(nom::error::Error::new(
+            input,
+            nom::error::ErrorKind::Tag,
+        )));
+    }
     Ok((r, Statement::Break))
+}
+
+fn return_stmt(input: Span) -> IResult<Span, Statement> {
+    let (r, id) = ident_space(input)?;
+    if *id != "return" {
+        return Err(nom::Err::Error(nom::error::Error::new(
+            input,
+            nom::error::ErrorKind::Tag,
+        )));
+    }
+    let (r, ex) = opt(expr)(r)?;
+    Ok((r, Statement::Return(ex)))
 }
 
 /// The difference from [`func_arg`] is that the type is not optional.
@@ -1188,6 +1208,7 @@ pub(crate) fn statement(input: Span) -> IResult<Span, Statement> {
         while_stmt,
         for_stmt,
         break_stmt,
+        return_stmt,
         struct_def,
         expression_statement,
         comment_stmt,
@@ -1195,7 +1216,7 @@ pub(crate) fn statement(input: Span) -> IResult<Span, Statement> {
 }
 
 pub fn source(mut input: Span) -> IResult<Span, Vec<Statement>> {
-    // This ugly loop with pushing to the vec is necessary to cary over parsed state (stmt.expects_semicolon())
+    // This ugly loop with pushing to the vec is necessary to carry over parsed state (stmt.expects_semicolon())
     // which can affect the next statement's syntax.
     let mut v = vec![];
     loop {

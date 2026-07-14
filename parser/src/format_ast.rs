@@ -270,6 +270,15 @@ pub fn format_stmt(
             Ok(())
         }
         Statement::Break => write!(f, "{indent}break;"),
+        Statement::Return(ex) => {
+            if let Some(ex) = ex {
+                write!(f, "{indent}return ")?;
+                format_expr(ex, level, f)?;
+                write!(f, ";")
+            } else {
+                write!(f, "{indent}return;")
+            }
+        }
         Statement::Struct(str) => {
             writeln!(f, "struct {} {{", str.name)?;
             for field in &str.fields {

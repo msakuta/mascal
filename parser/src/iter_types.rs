@@ -67,6 +67,11 @@ pub fn iter_types(ast: &[Statement], f: &mut impl FnMut(TypeParams)) {
                 iter_types(stmts, f);
             }
             Statement::Break | Statement::Struct(_) => (),
+            Statement::Return(ex) => {
+                if let Some(ex) = ex {
+                    iter_types_expr(ex, f)
+                }
+            }
         }
     }
 }
