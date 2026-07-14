@@ -9,7 +9,7 @@ extern "C" {
     pub(crate) fn log(s: &str);
 }
 
-#[wasm_bindgen(module = "/wasm_api.js")]
+#[wasm_bindgen(raw_module = "../wasm_api.js")]
 extern "C" {
     pub(crate) fn wasm_print(s: &str);
     pub(crate) fn wasm_rectangle(x0: i32, y0: i32, x1: i32, y1: i32);
