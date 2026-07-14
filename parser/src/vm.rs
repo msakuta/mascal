@@ -256,6 +256,11 @@ fn call_fn<'a>(
             let to = fun_idx + 1 + num_args;
             let ret = nat(user_data, &stack[*stack_base + from..*stack_base + to])?;
             stack[*stack_base + fun_idx] = ret;
+
+            // When a native function is called, there is no "next" instruction to run,
+            // because it finishes atomically. Therefore, we need to increment the ip within the,
+            // same step, unlike a user defined function.
+            call_stack.clast_mut()?.ip += 1;
         }
     }
     Ok(())
@@ -519,6 +524,8 @@ impl<'a> Vm<'a> {
                     inst.arg1 as usize,
                     &self.user_data,
                 )?;
+                // Skip incrementing ip by returning early
+                return Ok(None);
             }
             OpCode::Ret => {
                 let retval = self.stack_base + inst.arg1 as usize;

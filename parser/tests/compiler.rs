@@ -39,8 +39,10 @@ fn parse_compile_interpret(src: &str, expected: &[u8]) {
 }
 
 /// Take an output mutable shared buffer behind Rc-RefCell, returns a closure that writes to it.
-fn s_writer(out: Rc<RefCell<Vec<u8>>>) -> Box<dyn Fn(&[Value]) -> Result<Value, EvalError>> {
-    Box::new(move |vals| {
+fn s_writer(
+    out: Rc<RefCell<Vec<u8>>>,
+) -> Box<dyn Fn(&UserData, &[Value]) -> Result<Value, EvalError>> {
+    Box::new(move |_, vals| {
         let mut writer = out.borrow_mut();
         for val in vals {
             write!(writer, "{}", val).unwrap();

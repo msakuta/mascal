@@ -79,7 +79,7 @@ where
                 // you could argue that either it is an lvalue or not.
                 // For example, should `a[{return 0}] = 1` be valid?
                 // We do not allow this because it requires more work and won't make the language
-                // useful.
+                // any more useful.
                 RunResult::Return(_) => return Err(EvalError::NonLValue(expr.span.to_string())),
             };
             let arr = eval_lvalue(ex, ctx)?;
