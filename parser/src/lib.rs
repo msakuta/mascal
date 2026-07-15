@@ -7,7 +7,7 @@ macro_rules! dbg_println {
 }
 
 mod bytecode;
-mod coercion;
+pub mod coercion;
 mod compiler;
 mod eval_error;
 mod format_ast;

@@ -7,7 +7,7 @@ use crate::{
     EvalError, TypeDecl, Value,
 };
 
-pub(crate) fn coerce_f64(a: &Value) -> EvalResult<f64> {
+pub fn coerce_f64(a: &Value) -> EvalResult<f64> {
     Ok(match a {
         Value::F64(v) => *v as f64,
         Value::F32(v) => *v as f64,
@@ -17,7 +17,7 @@ pub(crate) fn coerce_f64(a: &Value) -> EvalResult<f64> {
     })
 }
 
-pub(crate) fn coerce_f32(a: &Value) -> EvalResult<f32> {
+pub fn coerce_f32(a: &Value) -> EvalResult<f32> {
     Ok(match a {
         Value::F64(v) => *v as f32,
         Value::F32(v) => *v as f32,
@@ -27,7 +27,7 @@ pub(crate) fn coerce_f32(a: &Value) -> EvalResult<f32> {
     })
 }
 
-pub(crate) fn coerce_i64(a: &Value) -> EvalResult<i64> {
+pub fn coerce_i64(a: &Value) -> EvalResult<i64> {
     Ok(match a {
         Value::F64(v) => *v as i64,
         Value::F32(v) => *v as i64,
@@ -37,7 +37,7 @@ pub(crate) fn coerce_i64(a: &Value) -> EvalResult<i64> {
     })
 }
 
-pub(crate) fn coerce_i32(a: &Value) -> EvalResult<i32> {
+pub fn coerce_i32(a: &Value) -> EvalResult<i32> {
     Ok(match a {
         Value::F64(v) => *v as i32,
         Value::F32(v) => *v as i32,
