@@ -85,9 +85,9 @@ impl<'a> Vm<'a> {
         }
     }
 
-    pub fn start_main(bytecode: &'a Bytecode) -> EvalResult<Self> {
+    pub fn start_main(bytecode: &'a Bytecode, user_data: UserData) -> EvalResult<Self> {
         if let Some(FnProto::Code(main)) = bytecode.functions.get("") {
-            Ok(Self::new(main, &bytecode.functions, Rc::new(())))
+            Ok(Self::new(main, &bytecode.functions, user_data))
         } else {
             Err(EvalError::NoMainFound)
         }

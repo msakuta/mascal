@@ -502,7 +502,7 @@ impl<'a> App<'a> {
             *selected_history = 0;
         } else {
             let mut vm_history = VecDeque::new();
-            vm_history.push_front(Vm::start_main(self.bytecode)?);
+            vm_history.push_front(Vm::start_main(self.bytecode, Rc::new(()))?);
             self.mode = AppMode::StepRun {
                 vm_history,
                 btrace_level: 0,
