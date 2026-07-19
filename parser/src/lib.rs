@@ -15,11 +15,11 @@ mod func;
 mod interpreter;
 mod iter_types;
 mod parser;
-mod type_decl;
+pub mod type_decl;
 mod type_infer;
 mod type_set;
 mod type_tags;
-mod value;
+pub mod value;
 mod vm;
 
 use std::cell::RefCell;

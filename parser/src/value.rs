@@ -18,7 +18,7 @@ pub struct ArrayInt {
 }
 
 impl ArrayInt {
-    pub(crate) fn new(type_decl: TypeDecl, values: Vec<Value>) -> Rc<RefCell<Self>> {
+    pub fn new(type_decl: TypeDecl, values: Vec<Value>) -> Rc<RefCell<Self>> {
         Rc::new(RefCell::new(Self { type_decl, values }))
     }
 
