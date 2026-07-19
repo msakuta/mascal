@@ -1,0 +1,12 @@
+
+fn make_tuple(a: [str]) -> (i32, [str], f64) {
+    (1, a, 3.14)
+}
+
+var a = ["Hello", "world!"];
+var t = make_tuple(a);
+// var a = t.1;
+a[0] = "Goodbye";
+
+print("t: ", t, type(t));
+

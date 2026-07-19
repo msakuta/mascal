@@ -1,0 +1,5 @@
+var aa: [i64] = [123, 456];
+
+var bb: [i32] = aa as [i32];
+
+print(type(aa), type(bb));

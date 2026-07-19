@@ -1,0 +1,9 @@
+/* An example of mix of named and unnamed arguments to a function.
+   It invokes the function with the correct order as long as it covers
+   all parameters declared in the function. */
+
+fn foo(a: i32, b: i32, c: i32) {
+    a + b * 10. + c * 100.
+}
+
+print(foo(3., c: 1., b: 2.));

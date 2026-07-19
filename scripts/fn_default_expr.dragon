@@ -1,0 +1,12 @@
+
+var c = 1;
+
+/* Note that the default arg expressions are evaluated at call time,
+   not definition time. This is the same behavior as C++ but different from Python. */
+fn add(a: i32 = c * 2, b: i32 = c * 3) {
+    a + b;
+}
+
+c = 10;
+
+print(add());
