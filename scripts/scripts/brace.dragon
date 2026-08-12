@@ -1,0 +1,12 @@
+
+var x: i32 = 42;
+
+var result: i32 = {
+    var y: i32;
+    y = 10;
+    x = x * 10;
+    x + y
+};
+
+print(result);
+print(x);

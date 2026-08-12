@@ -1,0 +1,14 @@
+
+var i: i32 = 0;
+var accum: i32 = 0;
+
+loop {
+    i = i + 1;
+    if 10 < i {
+        break;
+    };
+    print(i);
+    accum = accum + i;
+}
+
+print(accum);

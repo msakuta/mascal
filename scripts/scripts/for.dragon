@@ -1,0 +1,13 @@
+
+for i in 0..10 {
+    print(i * i);
+}
+
+
+for i in 0 .. 10 {
+    print(0 - i * i);
+}
+
+for j in 0i32..20 {
+    print(j);
+}

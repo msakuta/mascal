@@ -1,0 +1,21 @@
+// This is a line comment statement.
+
+/* This is a block comment statement. */
+fn add          // inline comment
+(a: i32, b: i32 // inline comment
+) -> i32 {
+    // Comment
+    a + b
+}
+
+var // inline comment
+    a // inline comment
+    : // inline comment
+    i32 // inline comment
+    = 123;
+
+var b = // inline comment
+    456 // inline comment
+    ;
+
+print(add(a, 456));

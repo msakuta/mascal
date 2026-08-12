@@ -1,0 +1,8 @@
+struct A {
+    int: i32,
+}
+
+fn main() -> i32 {
+    var a = A { int: 42 };
+    a.int
+}

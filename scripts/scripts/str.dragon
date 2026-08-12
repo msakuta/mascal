@@ -1,0 +1,19 @@
+
+var i: i32 = 123;
+
+print(i);
+print(type(i));
+
+var s: str = "some text\nhello";
+
+print(s);
+
+var l: i64 = 321;
+
+print(l);
+
+var hello = "Hello, ";
+var world = "world!";
+
+print(hello + world);
+
