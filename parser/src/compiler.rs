@@ -1,7 +1,12 @@
 mod error;
 mod lvalue;
 
-use std::{cell::RefCell, collections::HashMap, io::Write, rc::Rc};
+use std::{
+    cell::RefCell,
+    collections::{hash_map::Entry, HashMap},
+    io::Write,
+    rc::Rc,
+};
 
 pub use self::error::CompileError;
 use self::{
@@ -109,7 +114,10 @@ impl<'src> CompilerEnv<'src> {
     fn new(mut functions: HashMap<String, FnProto>, debug: HashMap<String, FunctionInfo>) -> Self {
         let out = Rc::new(RefCell::new(std::io::stdout()));
         std_functions(out, &mut |name, f| {
-            functions.insert(name, FnProto::Native(f));
+            // Do not overwrite a function if it is supplied by the environment
+            if let Entry::Vacant(entry) = functions.entry(name) {
+                entry.insert(FnProto::Native(f));
+            }
         });
         Self {
             functions: functions
