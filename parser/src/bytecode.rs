@@ -86,6 +86,9 @@ pub enum OpCode {
     /// Make a tuple with arg0 arguments on the stack at index arg1. arg1 + 1 to arg1 + arg0 are the indices of the
     /// values to read from. arg1 shall contain the type name (struct name) before invocation.
     MakeStruct,
+    /// Make an array with arg0 arguments on the stack at index arg1. arg1 + 1 to arg1 + arg0 are the indices of the
+    /// values to read from.
+    MakeArray,
 }
 
 macro_rules! impl_op_from {
@@ -146,7 +149,8 @@ impl_op_from!(
     Ret,
     Cast,
     MakeTuple,
-    MakeStruct
+    MakeStruct,
+    MakeArray
 );
 
 /// A single instruction in a bytecode. OpCodes can have 0 to 2 arguments.

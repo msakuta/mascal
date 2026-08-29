@@ -638,22 +638,47 @@ fn emit_expr<'src>(
         ExprEnum::StrLiteral(val) => Ok(compiler.find_or_create_literal(&Value::Str(val.clone()))),
         ExprEnum::ArrLiteral(val) => {
             let mut ctx = EvalContext::default();
-            let val = Value::Array(Rc::new(RefCell::new(ArrayInt {
-                type_decl: TypeDecl::Any,
-                values: val
+
+            let values = val
+                .iter()
+                .map(|v| {
+                    if let RunResult::Yield(y) = eval(v, &mut ctx)
+                        .map_err(|e| CompileError::new(expr.span, CEK::EvalError(e)))?
+                    {
+                        Ok(y)
+                    } else {
+                        Err(CompileError::new(expr.span, CEK::BreakInArrayLiteral))
+                    }
+                })
+                .collect::<Result<Vec<_>, _>>();
+
+            // If the array literal is a constant expression, put it into the literal table.
+            if let Ok(values) = values {
+                let val = Value::Array(Rc::new(RefCell::new(ArrayInt {
+                    type_decl: TypeDecl::Any,
+                    values,
+                })));
+                Ok(compiler.find_or_create_literal(&val))
+            } else {
+                // If it is not a constant expression, build the expression to construct an array at runtime.
+                let arg_values: Vec<_> = val
                     .iter()
-                    .map(|v| {
-                        if let RunResult::Yield(y) = eval(v, &mut ctx)
-                            .map_err(|e| CompileError::new(expr.span, CEK::EvalError(e)))?
-                        {
-                            Ok(y)
-                        } else {
-                            Err(CompileError::new(expr.span, CEK::BreakInArrayLiteral))
-                        }
-                    })
-                    .collect::<Result<Vec<_>, _>>()?,
-            })));
-            Ok(compiler.find_or_create_literal(&val))
+                    .map(|ex| emit_expr(ex, compiler))
+                    .collect::<CompileResult<Vec<_>>>()?;
+
+                // Reserve the stack slot to return the array.
+                let stk_ret = compiler.target_stack.len();
+                compiler.target_stack.push(Target::None);
+
+                // Copy the elements in a contiguous region of the stack.
+                // It is important to not call emit_expr between those elements, since they can push temporary variables.
+                for arg in &arg_values {
+                    arg.into_stack(compiler);
+                }
+
+                compiler.push_inst(OpCode::MakeArray, arg_values.len() as u8, stk_ret as u16);
+                Ok(stk_ret)
+            }
         }
         ExprEnum::TupleLiteral(values) => {
             let mut ctx = EvalContext::default();

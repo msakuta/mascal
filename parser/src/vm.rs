@@ -9,7 +9,7 @@ use crate::{
     func::UserData,
     interpreter::{binary_op, binary_op_int, binary_op_str, compare_op, truthy, EvalResult},
     type_decl::TypeDecl,
-    value::{StructInt, TupleEntry},
+    value::{ArrayInt, StructInt, TupleEntry},
     Value,
 };
 
@@ -583,6 +583,19 @@ impl<'a> Vm<'a> {
                     fields: values,
                 })));
                 self.set(inst.arg1, st_value);
+            }
+            OpCode::MakeArray => {
+                let values = (0..inst.arg0)
+                    .map(|i| {
+                        // +1 for the return slot
+                        let stk_val = i as usize + inst.arg1 as usize + 1;
+                        self.get(stk_val).clone()
+                    })
+                    .collect::<Vec<_>>();
+
+                let ty = values.first().map_or(TypeDecl::Any, TypeDecl::from_value);
+                let tuple = Value::Array(ArrayInt::new(ty, values));
+                self.set(inst.arg1, tuple);
             }
         }
 
