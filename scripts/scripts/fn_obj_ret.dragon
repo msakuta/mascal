@@ -1,0 +1,11 @@
+
+/* add two values */
+fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+fn return_add() -> fn(i32, i32) -> i32 {
+    add
+}
+
+print(return_add()(123, 456));

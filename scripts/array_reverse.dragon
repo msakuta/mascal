@@ -1,0 +1,13 @@
+
+var a: [i32] = [1,3,5];
+
+fn reverse(a: [i32]) -> [i32] {
+    var ret: [i32] = [];
+    var alen: i64 = len(a);
+    for i in 0 .. alen {
+        push(ret, a[alen - i - 1]);
+    }
+    ret
+}
+
+print("a: ", a, ", reverse(a): ", reverse(a));

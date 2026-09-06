@@ -1,0 +1,7 @@
+
+var a: i32 = 1;
+var b: i32 = 10;
+
+var d: [i32] = [a + b, 20, 30];
+
+print(d);
