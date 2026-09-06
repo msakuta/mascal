@@ -5,8 +5,8 @@ use ratatui::{
     symbols::{border, scrollbar},
     text::{Line, Text},
     widgets::{
-        block::Title, Block, Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState,
-        StatefulWidget, Widget,
+        Block, Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, StatefulWidget,
+        Widget,
     },
 };
 
@@ -104,7 +104,7 @@ impl Widget for &mut HelpWidget {
     {
         let text_lines = HelpWidget::text_lines();
 
-        let title = Title::from(" Help ".bold());
+        let title = Line::from(" Help ".bold());
         let block = Block::bordered()
             .title(title.alignment(Alignment::Center))
             // .bg(Color::Blue)

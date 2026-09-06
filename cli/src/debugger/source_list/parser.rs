@@ -11,8 +11,8 @@ use nom::{
     character::complete::{alpha1, alphanumeric1, char, multispace1, none_of, one_of},
     combinator::{opt, recognize},
     multi::{many0, many1},
-    sequence::{delimited, pair, terminated, tuple},
-    Finish, IResult,
+    sequence::{delimited, pair, terminated},
+    Finish, IResult, Parser,
 };
 use ratatui::{
     style::{Color, Style, Stylize},
@@ -164,7 +164,8 @@ fn identifier(input: &str) -> IResult<&str, &str> {
     recognize(pair(
         alt((alpha1, tag("_"))),
         many0(alt((alphanumeric1, tag("_")))),
-    ))(input)
+    ))
+    .parse(input)
 }
 
 fn keyword(input: &str) -> IResult<&str, Span<'_>> {
@@ -182,21 +183,24 @@ fn keyword(input: &str) -> IResult<&str, Span<'_>> {
 }
 
 fn decimal(input: &str) -> IResult<&str, &str> {
-    recognize(many1(terminated(one_of("0123456789"), many0(char('_')))))(input)
+    recognize(many1(terminated(one_of("0123456789"), many0(char('_'))))).parse(input)
 }
 
 fn decimal_value(i: &str) -> IResult<&str, Span<'_>> {
-    recognize(pair(opt(one_of("+-")), decimal))(i).map(|(r, s)| (r, s.light_green()))
+    recognize(pair(opt(one_of("+-")), decimal))
+        .parse(i)
+        .map(|(r, s)| (r, s.light_green()))
 }
 
 fn float(input: &str) -> IResult<&str, &str> {
-    recognize(tuple((
+    recognize((
         opt(one_of("+-")),
         decimal,
         nom::combinator::not(tag("..")),
         char('.'),
         opt(decimal),
-    )))(input)
+    ))
+    .parse(input)
 }
 
 fn float_value(i: &str) -> IResult<&str, Span<'_>> {
@@ -204,7 +208,9 @@ fn float_value(i: &str) -> IResult<&str, Span<'_>> {
 }
 
 fn _comment(r: &str) -> IResult<&str, Span<'_>> {
-    recognize(delimited(tag("/*"), take_until("*/"), tag("*/")))(r).map(|(r, s)| (r, s.green()))
+    recognize(delimited(tag("/*"), take_until("*/"), tag("*/")))
+        .parse(r)
+        .map(|(r, s)| (r, s.green()))
 }
 
 fn comment_start(i: &str) -> IResult<&str, Span<'_>> {
@@ -244,22 +250,24 @@ fn _non_ident(mut input: &str) -> IResult<&str, Span<'_>> {
 }
 
 fn punctuation(i: &str) -> IResult<&str, Span<'_>> {
-    alt((tag(".."), recognize(one_of("(){}[],:;*+-/=<>.")), tag("->")))(i)
+    alt((tag(".."), recognize(one_of("(){}[],:;*+-/=<>.")), tag("->")))
+        .parse(i)
         .map(|(r, s)| (r, s.white()))
 }
 
 fn _str_literal(i: &str) -> IResult<&str, Span<'_>> {
-    recognize(delimited(char('\"'), many0(none_of("\"")), char('"')))(i)
+    recognize(delimited(char('\"'), many0(none_of("\"")), char('"')))
+        .parse(i)
         .map(|(r, s)| (r, s.light_magenta()))
 }
 
 fn str_literal_start(i: &str) -> IResult<&str, Span<'_>> {
-    let (r, s) = recognize(char('"'))(i)?;
+    let (r, s) = recognize(char('"')).parse(i)?;
     Ok((r, s.light_magenta()))
 }
 
 fn str_literal_end(i: &str) -> IResult<&str, &str> {
-    recognize(char('"'))(i)
+    recognize(char('"')).parse(i)
 }
 
 fn whitespace(i: &str) -> IResult<&str, Span<'_>> {
@@ -269,7 +277,7 @@ fn whitespace(i: &str) -> IResult<&str, Span<'_>> {
 /// Non-breaking tokens will not span multiple lines, so our syntax highlighter won't need
 /// to retain their states.
 fn non_breaking_token(i: &str) -> IResult<&str, Span<'_>> {
-    alt((keyword, whitespace, punctuation, float_value, decimal_value))(i)
+    alt((keyword, whitespace, punctuation, float_value, decimal_value)).parse(i)
 }
 
 fn _text(input: &str) -> Result<(&str, Vec<Span<'_>>), nom::error::Error<&str>> {
@@ -282,7 +290,8 @@ fn _text(input: &str) -> Result<(&str, Vec<Span<'_>>), nom::error::Error<&str>> 
         decimal_value,
         _str_literal,
         _non_ident,
-    )))(input)
+    )))
+    .parse(input)
     .finish()
 }
 

@@ -7,9 +7,16 @@ use crate::{
 };
 
 use nom::{
-    IResult, Input, Offset, Parser, branch::alt, bytes::complete::{tag, take_until}, character::complete::{
+    branch::alt,
+    bytes::complete::{tag, take_until},
+    character::complete::{
         alpha1, alphanumeric1, char, digit1, multispace0, multispace1, none_of, one_of,
-    }, combinator::{map_res, opt, recognize}, error::ParseError, multi::{fold_many0, many0, many1, separated_list0, separated_list1}, sequence::{delimited, pair, preceded, terminated},
+    },
+    combinator::{map_res, opt, recognize},
+    error::ParseError,
+    multi::{fold_many0, many0, many1, separated_list0, separated_list1},
+    sequence::{delimited, pair, preceded, terminated},
+    IResult, Input, Offset, Parser,
 };
 use nom_locate::LocatedSpan;
 use std::{rc::Rc, string::FromUtf8Error};
@@ -252,7 +259,8 @@ pub fn identifier(input: Span) -> IResult<Span, Span> {
     recognize(pair(
         alt((alpha1, tag("_"))),
         many0(alt((alphanumeric1, tag("_")))),
-    )).parse(input)
+    ))
+    .parse(input)
 }
 
 fn ident_space(input: Span) -> IResult<Span, Span> {
@@ -271,7 +279,8 @@ fn type_scalar(input: Span) -> IResult<Span, TypeDecl> {
         tag("i64"),
         tag("i32"),
         tag("str"),
-    ))).parse(input)?;
+    )))
+    .parse(input)?;
     Ok((
         r,
         match *type_ {
@@ -295,7 +304,8 @@ fn func_ty_args(i: Span) -> IResult<Span, Vec<ArgDecl>> {
             opt(ws(char(','))),
         ),
         tag(")"),
-    )).parse(i)
+    ))
+    .parse(i)
 }
 
 fn fn_type(i: Span) -> IResult<Span, TypeDecl> {
@@ -359,7 +369,8 @@ fn type_array(input: Span) -> IResult<Span, TypeDecl> {
             )),
         ),
         ws(char(']')),
-    ).parse(input)?;
+    )
+    .parse(input)?;
     Ok((
         r,
         TypeDecl::Array(Box::new(arr), range.unwrap_or_else(|| ArraySize::Any)),
@@ -369,7 +380,8 @@ fn type_array(input: Span) -> IResult<Span, TypeDecl> {
 fn type_tuple(i: Span) -> IResult<Span, TypeDecl> {
     let (r, _) = multispace0(i)?;
     let (r, _open_par) = tag("(").parse(r)?;
-    let (r, (mut val, last)) = pair(many0(terminated(type_decl, tag(","))), opt(type_decl)).parse(r)?;
+    let (r, (mut val, last)) =
+        pair(many0(terminated(type_decl, tag(","))), opt(type_decl)).parse(r)?;
     let (r, _close_par) = tag(")").parse(r)?;
     if let Some(last) = last {
         val.push(last);
@@ -447,7 +459,8 @@ fn float(input: Span) -> IResult<Span, Span> {
         nom::combinator::not(tag("..")),
         char('.'),
         opt(decimal),
-    )).parse(input)
+    ))
+    .parse(input)
 }
 
 fn float_value(i: Span) -> IResult<Span, (Value, Span)> {
@@ -534,7 +547,8 @@ pub(crate) fn array_literal(i: Span) -> IResult<Span, Expression> {
     let (r, (mut val, last)) = pair(
         many0(terminated(full_expression, tag(","))),
         opt(full_expression),
-    ).parse(r)?;
+    )
+    .parse(r)?;
     let (r, close_br) = tag("]").parse(r)?;
     if let Some(last) = last {
         val.push(last);
@@ -552,7 +566,8 @@ pub(crate) fn tuple_literal(i: Span) -> IResult<Span, Expression> {
     let (r, (mut val, last)) = pair(
         many0(terminated(full_expression, tag(","))),
         opt(full_expression),
-    ).parse(r)?;
+    )
+    .parse(r)?;
     let (r, close_br) = tag(")").parse(r)?;
     if let Some(last) = last {
         val.push(last);
@@ -620,7 +635,8 @@ pub(crate) fn func_invoke<'src>(
             char(')'),
         ),
         multispace0,
-    ).parse(*i)?;
+    )
+    .parse(*i)?;
 
     let length = start.offset(&r);
     postfix((
@@ -644,7 +660,8 @@ pub(crate) fn array_index<'src>(
             tag("]"),
         ),
         multispace0,
-    )).parse(*i)?;
+    ))
+    .parse(*i)?;
 
     postfix((
         *start,
@@ -724,7 +741,8 @@ pub(crate) fn primary_expression(i: Span) -> IResult<Span, Expression> {
         brace_expr,
         tuple_literal,
         primary_with_ident,
-    )).parse(i)
+    ))
+    .parse(i)
 }
 
 fn primary_with_ident(i: Span) -> IResult<Span, Expression> {
@@ -754,7 +772,8 @@ fn struct_literal<'a>(name: Span<'a>, i: Span<'a>) -> IResult<Span<'a>, Expressi
     let (r, fields) = terminated(
         separated_list0(ws(tag(",")), struct_field_literal),
         opt(ws(char(','))),
-    ).parse(r)?;
+    )
+    .parse(r)?;
 
     let (r, _) = ws(tag("}")).parse(r)?;
     return Ok((
@@ -814,7 +833,8 @@ fn not(i: Span) -> IResult<Span, Expression> {
         multispace0,
         alt((char('!'), char('~'), char('-'))),
         multispace0,
-    ).parse(i)?;
+    )
+    .parse(i)?;
     let (r, v) = not_factor(r)?;
     Ok((
         r,
@@ -854,7 +874,8 @@ fn term(i: Span) -> IResult<Span, Expression> {
                 Expression::new(ExprEnum::Div(Box::new(acc), Box::new(val)), span)
             }
         },
-    ).parse(r)
+    )
+    .parse(r)
 }
 
 pub(crate) fn arithm_expr(i: Span) -> IResult<Span, Expression> {
@@ -874,7 +895,8 @@ pub(crate) fn arithm_expr(i: Span) -> IResult<Span, Expression> {
                 Expression::new(ExprEnum::Sub(Box::new(acc), Box::new(val)), span)
             }
         },
-    ).parse(r)
+    )
+    .parse(r)
 }
 
 pub(crate) fn expr(i: Span) -> IResult<Span, Expression> {
@@ -893,7 +915,8 @@ pub(crate) fn expr(i: Span) -> IResult<Span, Expression> {
                 span,
             )
         },
-    ).parse(r)
+    )
+    .parse(r)
 }
 
 fn cmp(i: Span) -> IResult<Span, Expression> {
@@ -909,7 +932,8 @@ fn cmp(i: Span) -> IResult<Span, Expression> {
             tag("!="),
         ))),
         expr,
-    ).parse(r)?;
+    )
+    .parse(r)?;
     let span = calc_offset(i, r);
     Ok((
         r,
@@ -943,7 +967,8 @@ pub(crate) fn conditional(i: Span) -> IResult<Span, Expression> {
                 },
             ),
         )),
-    )).parse(r)?;
+    ))
+    .parse(r)?;
     Ok((
         r,
         Expression::new(
@@ -987,7 +1012,8 @@ fn bin_op<'src>(
                 );
                 Expression::new(cons(Box::new(acc), Box::new(val)), span)
             },
-        ).parse(r)
+        )
+        .parse(r)
     }
 }
 
@@ -1087,7 +1113,8 @@ fn func_decl_args(i: Span) -> IResult<Span, Vec<ArgDecl>> {
         tag("("),
         terminated(separated_list0(ws(tag(",")), func_arg), opt(ws(char(',')))),
         tag(")"),
-    )).parse(i)
+    ))
+    .parse(i)
 }
 
 pub(crate) fn func_decl(input: Span) -> IResult<Span, Statement> {
@@ -1186,7 +1213,8 @@ fn struct_def(i: Span<'_>) -> IResult<Span<'_>, Statement<'_>> {
     let (r, fields) = terminated(
         separated_list0(ws(tag(",")), struct_field),
         opt(ws(char(','))),
-    ).parse(r)?;
+    )
+    .parse(r)?;
 
     let (r, _) = ws(tag("}")).parse(r)?;
 
@@ -1205,7 +1233,8 @@ pub(crate) fn statement(input: Span) -> IResult<Span, Statement> {
         struct_def,
         expression_statement,
         comment_stmt,
-    )).parse(input)
+    ))
+    .parse(input)
 }
 
 pub fn source(mut input: Span) -> IResult<Span, Vec<Statement>> {

@@ -6,8 +6,8 @@ use ratatui::{
     symbols::{border, scrollbar},
     text::Line,
     widgets::{
-        block::Title, Block, Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState,
-        StatefulWidget, Widget,
+        Block, Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, StatefulWidget,
+        Widget,
     },
 };
 
@@ -193,7 +193,7 @@ impl ViewSettingsWidget {
     pub(super) fn render(&mut self, area: Rect, buf: &mut Buffer, view_settings: &ViewSettings) {
         let mut text_lines = ViewSettingsWidget::text_lines(view_settings);
 
-        let title = Title::from(" View Settings ".bold());
+        let title = Line::from(" View Settings ".bold());
         let block = Block::bordered()
             .title(title.alignment(Alignment::Center))
             // .bg(Color::Blue)

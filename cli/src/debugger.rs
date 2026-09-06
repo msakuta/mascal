@@ -17,10 +17,7 @@ use ratatui::{
     style::{Style, Stylize},
     symbols::border,
     text::{Line, Text},
-    widgets::{
-        block::{Position, Title},
-        Block, Paragraph, Widget,
-    },
+    widgets::{Block, Paragraph, TitlePosition, Widget},
     DefaultTerminal, Frame,
 };
 
@@ -542,8 +539,8 @@ impl Widgets {
 
 impl<'a> Widget for &mut App<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let title = Title::from(" Interactive debugger ".bold());
-        let instructions = Title::from(Line::from(vec![
+        let title = Line::from(" Interactive debugger ".bold()).alignment(Alignment::Center);
+        let instructions = Line::from(Line::from(vec![
             "  help: ".into(),
             "h".blue().bold(),
             if matches!(self.mode, AppMode::StepRun { .. }) {
@@ -555,11 +552,8 @@ impl<'a> Widget for &mut App<'a> {
         ]));
         let block = Block::bordered()
             .title(title.alignment(Alignment::Center))
-            .title(
-                instructions
-                    .alignment(Alignment::Center)
-                    .position(Position::Bottom),
-            )
+            .title(instructions)
+            .title_position(TitlePosition::Bottom)
             .border_style(if matches!(self.mode, AppMode::StepRun { .. }) {
                 Style::new().light_yellow()
             } else {
