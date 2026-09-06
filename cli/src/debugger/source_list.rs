@@ -10,8 +10,7 @@ use ratatui::{
     symbols::{border, scrollbar},
     text::{Line, Span, Text},
     widgets::{
-        block::Title, Block, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState,
-        StatefulWidget, Widget,
+        Block, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, StatefulWidget, Widget,
     },
 };
 
@@ -151,7 +150,7 @@ impl Widget for &mut SourceListWidget {
         Self: Sized,
     {
         let title =
-            Title::from(format!(" Source listing {}/{} ", self.scroll, self.text.len()).bold());
+            Line::from(format!(" Source listing {}/{} ", self.scroll, self.text.len()).bold());
         let block = Block::bordered()
             .title(title.alignment(Alignment::Center))
             .border_style(Style::new().white())

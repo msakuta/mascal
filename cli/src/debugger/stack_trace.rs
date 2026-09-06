@@ -5,7 +5,7 @@ use ratatui::{
     style::{Style, Stylize},
     symbols::border,
     text::{Line, Text},
-    widgets::{block::Title, Block, Paragraph, Widget},
+    widgets::{Block, Paragraph, Widget},
 };
 
 pub(super) struct StackTraceWidget {
@@ -39,7 +39,7 @@ impl Widget for &StackTraceWidget {
         Self: Sized,
     {
         let text_lines: Vec<_> = self.text.split('\n').collect();
-        let title = Title::from(
+        let title = Line::from(
             format!(
                 " Stack trace (most recent last) {}/{} ",
                 self.scroll,

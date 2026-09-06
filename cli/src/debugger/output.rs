@@ -5,8 +5,7 @@ use ratatui::{
     symbols::{border, scrollbar},
     text::{Line, Text},
     widgets::{
-        block::Title, Block, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState,
-        StatefulWidget, Widget,
+        Block, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, StatefulWidget, Widget,
     },
 };
 
@@ -68,7 +67,7 @@ impl Widget for &mut OutputWidget {
         Self: Sized,
     {
         let text_lines = &self.text;
-        let title = Title::from(format!(" Output {}/{} ", self.scroll, text_lines.len()).bold());
+        let title = Line::from(format!(" Output {}/{} ", self.scroll, text_lines.len()).bold());
         let block = Block::bordered()
             .title(title.alignment(Alignment::Center))
             .border_style(Style::new().magenta())

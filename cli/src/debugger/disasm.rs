@@ -4,10 +4,9 @@ use ratatui::{
     layout::{Alignment, Rect},
     style::{Color, Style, Stylize},
     symbols::{border, scrollbar},
-    text::Text,
+    text::{Line, Text},
     widgets::{
-        block::Title, Block, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState,
-        StatefulWidget, Widget,
+        Block, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, StatefulWidget, Widget,
     },
 };
 
@@ -95,9 +94,10 @@ impl Widget for &mut DisasmWidget {
             DisasmText::Source(ref text) => text.split('\n').count(),
             DisasmText::Function(ref text) => text.len(),
         };
-        let title = Title::from(format!(" Disassembly {}/{} ", self.scroll, line_count).bold());
+        let title = Line::from(format!(" Disassembly {}/{} ", self.scroll, line_count).bold())
+            .alignment(Alignment::Center);
         let block = Block::bordered()
-            .title(title.alignment(Alignment::Center))
+            .title(title)
             .border_style(Style::new().yellow())
             .border_set(if self.focus {
                 border::THICK

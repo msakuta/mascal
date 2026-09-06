@@ -6,8 +6,7 @@ use ratatui::{
     symbols::{border, scrollbar},
     text::{Line, Text},
     widgets::{
-        block::Title, Block, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState,
-        StatefulWidget, Widget,
+        Block, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, StatefulWidget, Widget,
     },
 };
 
@@ -84,7 +83,7 @@ impl Widget for &mut LocalsWidget {
         Self: Sized,
     {
         let title =
-            Title::from(format!(" Local variables {}/{} ", self.scroll, self.text.len()).bold());
+            Line::from(format!(" Local variables {}/{} ", self.scroll, self.text.len()).bold());
         let block = Block::bordered()
             .title(title.alignment(Alignment::Center))
             .border_style(Style::new().cyan())
