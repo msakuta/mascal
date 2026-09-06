@@ -7,16 +7,9 @@ use crate::{
 };
 
 use nom::{
-    branch::alt,
-    bytes::complete::{tag, take_until},
-    character::complete::{
+    IResult, Input, Offset, Parser, branch::alt, bytes::complete::{tag, take_until}, character::complete::{
         alpha1, alphanumeric1, char, digit1, multispace0, multispace1, none_of, one_of,
-    },
-    combinator::{map_res, opt, recognize},
-    error::ParseError,
-    multi::{fold_many0, many0, many1, separated_list0, separated_list1},
-    sequence::{delimited, pair, preceded, terminated, tuple},
-    IResult, InputTake, Offset,
+    }, combinator::{map_res, opt, recognize}, error::ParseError, multi::{fold_many0, many0, many1, separated_list0, separated_list1}, sequence::{delimited, pair, preceded, terminated},
 };
 use nom_locate::LocatedSpan;
 use std::{rc::Rc, string::FromUtf8Error};
@@ -240,7 +233,7 @@ impl<'a> Subslice for Span<'a> {
 
 fn block_comment<'a, E: ParseError<Span<'a>>>(input: Span<'a>) -> IResult<Span<'a>, Span<'a>, E> {
     let (r, _) = multispace0(input)?;
-    delimited(tag("/*"), take_until("*/"), tag("*/"))(r)
+    delimited(tag("/*"), take_until("*/"), tag("*/")).parse(r)
 }
 
 /// Usually comments are discarded from AST, but in certain places it is preserved for inspection.
@@ -259,11 +252,11 @@ pub fn identifier(input: Span) -> IResult<Span, Span> {
     recognize(pair(
         alt((alpha1, tag("_"))),
         many0(alt((alphanumeric1, tag("_")))),
-    ))(input)
+    )).parse(input)
 }
 
 fn ident_space(input: Span) -> IResult<Span, Span> {
-    ws(identifier)(input)
+    ws(identifier).parse(input)
 }
 
 pub(crate) fn _var_ref(input: Span) -> IResult<Span, Expression> {
@@ -278,7 +271,7 @@ fn type_scalar(input: Span) -> IResult<Span, TypeDecl> {
         tag("i64"),
         tag("i32"),
         tag("str"),
-    )))(input)?;
+    ))).parse(input)?;
     Ok((
         r,
         match *type_ {
@@ -302,7 +295,7 @@ fn func_ty_args(i: Span) -> IResult<Span, Vec<ArgDecl>> {
             opt(ws(char(','))),
         ),
         tag(")"),
-    ))(i)
+    )).parse(i)
 }
 
 fn fn_type(i: Span) -> IResult<Span, TypeDecl> {
@@ -315,7 +308,7 @@ fn fn_type(i: Span) -> IResult<Span, TypeDecl> {
     }
 
     let (r, args) = func_ty_args(r)?;
-    let (r, ret_ty) = opt(preceded(ws(tag("->")), ret_type))(r)?;
+    let (r, ret_ty) = opt(preceded(ws(tag("->")), ret_type)).parse(r)?;
 
     Ok((
         r,
@@ -334,16 +327,16 @@ fn fn_type(i: Span) -> IResult<Span, TypeDecl> {
 }
 
 fn array_size_range(input: Span) -> IResult<Span, ArraySize> {
-    let (r, start) = opt(ws(decimal))(input)?;
-    let (r, _) = ws(tag(".."))(r)?;
-    let (r, end) = opt(ws(decimal))(r)?;
+    let (r, start) = opt(ws(decimal)).parse(input)?;
+    let (r, _) = ws(tag("..")).parse(r)?;
+    let (r, end) = opt(ws(decimal)).parse(r)?;
     let start = start.and_then(|v| v.parse().ok()).unwrap_or(0);
     let end = end.and_then(|v| v.parse().ok()).unwrap_or(usize::MAX);
     Ok((r, ArraySize::Range(start..end)))
 }
 
 fn array_size_fixed(input: Span) -> IResult<Span, ArraySize> {
-    let (r, v) = ws(decimal)(input)?;
+    let (r, v) = ws(decimal).parse(input)?;
     Ok((
         r,
         ArraySize::Fixed(v.parse().map_err(|_| {
@@ -366,7 +359,7 @@ fn type_array(input: Span) -> IResult<Span, TypeDecl> {
             )),
         ),
         ws(char(']')),
-    )(input)?;
+    ).parse(input)?;
     Ok((
         r,
         TypeDecl::Array(Box::new(arr), range.unwrap_or_else(|| ArraySize::Any)),
@@ -375,9 +368,9 @@ fn type_array(input: Span) -> IResult<Span, TypeDecl> {
 
 fn type_tuple(i: Span) -> IResult<Span, TypeDecl> {
     let (r, _) = multispace0(i)?;
-    let (r, _open_par) = tag("(")(r)?;
-    let (r, (mut val, last)) = pair(many0(terminated(type_decl, tag(","))), opt(type_decl))(r)?;
-    let (r, _close_par) = tag(")")(r)?;
+    let (r, _open_par) = tag("(").parse(r)?;
+    let (r, (mut val, last)) = pair(many0(terminated(type_decl, tag(","))), opt(type_decl)).parse(r)?;
+    let (r, _close_par) = tag(")").parse(r)?;
     if let Some(last) = last {
         val.push(last);
     }
@@ -396,11 +389,11 @@ fn type_name(i: Span) -> IResult<Span, TypeDecl> {
 }
 
 pub(crate) fn type_decl(input: Span) -> IResult<Span, TypeDecl> {
-    alt((type_array, type_tuple, fn_type, type_scalar, type_name))(input)
+    alt((type_array, type_tuple, fn_type, type_scalar, type_name)).parse(input)
 }
 
 fn cast<'src>((start, prefix, i): &PostfixInput<'src>) -> IResult<Span<'src>, Expression<'src>> {
-    let (r, _) = ws(tag("as"))(*i)?;
+    let (r, _) = ws(tag("as")).parse(*i)?;
     let (r, decl) = type_decl(r)?;
     let prefix_start = start.offset(&prefix.span);
     let span = start.subslice(prefix_start, start.offset(&r).saturating_sub(prefix_start));
@@ -411,16 +404,16 @@ fn cast<'src>((start, prefix, i): &PostfixInput<'src>) -> IResult<Span<'src>, Ex
 }
 
 pub(crate) fn type_spec(input: Span) -> IResult<Span, TypeDecl> {
-    let (r, type_) = opt(delimited(ws(char(':')), type_decl, multispace0))(input)?;
+    let (r, type_) = opt(delimited(ws(char(':')), type_decl, multispace0)).parse(input)?;
     Ok((r, type_.unwrap_or(TypeDecl::Any)))
 }
 
 fn var_decl(input: Span) -> IResult<Span, Statement> {
-    let (r, _) = multispace1(tag("var")(multispace0(input)?.0)?.0)?;
+    let (r, _) = multispace1.parse(tag("var").parse(multispace0(input)?.0)?.0)?;
     let (r, ident) = ident_space(r)?;
     let (r, ty) = type_spec(r)?;
-    let (r, initializer) = opt(preceded(ws(char('=')), full_expression))(r)?;
-    let (r, _) = char(';')(ws_comment(r)?.0)?;
+    let (r, initializer) = opt(preceded(ws(char('=')), full_expression)).parse(r)?;
+    let (r, _) = char(';').parse(ws_comment(r)?.0)?;
     Ok((
         r,
         Statement::VarDecl {
@@ -433,11 +426,11 @@ fn var_decl(input: Span) -> IResult<Span, Statement> {
 }
 
 fn decimal(input: Span) -> IResult<Span, Span> {
-    recognize(many1(terminated(one_of("0123456789"), many0(char('_')))))(input)
+    recognize(many1(terminated(one_of("0123456789"), many0(char('_'))))).parse(input)
 }
 
 fn decimal_value(i: Span) -> IResult<Span, (Value, Span)> {
-    let (r, v) = recognize(pair(opt(one_of("+-")), decimal))(i)?;
+    let (r, v) = recognize(pair(opt(one_of("+-")), decimal)).parse(i)?;
     let parsed = v.parse().map_err(|_| {
         nom::Err::Error(nom::error::Error {
             input: i,
@@ -448,13 +441,13 @@ fn decimal_value(i: Span) -> IResult<Span, (Value, Span)> {
 }
 
 fn float(input: Span) -> IResult<Span, Span> {
-    recognize(tuple((
+    recognize((
         opt(one_of("+-")),
         decimal,
         nom::combinator::not(tag("..")),
         char('.'),
         opt(decimal),
-    )))(input)
+    )).parse(input)
 }
 
 fn float_value(i: Span) -> IResult<Span, (Value, Span)> {
@@ -469,8 +462,8 @@ fn float_value(i: Span) -> IResult<Span, (Value, Span)> {
 }
 
 fn double_expr(input: Span) -> IResult<Span, Expression> {
-    let (r, (value, value_span)) = alt((float_value, decimal_value))(input)?;
-    let (r, type_spec) = opt(alt((tag("i32"), tag("i64"), tag("f32"), tag("f64"))))(r)?;
+    let (r, (value, value_span)) = alt((float_value, decimal_value)).parse(input)?;
+    let (r, type_spec) = opt(alt((tag("i32"), tag("i64"), tag("f32"), tag("f64")))).parse(r)?;
     let (value, ts) = if let Some(ty) = type_spec {
         let map_err = |_e| {
             nom::Err::Error(nom::error::Error::new(
@@ -513,14 +506,14 @@ fn double_expr(input: Span) -> IResult<Span, Expression> {
 }
 
 fn numeric_literal_expression(input: Span) -> IResult<Span, Expression> {
-    delimited(multispace0, double_expr, multispace0)(input)
+    delimited(multispace0, double_expr, multispace0).parse(input)
 }
 
 fn str_literal(i: Span) -> IResult<Span, Expression> {
     let (r0, _) = multispace0(i)?;
-    let (r, _) = preceded(multispace0, char('\"'))(r0)?;
-    let (r, val) = many0(none_of("\""))(r)?;
-    let (r, _) = terminated(char('"'), multispace0)(r)?;
+    let (r, _) = preceded(multispace0, char('\"')).parse(r0)?;
+    let (r, val) = many0(none_of("\"")).parse(r)?;
+    let (r, _) = terminated(char('"'), multispace0).parse(r)?;
     Ok((
         r,
         Expression::new(
@@ -537,12 +530,12 @@ fn str_literal(i: Span) -> IResult<Span, Expression> {
 
 pub(crate) fn array_literal(i: Span) -> IResult<Span, Expression> {
     let (r, _) = multispace0(i)?;
-    let (r, open_br) = tag("[")(r)?;
+    let (r, open_br) = tag("[").parse(r)?;
     let (r, (mut val, last)) = pair(
         many0(terminated(full_expression, tag(","))),
         opt(full_expression),
-    )(r)?;
-    let (r, close_br) = tag("]")(r)?;
+    ).parse(r)?;
+    let (r, close_br) = tag("]").parse(r)?;
     if let Some(last) = last {
         val.push(last);
     }
@@ -555,12 +548,12 @@ pub(crate) fn array_literal(i: Span) -> IResult<Span, Expression> {
 
 pub(crate) fn tuple_literal(i: Span) -> IResult<Span, Expression> {
     let (r, _) = multispace0(i)?;
-    let (r, open_br) = tag("(")(r)?;
+    let (r, open_br) = tag("(").parse(r)?;
     let (r, (mut val, last)) = pair(
         many0(terminated(full_expression, tag(","))),
         opt(full_expression),
-    )(r)?;
-    let (r, close_br) = tag(")")(r)?;
+    ).parse(r)?;
+    let (r, close_br) = tag(")").parse(r)?;
     if let Some(last) = last {
         val.push(last);
     }
@@ -574,18 +567,18 @@ pub(crate) fn tuple_literal(i: Span) -> IResult<Span, Expression> {
 // We parse any expr surrounded by parens, ignoring all whitespaces around those
 fn parens(i: Span) -> IResult<Span, Expression> {
     let (r0, _) = multispace0(i)?;
-    let (r, res) = delimited(tag("("), conditional_expr, tag(")"))(r0)?;
+    let (r, res) = delimited(tag("("), conditional_expr, tag(")")).parse(r0)?;
     let (r, _) = multispace0(r)?;
     Ok((r, Expression::new(res.expr, r0.take(r0.offset(&r)))))
 }
 
 fn line_comment<'a, E: ParseError<Span<'a>>>(input: Span<'a>) -> IResult<Span<'a>, Span<'a>, E> {
     let (r, _) = multispace0(input)?;
-    delimited(tag("//"), take_until("\n"), tag("\n"))(r)
+    delimited(tag("//"), take_until("\n"), tag("\n")).parse(r)
 }
 
 fn ws_comment<'a, E: ParseError<Span<'a>>>(i: Span<'a>) -> IResult<Span<'a>, (), E> {
-    let (r, _) = many0(alt((line_comment, block_comment, multispace1)))(i)?;
+    let (r, _) = many0(alt((line_comment, block_comment, multispace1))).parse(i)?;
 
     Ok((r, ()))
 }
@@ -594,15 +587,15 @@ fn ws_comment<'a, E: ParseError<Span<'a>>>(i: Span<'a>) -> IResult<Span<'a>, (),
 /// trailing whitespace, returning the output of `inner`.
 fn ws<'a, F: 'a, O, E: ParseError<Span<'a>>>(
     inner: F,
-) -> impl FnMut(Span<'a>) -> IResult<Span<'a>, O, E>
+) -> impl Parser<Span<'a>, Output = O, Error = E>
 where
-    F: FnMut(Span<'a>) -> IResult<Span<'a>, O, E>,
+    F: Parser<Span<'a>, Output = O, Error = E>,
 {
     delimited(ws_comment, inner, ws_comment)
 }
 
 pub(crate) fn fn_invoke_arg(i: Span) -> IResult<Span, FnArg> {
-    let (r, name) = opt(pair(ws(identifier), ws(tag(":"))))(i)?;
+    let (r, name) = opt(pair(ws(identifier), ws(tag(":")))).parse(i)?;
     let (r, expr) = full_expression(r)?;
     Ok((
         r,
@@ -627,7 +620,7 @@ pub(crate) fn func_invoke<'src>(
             char(')'),
         ),
         multispace0,
-    )(*i)?;
+    ).parse(*i)?;
 
     let length = start.offset(&r);
     postfix((
@@ -645,13 +638,13 @@ pub(crate) fn array_index<'src>(
 ) -> IResult<Span<'src>, Expression<'src>> {
     let (r, indices) = many1(delimited(
         multispace0,
-        tuple((
+        (
             tag("["),
             separated_list1(ws(char(',')), full_expression),
             tag("]"),
-        )),
+        ),
         multispace0,
-    ))(*i)?;
+    )).parse(*i)?;
 
     postfix((
         *start,
@@ -671,7 +664,7 @@ pub(crate) fn array_index<'src>(
 pub(crate) fn tuple_index<'src>(
     (start, prefix, i): &PostfixInput<'src>,
 ) -> IResult<Span<'src>, Expression<'src>> {
-    let (r, indices) = many1(ws(preceded(tag("."), digit1)))(*i)?;
+    let (r, indices) = many1(ws(preceded(tag("."), digit1))).parse(*i)?;
     let prefix_span = prefix.span;
 
     postfix((
@@ -700,7 +693,7 @@ pub(crate) fn tuple_index<'src>(
 pub(crate) fn field_access<'src>(
     (start, prefix, i): &PostfixInput<'src>,
 ) -> IResult<Span<'src>, Expression<'src>> {
-    let (r, indices) = many1(ws(preceded(tag("."), ident_space)))(*i)?;
+    let (r, indices) = many1(ws(preceded(tag("."), ident_space))).parse(*i)?;
     let prefix_span = prefix.span;
 
     postfix((
@@ -731,7 +724,7 @@ pub(crate) fn primary_expression(i: Span) -> IResult<Span, Expression> {
         brace_expr,
         tuple_literal,
         primary_with_ident,
-    ))(i)
+    )).parse(i)
 }
 
 fn primary_with_ident(i: Span) -> IResult<Span, Expression> {
@@ -749,21 +742,21 @@ fn primary_with_ident(i: Span) -> IResult<Span, Expression> {
 
 /// The difference from [`func_arg`] is that the type is not optional.
 fn struct_field_literal(i: Span) -> IResult<Span, (Span, Expression)> {
-    let (r, field_name) = ws(identifier)(i)?;
-    let (r, _) = tag(":")(r)?;
+    let (r, field_name) = ws(identifier).parse(i)?;
+    let (r, _) = tag(":").parse(r)?;
     let (r, ex) = expr(r)?;
     Ok((r, (field_name, ex)))
 }
 
 fn struct_literal<'a>(name: Span<'a>, i: Span<'a>) -> IResult<Span<'a>, Expression<'a>> {
-    let (r, _) = ws(tag("{"))(i)?;
+    let (r, _) = ws(tag("{")).parse(i)?;
 
     let (r, fields) = terminated(
         separated_list0(ws(tag(",")), struct_field_literal),
         opt(ws(char(','))),
-    )(r)?;
+    ).parse(r)?;
 
-    let (r, _) = ws(tag("}"))(r)?;
+    let (r, _) = ws(tag("}")).parse(r)?;
     return Ok((
         r,
         Expression::new(
@@ -821,7 +814,7 @@ fn not(i: Span) -> IResult<Span, Expression> {
         multispace0,
         alt((char('!'), char('~'), char('-'))),
         multispace0,
-    )(i)?;
+    ).parse(i)?;
     let (r, v) = not_factor(r)?;
     Ok((
         r,
@@ -838,7 +831,7 @@ fn not(i: Span) -> IResult<Span, Expression> {
 }
 
 fn not_factor(i: Span) -> IResult<Span, Expression> {
-    alt((not, postfix_expression))(i)
+    alt((not, postfix_expression)).parse(i)
 }
 
 // We read an initial factor and for each time we find
@@ -861,7 +854,7 @@ fn term(i: Span) -> IResult<Span, Expression> {
                 Expression::new(ExprEnum::Div(Box::new(acc), Box::new(val)), span)
             }
         },
-    )(r)
+    ).parse(r)
 }
 
 pub(crate) fn arithm_expr(i: Span) -> IResult<Span, Expression> {
@@ -881,7 +874,7 @@ pub(crate) fn arithm_expr(i: Span) -> IResult<Span, Expression> {
                 Expression::new(ExprEnum::Sub(Box::new(acc), Box::new(val)), span)
             }
         },
-    )(r)
+    ).parse(r)
 }
 
 pub(crate) fn expr(i: Span) -> IResult<Span, Expression> {
@@ -900,7 +893,7 @@ pub(crate) fn expr(i: Span) -> IResult<Span, Expression> {
                 span,
             )
         },
-    )(r)
+    ).parse(r)
 }
 
 fn cmp(i: Span) -> IResult<Span, Expression> {
@@ -916,7 +909,7 @@ fn cmp(i: Span) -> IResult<Span, Expression> {
             tag("!="),
         ))),
         expr,
-    )(r)?;
+    ).parse(r)?;
     let span = calc_offset(i, r);
     Ok((
         r,
@@ -933,9 +926,9 @@ fn cmp(i: Span) -> IResult<Span, Expression> {
 }
 
 pub(crate) fn conditional(i: Span) -> IResult<Span, Expression> {
-    let (r, _) = ws(tag("if"))(i)?;
+    let (r, _) = ws(tag("if")).parse(i)?;
     let (r, cond) = or(r)?;
-    let (r, true_branch) = delimited(ws(char('{')), source, ws(char('}')))(r)?;
+    let (r, true_branch) = delimited(ws(char('{')), source, ws(char('}'))).parse(r)?;
     let (r, false_branch) = opt(preceded(
         ws(tag("else")),
         alt((
@@ -950,7 +943,7 @@ pub(crate) fn conditional(i: Span) -> IResult<Span, Expression> {
                 },
             ),
         )),
-    ))(r)?;
+    )).parse(r)?;
     Ok((
         r,
         Expression::new(
@@ -961,7 +954,7 @@ pub(crate) fn conditional(i: Span) -> IResult<Span, Expression> {
 }
 
 pub(crate) fn var_assign(i: Span) -> IResult<Span, Expression> {
-    let (r, res) = tuple((cmp_expr, char('='), assign_expr))(i)?;
+    let (r, res) = (cmp_expr, char('='), assign_expr).parse(i)?;
     let span = calc_offset(i, r);
     Ok((
         r,
@@ -970,7 +963,7 @@ pub(crate) fn var_assign(i: Span) -> IResult<Span, Expression> {
 }
 
 pub(crate) fn cmp_expr(i: Span) -> IResult<Span, Expression> {
-    alt((cmp, expr))(i)
+    alt((cmp, expr)).parse(i)
 }
 
 /// A functor to create a function for a binary operator
@@ -994,7 +987,7 @@ fn bin_op<'src>(
                 );
                 Expression::new(cons(Box::new(acc), Box::new(val)), span)
             },
-        )(r)
+        ).parse(r)
     }
 }
 
@@ -1019,17 +1012,17 @@ fn or(i: Span) -> IResult<Span, Expression> {
 }
 
 fn assign_expr(i: Span) -> IResult<Span, Expression> {
-    alt((var_assign, or))(i)
+    alt((var_assign, or)).parse(i)
 }
 
 pub(crate) fn conditional_expr(i: Span) -> IResult<Span, Expression> {
-    alt((conditional, assign_expr))(i)
+    alt((conditional, assign_expr)).parse(i)
 }
 
 fn brace_expr(i: Span) -> IResult<Span, Expression> {
-    let (r, open_br) = ws(tag("{"))(i)?;
+    let (r, open_br) = ws(tag("{")).parse(i)?;
     let (r, v) = source(r)?;
-    let (r, close_br) = ws(tag("}"))(r)?;
+    let (r, close_br) = ws(tag("}")).parse(r)?;
     let span = i.subslice(
         i.offset(&open_br),
         open_br.offset(&close_br) + close_br.len(),
@@ -1054,7 +1047,7 @@ fn expression_statement(input: Span) -> IResult<Span, Statement> {
 
 /// A parser for an argument in function object type. The difference from func_arg is that the name is omitted.
 pub(crate) fn func_ty_arg(r: Span) -> IResult<Span, ArgDecl> {
-    let (r, ty) = ws(type_decl)(r)?;
+    let (r, ty) = ws(type_decl).parse(r)?;
     Ok((
         r,
         ArgDecl {
@@ -1067,8 +1060,8 @@ pub(crate) fn func_ty_arg(r: Span) -> IResult<Span, ArgDecl> {
 
 pub(crate) fn func_arg(r: Span) -> IResult<Span, ArgDecl> {
     let (r, id) = identifier(r)?;
-    let (r, ty) = opt(ws(type_spec))(r)?;
-    let (r, init) = opt(preceded(ws(char('=')), full_expression))(r)?;
+    let (r, ty) = opt(ws(type_spec)).parse(r)?;
+    let (r, init) = opt(preceded(ws(char('=')), full_expression)).parse(r)?;
     Ok((
         r,
         ArgDecl {
@@ -1082,7 +1075,7 @@ pub(crate) fn func_arg(r: Span) -> IResult<Span, ArgDecl> {
 fn ret_type(input: Span) -> IResult<Span, RetType> {
     type_decl(input).map_or_else(
         |_| {
-            let (r, _) = tag("void")(input)?;
+            let (r, _) = tag("void").parse(input)?;
             Ok((r, RetType::Void))
         },
         |(r, ty)| Ok((r, RetType::Some(ty))),
@@ -1094,15 +1087,15 @@ fn func_decl_args(i: Span) -> IResult<Span, Vec<ArgDecl>> {
         tag("("),
         terminated(separated_list0(ws(tag(",")), func_arg), opt(ws(char(',')))),
         tag(")"),
-    ))(i)
+    )).parse(i)
 }
 
 pub(crate) fn func_decl(input: Span) -> IResult<Span, Statement> {
-    let (r, _) = ws(tag("fn"))(input)?;
+    let (r, _) = ws(tag("fn")).parse(input)?;
     let (r, name) = identifier(r)?;
     let (r, args) = func_decl_args(r)?;
-    let (r, ret_type) = opt(preceded(ws(tag("->")), ret_type))(r)?;
-    let (r, stmts) = delimited(ws(char('{')), source, ws(char('}')))(r)?;
+    let (r, ret_type) = opt(preceded(ws(tag("->")), ret_type)).parse(r)?;
+    let (r, stmts) = delimited(ws(char('{')), source, ws(char('}'))).parse(r)?;
     Ok((
         r,
         Statement::FnDecl {
@@ -1115,26 +1108,26 @@ pub(crate) fn func_decl(input: Span) -> IResult<Span, Statement> {
 }
 
 fn loop_stmt(input: Span) -> IResult<Span, Statement> {
-    let (r, _) = ws(tag("loop"))(input)?;
-    let (r, stmts) = delimited(ws(char('{')), source, ws(char('}')))(r)?;
+    let (r, _) = ws(tag("loop")).parse(input)?;
+    let (r, stmts) = delimited(ws(char('{')), source, ws(char('}'))).parse(r)?;
     Ok((r, Statement::Loop(stmts)))
 }
 
 fn while_stmt(input: Span) -> IResult<Span, Statement> {
-    let (r, _) = ws(tag("while"))(input)?;
+    let (r, _) = ws(tag("while")).parse(input)?;
     let (r, cond) = cmp_expr(r)?;
-    let (r, stmts) = delimited(ws(char('{')), source, ws(char('}')))(r)?;
+    let (r, stmts) = delimited(ws(char('{')), source, ws(char('}'))).parse(r)?;
     Ok((r, Statement::While(cond, stmts)))
 }
 
 fn for_stmt(input: Span) -> IResult<Span, Statement> {
-    let (r, _) = ws(tag("for"))(input)?;
+    let (r, _) = ws(tag("for")).parse(input)?;
     let (r, var) = identifier(r)?;
-    let (r, _) = ws(tag("in"))(r)?;
+    let (r, _) = ws(tag("in")).parse(r)?;
     let (r, from) = expr(r)?;
-    let (r, _) = ws(tag(".."))(r)?;
+    let (r, _) = ws(tag("..")).parse(r)?;
     let (r, to) = expr(r)?;
-    let (r, stmts) = delimited(ws(char('{')), source, ws(char('}')))(r)?;
+    let (r, stmts) = delimited(ws(char('{')), source, ws(char('}'))).parse(r)?;
     Ok((
         r,
         Statement::For {
@@ -1166,14 +1159,14 @@ fn return_stmt(input: Span) -> IResult<Span, Statement> {
             nom::error::ErrorKind::Tag,
         )));
     }
-    let (r, ex) = opt(expr)(r)?;
+    let (r, ex) = opt(expr).parse(r)?;
     Ok((r, Statement::Return(ex)))
 }
 
 /// The difference from [`func_arg`] is that the type is not optional.
 fn struct_field(i: Span) -> IResult<Span, StructField> {
-    let (r, field_name) = ws(identifier)(i)?;
-    let (r, ty) = ws(type_spec)(r)?;
+    let (r, field_name) = ws(identifier).parse(i)?;
+    let (r, ty) = ws(type_spec).parse(r)?;
     Ok((
         r,
         StructField {
@@ -1184,18 +1177,18 @@ fn struct_field(i: Span) -> IResult<Span, StructField> {
 }
 
 fn struct_def(i: Span<'_>) -> IResult<Span<'_>, Statement<'_>> {
-    let (r, _) = tuple((multispace0, tag("struct"), multispace1))(i)?;
+    let (r, _) = (multispace0, tag("struct"), multispace1).parse(i)?;
 
     let (r, name) = identifier(r)?;
 
-    let (r, _) = ws(tag("{"))(r)?;
+    let (r, _) = ws(tag("{")).parse(r)?;
 
     let (r, fields) = terminated(
         separated_list0(ws(tag(",")), struct_field),
         opt(ws(char(','))),
-    )(r)?;
+    ).parse(r)?;
 
-    let (r, _) = ws(tag("}"))(r)?;
+    let (r, _) = ws(tag("}")).parse(r)?;
 
     Ok((r, Statement::Struct(StructDecl { name, fields })))
 }
@@ -1212,7 +1205,7 @@ pub(crate) fn statement(input: Span) -> IResult<Span, Statement> {
         struct_def,
         expression_statement,
         comment_stmt,
-    ))(input)
+    )).parse(input)
 }
 
 pub fn source(mut input: Span) -> IResult<Span, Vec<Statement>> {
@@ -1231,7 +1224,7 @@ pub fn source(mut input: Span) -> IResult<Span, Vec<Statement>> {
             }
         };
         if stmt.expects_semicolon() {
-            let (rr, semicolon) = opt(ws(tag(";")))(r)?;
+            let (rr, semicolon) = opt(ws(tag(";"))).parse(r)?;
             if semicolon.is_some() {
                 if let Statement::Expression {
                     ref mut semicolon, ..
