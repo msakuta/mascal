@@ -98,12 +98,16 @@ impl<'src> TypeCheckError<'src> {
     }
 
     pub(crate) fn indeterminant_type(span: Span<'src>, source_file: Option<&'src str>) -> Self {
-        Self::new(format!("type could not be determined"), span, source_file)
+        Self::new(
+            "type could not be determined".to_string(),
+            span,
+            source_file,
+        )
     }
 
     pub(crate) fn void_value(span: Span<'src>, source_file: Option<&'src str>) -> Self {
         Self::new(
-            format!("a value of type void is instantiated"),
+            "a value of type void is instantiated".to_string(),
             span,
             source_file,
         )
@@ -325,7 +329,7 @@ where
         ExprEnum::Variable(str) => ctx
             .get_var(str)
             .map(|v| v.ts.clone())
-            .or_else(|| ctx.get_fn(*str).map(|func| TypeSet::func(func.clone())))
+            .or_else(|| ctx.get_fn(str).map(|func| TypeSet::func(func.clone())))
             .ok_or_else(|| TypeCheckError::undefined_var(str, e.span, ctx.source_file))?,
         ExprEnum::Cast(_ex, decl) => decl.into(),
         ExprEnum::VarAssign(lhs, rhs) => {
@@ -341,7 +345,7 @@ where
                 ctx.set_var_type(&var_ref, &ty);
             }
 
-            binary_op(&lhs, &rhs, e.span, ctx, "Assignment")?
+            binary_op(lhs, rhs, e.span, ctx, "Assignment")?
         }
         ExprEnum::FnInvoke(fn_expr, args) => {
             let fn_expr = tc_expr_forward(fn_expr, ctx)?;
@@ -393,7 +397,7 @@ where
                 let ty_arg = ty_arg.as_ref().ok_or_else(|| {
                     TypeCheckError::unassigned_arg(&decl.name, e.span, ctx.source_file)
                 })?;
-                tc_coerce_type(&ty_arg, &decl.ty, e.span, ctx)?;
+                tc_coerce_type(ty_arg, &decl.ty, e.span, ctx)?;
             }
             match &*func.ret_ty {
                 RetType::Void => TypeSet::none(),
@@ -483,21 +487,21 @@ where
         }
         ExprEnum::BitNot(val) => tc_expr_forward(val, ctx)?,
         ExprEnum::Neg(val) => tc_expr_forward(val, ctx)?,
-        ExprEnum::Add(lhs, rhs) => binary_op(&lhs, &rhs, e.span, ctx, "Add")?,
-        ExprEnum::Sub(lhs, rhs) => binary_op(&lhs, &rhs, e.span, ctx, "Sub")?,
-        ExprEnum::Mult(lhs, rhs) => binary_op(&lhs, &rhs, e.span, ctx, "Mult")?,
-        ExprEnum::Div(lhs, rhs) => binary_op(&lhs, &rhs, e.span, ctx, "Div")?,
-        ExprEnum::LT(lhs, rhs) => binary_cmp(&lhs, &rhs, e.span, ctx, "LT")?,
-        ExprEnum::LE(lhs, rhs) => binary_cmp(&lhs, &rhs, e.span, ctx, "LE")?,
-        ExprEnum::GT(lhs, rhs) => binary_cmp(&lhs, &rhs, e.span, ctx, "GT")?,
-        ExprEnum::GE(lhs, rhs) => binary_cmp(&lhs, &rhs, e.span, ctx, "GE")?,
-        ExprEnum::EQ(lhs, rhs) => binary_cmp(&lhs, &rhs, e.span, ctx, "EQ")?,
-        ExprEnum::NE(lhs, rhs) => binary_cmp(&lhs, &rhs, e.span, ctx, "NE")?,
-        ExprEnum::BitAnd(lhs, rhs) => binary_op(&lhs, &rhs, e.span, ctx, "BitAnd")?,
-        ExprEnum::BitXor(lhs, rhs) => binary_op(&lhs, &rhs, e.span, ctx, "BitXor")?,
-        ExprEnum::BitOr(lhs, rhs) => binary_op(&lhs, &rhs, e.span, ctx, "BitOr")?,
-        ExprEnum::And(lhs, rhs) => binary_op(&lhs, &rhs, e.span, ctx, "And")?,
-        ExprEnum::Or(lhs, rhs) => binary_op(&lhs, &rhs, e.span, ctx, "Or")?,
+        ExprEnum::Add(lhs, rhs) => binary_op(lhs, rhs, e.span, ctx, "Add")?,
+        ExprEnum::Sub(lhs, rhs) => binary_op(lhs, rhs, e.span, ctx, "Sub")?,
+        ExprEnum::Mult(lhs, rhs) => binary_op(lhs, rhs, e.span, ctx, "Mult")?,
+        ExprEnum::Div(lhs, rhs) => binary_op(lhs, rhs, e.span, ctx, "Div")?,
+        ExprEnum::LT(lhs, rhs) => binary_cmp(lhs, rhs, e.span, ctx, "LT")?,
+        ExprEnum::LE(lhs, rhs) => binary_cmp(lhs, rhs, e.span, ctx, "LE")?,
+        ExprEnum::GT(lhs, rhs) => binary_cmp(lhs, rhs, e.span, ctx, "GT")?,
+        ExprEnum::GE(lhs, rhs) => binary_cmp(lhs, rhs, e.span, ctx, "GE")?,
+        ExprEnum::EQ(lhs, rhs) => binary_cmp(lhs, rhs, e.span, ctx, "EQ")?,
+        ExprEnum::NE(lhs, rhs) => binary_cmp(lhs, rhs, e.span, ctx, "NE")?,
+        ExprEnum::BitAnd(lhs, rhs) => binary_op(lhs, rhs, e.span, ctx, "BitAnd")?,
+        ExprEnum::BitXor(lhs, rhs) => binary_op(lhs, rhs, e.span, ctx, "BitXor")?,
+        ExprEnum::BitOr(lhs, rhs) => binary_op(lhs, rhs, e.span, ctx, "BitOr")?,
+        ExprEnum::And(lhs, rhs) => binary_op(lhs, rhs, e.span, ctx, "And")?,
+        ExprEnum::Or(lhs, rhs) => binary_op(lhs, rhs, e.span, ctx, "Or")?,
         ExprEnum::Conditional(cond, true_branch, false_branch) => {
             tc_coerce_type(&tc_expr_forward(cond, ctx)?, &TypeDecl::I32, cond.span, ctx)?;
             let true_type = tc_stmts_forward(true_branch, ctx)?;
@@ -777,7 +781,7 @@ fn forward_lvalue<'src, 'b, 'native>(
         ExprEnum::FnInvoke(_, _) => Err("Function return value cannot be a lvalue".to_string()),
         ExprEnum::Cast(_, _) => Err("Cast expression cannot be a lvalue".to_string()),
         ExprEnum::ArrIndex(ex, _idx) => {
-            let prior = forward_lvalue(&ex, ctx)?;
+            let prior = forward_lvalue(ex, ctx)?;
             if let Some((var_ref, ts)) = prior {
                 if let Some(arr) = ts.and_then(|ts| ts.array.as_ref()) {
                     Ok(Some((VarRef::Array(Box::new(var_ref)), *arr.0.clone())))
@@ -789,7 +793,7 @@ fn forward_lvalue<'src, 'b, 'native>(
             }
         }
         ExprEnum::TupleIndex(ex, idx) => {
-            let prior = forward_lvalue(&ex, ctx)?;
+            let prior = forward_lvalue(ex, ctx)?;
             if let Some((var_ref, ts)) = prior {
                 if let Some(tuple) = ts.and_then(|ts| ts.tuple.as_ref()) {
                     Ok(tuple
@@ -807,7 +811,7 @@ fn forward_lvalue<'src, 'b, 'native>(
             postfix: field_name,
             ..
         } => {
-            let prior = forward_lvalue(&ex, ctx)?;
+            let prior = forward_lvalue(ex, ctx)?;
             if let Some((_var_ref, ts)) = prior {
                 let ty = ts
                     .determine()
@@ -907,8 +911,7 @@ where
                 } else {
                     ty.into()
                 };
-                ctx.variables
-                    .insert(**var, VariableType::local(init_type.into()));
+                ctx.variables.insert(**var, VariableType::local(init_type));
             } else {
                 if let Some(init_expr) = init {
                     let init_type = tc_expr_forward(init_expr, ctx)?;
@@ -945,7 +948,7 @@ where
                         &init_ty,
                         &arg.ty,
                         Span::new(name),
-                        &mut TypeCheckContext::new(ctx.source_file),
+                        &TypeCheckContext::new(ctx.source_file),
                     )?;
                 }
                 subctx
@@ -959,7 +962,7 @@ where
             }) = stmts.last()
             {
                 if let RetType::Some(ret_type) = ret_type {
-                    tc_coerce_type(&last_stmt, &ret_type, ret_expr.span, ctx)?;
+                    tc_coerce_type(&last_stmt, ret_type, ret_expr.span, ctx)?;
                 } else if !last_stmt.is_void() {
                     return Err(TypeCheckError::new(
                         "Function with void return type returned some value".to_string(),
@@ -971,7 +974,7 @@ where
             res = TypeSet::void();
         }
         Statement::Expression { ex, semicolon } => {
-            let expr_res = tc_expr_forward(&ex, ctx)?;
+            let expr_res = tc_expr_forward(ex, ctx)?;
             if !semicolon {
                 res = expr_res;
             } else {
@@ -1155,22 +1158,20 @@ where
     'native: 'src,
 {
     for stmt in stmts.iter_mut() {
-        match stmt {
-            Statement::FnDecl {
-                name,
-                args,
-                ret_type,
-                ..
-            } => {
-                ctx.functions.insert(
-                    name.to_string(),
-                    FuncDecl {
-                        args: args.iter().map(|arg| arg.to_deep_owned()).collect(),
-                        ret_ty: Box::new(ret_type.clone()),
-                    },
-                );
-            }
-            _ => {}
+        if let Statement::FnDecl {
+            name,
+            args,
+            ret_type,
+            ..
+        } = stmt
+        {
+            ctx.functions.insert(
+                name.to_string(),
+                FuncDecl {
+                    args: args.iter().map(|arg| arg.to_deep_owned()).collect(),
+                    ret_ty: Box::new(ret_type.clone()),
+                },
+            );
         }
     }
 

@@ -39,6 +39,7 @@ fn parse_compile_interpret(src: &str, expected: &[u8]) {
 }
 
 /// Take an output mutable shared buffer behind Rc-RefCell, returns a closure that writes to it.
+#[allow(clippy::type_complexity)]
 fn s_writer(
     out: Rc<RefCell<Vec<u8>>>,
 ) -> Box<dyn Fn(&UserData, &[Value]) -> Result<Value, EvalError>> {

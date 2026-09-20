@@ -15,7 +15,7 @@ use crate::{
 };
 use ExprEnum::*;
 
-fn span_expr<'a, 'b>(s: &'a str) -> IResult<Span, Expression> {
+fn span_expr<'a>(s: &'a str) -> IResult<Span<'a>, Expression<'a>> {
     expr(Span::new(s))
 }
 
@@ -175,7 +175,7 @@ fn fn_default_failure_test() {
     assert!(matches!(err, EvalError::VarNotFound(_)));
 }
 
-fn span_conditional(s: &str) -> IResult<Span, Expression> {
+fn span_conditional<'a>(s: &'a str) -> IResult<Span<'a>, Expression<'a>> {
     conditional(Span::new(s))
 }
 
@@ -424,7 +424,7 @@ fn logic_test() {
     );
 }
 
-fn span_full_expression(s: &str) -> IResult<Span, Expression> {
+fn span_full_expression<'a>(s: &'a str) -> IResult<Span<'a>, Expression<'a>> {
     full_expression(Span::new(s))
 }
 

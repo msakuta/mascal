@@ -746,6 +746,7 @@ fn test_single_tuple() {
 }
 
 #[test]
+#[allow(clippy::approx_constant)]
 fn test_tuple_decl() {
     let span = Span::new("var a: (i32, str, f64) = (42, \"a\", 3.14);");
     assert_eq!(

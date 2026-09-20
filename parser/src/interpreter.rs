@@ -35,20 +35,19 @@ pub(crate) trait EGetExt<T> {
 impl<T> EGetExt<T> for Vec<T> {
     fn eget(&self, idx: usize) -> EvalResult<&T> {
         self.get(idx)
-            .ok_or_else(|| EvalError::ArrayOutOfBounds(idx, self.len()))
+            .ok_or(EvalError::ArrayOutOfBounds(idx, self.len()))
     }
 
     fn eget_mut(&mut self, idx: usize) -> EvalResult<&mut T> {
         let len = self.len();
         self.get_mut(idx)
-            .ok_or_else(|| EvalError::ArrayOutOfBounds(idx, len))
+            .ok_or(EvalError::ArrayOutOfBounds(idx, len))
     }
 }
 
 fn unwrap_deref(e: RunResult) -> EvalResult<RunResult> {
-    match &e {
-        RunResult::Break => return Ok(RunResult::Break),
-        _ => (),
+    if e == RunResult::Break {
+        return Ok(RunResult::Break);
     }
     Ok(e)
 }
@@ -71,10 +70,10 @@ pub(crate) fn binary_op_str(
     s: impl Fn(&str, &str) -> Result<String, EvalError>,
 ) -> EvalResult<Value> {
     Ok(match (lhs, rhs) {
-        (Value::F64(lhs), rhs) => Value::F64(d(*lhs, coerce_f64(&rhs)?)?),
-        (lhs, Value::F64(rhs)) => Value::F64(d(coerce_f64(&lhs)?, *rhs)?),
-        (Value::F32(lhs), rhs) => Value::F32(d(*lhs as f64, coerce_f64(&rhs)?)? as f32),
-        (lhs, Value::F32(rhs)) => Value::F32(d(coerce_f64(&lhs)?, *rhs as f64)? as f32),
+        (Value::F64(lhs), rhs) => Value::F64(d(*lhs, coerce_f64(rhs)?)?),
+        (lhs, Value::F64(rhs)) => Value::F64(d(coerce_f64(lhs)?, *rhs)?),
+        (Value::F32(lhs), rhs) => Value::F32(d(*lhs as f64, coerce_f64(rhs)?)? as f32),
+        (lhs, Value::F32(rhs)) => Value::F32(d(coerce_f64(lhs)?, *rhs as f64)? as f32),
         (Value::I64(lhs), Value::I64(rhs)) => Value::I64(i(*lhs, *rhs)),
         (Value::I64(lhs), Value::I32(rhs)) => Value::I64(i(*lhs, *rhs as i64)),
         (Value::I32(lhs), Value::I64(rhs)) => Value::I64(i(*lhs as i64, *rhs)),
@@ -209,7 +208,7 @@ where
         )))),
         ExprEnum::Variable(str) => RunResult::Yield(
             ctx.get_var(str)
-                .or_else(|| ctx.get_fn(*str).map(|_| Value::Func(str.to_string())).ok())
+                .or_else(|| ctx.get_fn(str).map(|_| Value::Func(str.to_string())).ok())
                 .ok_or_else(|| EvalError::VarNotFound(str.to_string()))?,
         ),
         ExprEnum::Cast(ex, decl) => {
@@ -387,16 +386,13 @@ where
                 _ => return Err(EvalError::NonIntegerBitwise(format!("{val:?}"))),
             })
         }
-        ExprEnum::Add(lhs, rhs) => {
-            let res = RunResult::Yield(binary_op_str(
-                &unwrap_run!(eval(lhs, ctx)?),
-                &unwrap_run!(eval(rhs, ctx)?),
-                |lhs, rhs| Ok(lhs + rhs),
-                |lhs, rhs| lhs + rhs,
-                |lhs: &str, rhs: &str| Ok(lhs.to_string() + rhs),
-            )?);
-            res
-        }
+        ExprEnum::Add(lhs, rhs) => RunResult::Yield(binary_op_str(
+            &unwrap_run!(eval(lhs, ctx)?),
+            &unwrap_run!(eval(rhs, ctx)?),
+            |lhs, rhs| Ok(lhs + rhs),
+            |lhs, rhs| lhs + rhs,
+            |lhs: &str, rhs: &str| Ok(lhs.to_string() + rhs),
+        )?),
         ExprEnum::Sub(lhs, rhs) => RunResult::Yield(binary_op(
             &unwrap_run!(eval(lhs, ctx)?),
             &unwrap_run!(eval(rhs, ctx)?),
@@ -531,7 +527,7 @@ pub(crate) fn s_print(out: &mut dyn Write, vals: &[Value]) -> EvalResult<Value> 
                     if i != 0 {
                         write!(out, ", ")?;
                     }
-                    print_inner(out, &val)?;
+                    print_inner(out, val)?;
                 }
                 write!(out, ")")?;
             }
@@ -544,14 +540,14 @@ pub(crate) fn s_print(out: &mut dyn Write, vals: &[Value]) -> EvalResult<Value> 
         // Put a space between tokens
         write!(out, " ")?;
     }
-    write!(out, "\n")?;
+    writeln!(out)?;
     Ok(Value::I32(0))
 }
 
 pub(crate) fn s_puts(out: &mut dyn Write, vals: &[Value]) -> Result<Value, EvalError> {
-    fn puts_inner<'a>(
+    fn puts_inner(
         out: &mut dyn Write,
-        vals: &mut dyn Iterator<Item = &'a Value>,
+        vals: &mut dyn Iterator<Item = &Value>,
     ) -> std::io::Result<()> {
         for val in vals {
             match val {
@@ -833,7 +829,7 @@ pub struct EvalContext<'src, 'native, 'ctx> {
     user_data: UserData,
 }
 
-impl<'src, 'ast, 'native, 'ctx> Default for EvalContext<'src, 'native, 'ctx> {
+impl<'src, 'native, 'ctx> Default for EvalContext<'src, 'native, 'ctx> {
     fn default() -> Self {
         Self {
             variables: Default::default(),
@@ -846,7 +842,7 @@ impl<'src, 'ast, 'native, 'ctx> Default for EvalContext<'src, 'native, 'ctx> {
     }
 }
 
-impl<'src, 'ast, 'native, 'ctx> EvalContext<'src, 'native, 'ctx> {
+impl<'src, 'native, 'ctx> EvalContext<'src, 'native, 'ctx> {
     pub fn new(user_data: UserData) -> Self {
         Self {
             variables: RefCell::new(HashMap::new()),
@@ -1053,15 +1049,11 @@ where
                     FuncDef::Code(FuncCode::new(stmts.clone(), args.clone(), ret_type.clone())),
                 );
             }
-            Statement::Expression { ex, semicolon } => {
-                let ex_res = eval(&ex, ctx)?;
+            Statement::Expression { ex, .. } => {
+                let ex_res = eval(ex, ctx)?;
                 match ex_res {
                     RunResult::Yield(ex_res) => {
-                        if *semicolon {
-                            res = RunResult::Yield(ex_res);
-                        } else {
-                            res = RunResult::Yield(ex_res);
-                        }
+                        res = RunResult::Yield(ex_res);
                     }
                     RunResult::Break => return Ok(ex_res),
                     RunResult::Return(v) => return Ok(RunResult::Return(v)),
@@ -1108,7 +1100,7 @@ where
             }
             Statement::Return(ex) => {
                 let ex_res = if let Some(ex) = ex {
-                    RunResult::Return(Some(unwrap_break!(eval(&ex, ctx)?)))
+                    RunResult::Return(Some(unwrap_break!(eval(ex, ctx)?)))
                 } else {
                     RunResult::Return(None)
                 };

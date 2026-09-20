@@ -211,7 +211,7 @@ pub fn format_stmt(
             if *semicolon {
                 writeln!(f, ";")?;
             } else {
-                writeln!(f, "")?;
+                writeln!(f)?;
             }
             Ok(())
         }
@@ -222,7 +222,7 @@ pub fn format_stmt(
             stmts,
         } => {
             write!(f, "{indent}fn {}(", name)?;
-            format_params(&args, f)?;
+            format_params(args, f)?;
             writeln!(f, ") -> {} {{", ret_type)?;
             for stmt in stmts.iter() {
                 format_stmt(stmt, level + 1, f)?;
@@ -259,9 +259,9 @@ pub fn format_stmt(
                 .as_ref()
                 .map_or_else(|| "".to_string(), |ty| ty.to_string());
             write!(f, "{indent}for {}{} in ", var, ty_str)?;
-            format_expr(&start, level, f)?;
+            format_expr(start, level, f)?;
             write!(f, " to ")?;
-            format_expr(&end, level, f)?;
+            format_expr(end, level, f)?;
             writeln!(f, " {{")?;
             for stmt in stmts {
                 format_stmt(stmt, level + 1, f)?;

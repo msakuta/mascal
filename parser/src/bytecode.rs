@@ -219,7 +219,7 @@ fn read_usize(reader: &mut impl Read) -> std::io::Result<usize> {
 
 fn write_str(s: &str, writer: &mut impl Write) -> std::io::Result<()> {
     write_usize(s.len(), writer)?;
-    writer.write_all(&s.as_bytes())?;
+    writer.write_all(s.as_bytes())?;
     Ok(())
 }
 
@@ -348,7 +348,7 @@ impl Bytecode {
         }
         functions
             .iter()
-            .find(|(name, _)| *name == "")
+            .find(|(name, _)| name.is_empty())
             .ok_or(ReadError::NoMainFound)?;
         Ok(Bytecode { functions, debug })
     }

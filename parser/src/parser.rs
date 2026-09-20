@@ -100,6 +100,7 @@ pub struct StructDecl<'src> {
 }
 
 #[derive(Debug, PartialEq, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum Statement<'a> {
     Comment(&'a str),
     VarDecl {
@@ -373,7 +374,7 @@ fn type_array(input: Span) -> IResult<Span, TypeDecl> {
     .parse(input)?;
     Ok((
         r,
-        TypeDecl::Array(Box::new(arr), range.unwrap_or_else(|| ArraySize::Any)),
+        TypeDecl::Array(Box::new(arr), range.unwrap_or(ArraySize::Any)),
     ))
 }
 
@@ -600,11 +601,11 @@ fn ws_comment<'a, E: ParseError<Span<'a>>>(i: Span<'a>) -> IResult<Span<'a>, (),
 
 /// A combinator that takes a parser `inner` and produces a parser that also consumes both leading and
 /// trailing whitespace, returning the output of `inner`.
-fn ws<'a, F: 'a, O, E: ParseError<Span<'a>>>(
+fn ws<'a, F, O, E: ParseError<Span<'a>>>(
     inner: F,
 ) -> impl Parser<Span<'a>, Output = O, Error = E>
 where
-    F: Parser<Span<'a>, Output = O, Error = E>,
+    F: 'a + Parser<Span<'a>, Output = O, Error = E>,
 {
     delimited(ws_comment, inner, ws_comment)
 }
@@ -688,11 +689,11 @@ pub(crate) fn tuple_index<'src>(
         *start,
         indices
             .into_iter()
-            .fold(Ok(prefix.clone()), |acc, v: Span| -> Result<_, _> {
+            .try_fold(prefix.clone(), |acc, v: Span| -> Result<_, _> {
                 let prefix_start = start.offset(&prefix_span);
                 Ok(Expression::new(
                     ExprEnum::TupleIndex(
-                        Box::new(acc?),
+                        Box::new(acc),
                         v.parse().map_err(|_| {
                             nom::Err::Error(nom::error::Error {
                                 input: *i,
@@ -717,11 +718,11 @@ pub(crate) fn field_access<'src>(
         *start,
         indices
             .into_iter()
-            .fold(Ok(prefix.clone()), |acc, field: Span| -> Result<_, _> {
+            .try_fold(prefix.clone(), |acc, field: Span| -> Result<_, _> {
                 let prefix_start = start.offset(&prefix_span);
                 Ok(Expression::new(
                     ExprEnum::FieldAccess {
-                        prefix: Box::new(acc?),
+                        prefix: Box::new(acc),
                         postfix: field,
                         def: None,
                     },
@@ -776,7 +777,7 @@ fn struct_literal<'a>(name: Span<'a>, i: Span<'a>) -> IResult<Span<'a>, Expressi
     .parse(r)?;
 
     let (r, _) = ws(tag("}")).parse(r)?;
-    return Ok((
+    Ok((
         r,
         Expression::new(
             ExprEnum::StructLiteral {
@@ -786,7 +787,7 @@ fn struct_literal<'a>(name: Span<'a>, i: Span<'a>) -> IResult<Span<'a>, Expressi
             },
             calc_offset(i, r),
         ),
-    ));
+    ))
 }
 
 /// The parameter type for the postfix expression parsers. This tuple contains the state and also the span to parse
@@ -1018,23 +1019,23 @@ fn bin_op<'src>(
 }
 
 fn bit_and(i: Span) -> IResult<Span, Expression> {
-    bin_op("&", cmp_expr, |lhs, rhs| ExprEnum::BitAnd(lhs, rhs))(i)
+    bin_op("&", cmp_expr, ExprEnum::BitAnd)(i)
 }
 
 fn bit_xor(i: Span) -> IResult<Span, Expression> {
-    bin_op("^", bit_and, |lhs, rhs| ExprEnum::BitXor(lhs, rhs))(i)
+    bin_op("^", bit_and, ExprEnum::BitXor)(i)
 }
 
 fn bit_or(i: Span) -> IResult<Span, Expression> {
-    bin_op("|", bit_xor, |lhs, rhs| ExprEnum::BitOr(lhs, rhs))(i)
+    bin_op("|", bit_xor, ExprEnum::BitOr)(i)
 }
 
 fn and(i: Span) -> IResult<Span, Expression> {
-    bin_op("&&", bit_or, |lhs, rhs| ExprEnum::And(lhs, rhs))(i)
+    bin_op("&&", bit_or, ExprEnum::And)(i)
 }
 
 fn or(i: Span) -> IResult<Span, Expression> {
-    bin_op("||", and, |lhs, rhs| ExprEnum::Or(lhs, rhs))(i)
+    bin_op("||", and, ExprEnum::Or)(i)
 }
 
 fn assign_expr(i: Span) -> IResult<Span, Expression> {
@@ -1128,7 +1129,7 @@ pub(crate) fn func_decl(input: Span) -> IResult<Span, Statement> {
         Statement::FnDecl {
             name,
             args,
-            ret_type: ret_type.unwrap_or_else(|| RetType::Void),
+            ret_type: ret_type.unwrap_or(RetType::Void),
             stmts: Rc::new(stmts),
         },
     ))

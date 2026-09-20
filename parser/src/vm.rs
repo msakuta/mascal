@@ -75,7 +75,7 @@ impl<'a> Vm<'a> {
             call_stack: vec![CallInfo {
                 fun: bytecode,
                 ip: 0,
-                stack_size: stack_size,
+                stack_size,
                 stack_base: 0,
             }],
             stack_base: 0,
@@ -276,11 +276,11 @@ pub(crate) trait CallStackLastExt<T> {
 
 impl<T> CallStackLastExt<T> for Vec<T> {
     fn clast(&self) -> EvalResult<&T> {
-        self.last().ok_or_else(|| EvalError::CallStackUndeflow)
+        self.last().ok_or(EvalError::CallStackUndeflow)
     }
 
     fn clast_mut(&mut self) -> EvalResult<&mut T> {
-        self.last_mut().ok_or_else(|| EvalError::CallStackUndeflow)
+        self.last_mut().ok_or(EvalError::CallStackUndeflow)
     }
 }
 
@@ -323,7 +323,7 @@ impl<'a> Vm<'a> {
                 if let (Value::Array(lhs), Value::Array(rhs)) =
                     (self.get(inst.arg0), self.get(inst.arg1))
                 {
-                    if lhs as *const _ == rhs as *const _ {
+                    if std::ptr::eq(lhs, rhs) {
                         println!("Self-assignment!");
                         self.call_stack.clast_mut()?.ip += 1;
                         return Ok(None);
@@ -353,8 +353,8 @@ impl<'a> Vm<'a> {
             }
             OpCode::Add => {
                 let result = binary_op_str(
-                    &self.get(inst.arg0),
-                    &self.get(inst.arg1),
+                    self.get(inst.arg0),
+                    self.get(inst.arg1),
                     |lhs, rhs| Ok(lhs + rhs),
                     |lhs, rhs| lhs + rhs,
                     |lhs: &str, rhs: &str| Ok(lhs.to_string() + rhs),
@@ -363,8 +363,8 @@ impl<'a> Vm<'a> {
             }
             OpCode::Sub => {
                 let result = binary_op(
-                    &self.get(inst.arg0),
-                    &self.get(inst.arg1),
+                    self.get(inst.arg0),
+                    self.get(inst.arg1),
                     |lhs, rhs| lhs - rhs,
                     |lhs, rhs| lhs - rhs,
                 )?;
@@ -372,8 +372,8 @@ impl<'a> Vm<'a> {
             }
             OpCode::Mul => {
                 let result = binary_op(
-                    &self.get(inst.arg0),
-                    &self.get(inst.arg1),
+                    self.get(inst.arg0),
+                    self.get(inst.arg1),
                     |lhs, rhs| lhs * rhs,
                     |lhs, rhs| lhs * rhs,
                 )?;
@@ -381,8 +381,8 @@ impl<'a> Vm<'a> {
             }
             OpCode::Div => {
                 let result = binary_op(
-                    &self.get(inst.arg0),
-                    &self.get(inst.arg1),
+                    self.get(inst.arg0),
+                    self.get(inst.arg1),
                     |lhs, rhs| lhs / rhs,
                     |lhs, rhs| lhs / rhs,
                 )?;
@@ -390,35 +390,35 @@ impl<'a> Vm<'a> {
             }
             OpCode::BitAnd => {
                 let result =
-                    binary_op_int(&self.get(inst.arg0), &self.get(inst.arg1), |lhs, rhs| {
+                    binary_op_int(self.get(inst.arg0), self.get(inst.arg1), |lhs, rhs| {
                         lhs & rhs
                     })?;
                 self.set(inst.arg0, result);
             }
             OpCode::BitXor => {
                 let result =
-                    binary_op_int(&self.get(inst.arg0), &self.get(inst.arg1), |lhs, rhs| {
+                    binary_op_int(self.get(inst.arg0), self.get(inst.arg1), |lhs, rhs| {
                         lhs ^ rhs
                     })?;
                 self.set(inst.arg0, result);
             }
             OpCode::BitOr => {
                 let result =
-                    binary_op_int(&self.get(inst.arg0), &self.get(inst.arg1), |lhs, rhs| {
+                    binary_op_int(self.get(inst.arg0), self.get(inst.arg1), |lhs, rhs| {
                         lhs | rhs
                     })?;
                 self.set(inst.arg0, result);
             }
             OpCode::And => {
-                let result = truthy(&self.get(inst.arg0)) && truthy(&self.get(inst.arg1));
+                let result = truthy(self.get(inst.arg0)) && truthy(self.get(inst.arg1));
                 self.set(inst.arg0, Value::I32(result as i32));
             }
             OpCode::Or => {
-                let result = truthy(&self.get(inst.arg0)) || truthy(&self.get(inst.arg1));
+                let result = truthy(self.get(inst.arg0)) || truthy(self.get(inst.arg1));
                 self.set(inst.arg0, Value::I32(result as i32));
             }
             OpCode::Not => {
-                let result = !truthy(&self.get(inst.arg0));
+                let result = !truthy(self.get(inst.arg0));
                 self.set(inst.arg0, Value::I32(result as i32));
             }
             OpCode::BitNot => {
@@ -465,27 +465,27 @@ impl<'a> Vm<'a> {
             }
             OpCode::Lt => {
                 let result =
-                    compare_op(&self.get(inst.arg0), &self.get(inst.arg1), f64::lt, i64::lt)?;
+                    compare_op(self.get(inst.arg0), self.get(inst.arg1), f64::lt, i64::lt)?;
                 self.set(inst.arg0, result);
             }
             OpCode::Le => {
                 let result =
-                    compare_op(&self.get(inst.arg0), &self.get(inst.arg1), f64::le, i64::le)?;
+                    compare_op(self.get(inst.arg0), self.get(inst.arg1), f64::le, i64::le)?;
                 self.set(inst.arg0, result);
             }
             OpCode::Gt => {
                 let result =
-                    compare_op(&self.get(inst.arg0), &self.get(inst.arg1), f64::gt, i64::gt)?;
+                    compare_op(self.get(inst.arg0), self.get(inst.arg1), f64::gt, i64::gt)?;
                 self.set(inst.arg0, result);
             }
             OpCode::Ge => {
                 let result =
-                    compare_op(&self.get(inst.arg0), &self.get(inst.arg1), f64::ge, i64::ge)?;
+                    compare_op(self.get(inst.arg0), self.get(inst.arg1), f64::ge, i64::ge)?;
                 self.set(inst.arg0, result);
             }
             OpCode::Eq => {
                 let result =
-                    compare_op(&self.get(inst.arg0), &self.get(inst.arg1), f64::eq, i64::eq)?;
+                    compare_op(self.get(inst.arg0), self.get(inst.arg1), f64::eq, i64::eq)?;
                 self.set(inst.arg0, result);
             }
             OpCode::Jmp => {
@@ -493,13 +493,13 @@ impl<'a> Vm<'a> {
                 return Ok(None);
             }
             OpCode::Jt => {
-                if truthy(&self.get(inst.arg0)) {
+                if truthy(self.get(inst.arg0)) {
                     self.call_stack.clast_mut()?.ip = inst.arg1 as usize;
                     return Ok(None);
                 }
             }
             OpCode::Jf => {
-                if !truthy(&self.get(inst.arg0)) {
+                if !truthy(self.get(inst.arg0)) {
                     self.call_stack.clast_mut()?.ip = inst.arg1 as usize;
                     return Ok(None);
                 }

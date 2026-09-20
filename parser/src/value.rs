@@ -29,7 +29,7 @@ impl ArrayInt {
     pub fn get(&self, idx: usize) -> EvalResult<Value> {
         self.values
             .get(idx)
-            .ok_or_else(|| EvalError::ArrayOutOfBounds(self.values.len(), idx))
+            .ok_or(EvalError::ArrayOutOfBounds(self.values.len(), idx))
             .cloned()
     }
 }
@@ -406,7 +406,7 @@ impl StructInt {
     pub fn get(&self, idx: usize) -> EvalResult<Value> {
         self.fields
             .get(idx)
-            .ok_or_else(|| EvalError::ArrayOutOfBounds(self.fields.len(), idx))
+            .ok_or(EvalError::ArrayOutOfBounds(self.fields.len(), idx))
             .cloned()
     }
 

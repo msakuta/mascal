@@ -540,7 +540,7 @@ impl Widgets {
 impl<'a> Widget for &mut App<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let title = Line::from(" Interactive debugger ".bold()).alignment(Alignment::Center);
-        let instructions = Line::from(Line::from(vec![
+        let instructions = Line::from(vec![
             "  help: ".into(),
             "h".blue().bold(),
             if matches!(self.mode, AppMode::StepRun { .. }) {
@@ -549,7 +549,7 @@ impl<'a> Widget for &mut App<'a> {
                 "  quit: ".into()
             },
             "q ".blue().bold(),
-        ]));
+        ]);
         let block = Block::bordered()
             .title(title.alignment(Alignment::Center))
             .title(instructions)

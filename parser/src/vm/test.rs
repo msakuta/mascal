@@ -151,12 +151,10 @@ fn compile_and_run_with(src: &str, fun: impl Fn(&[Value]) + 'static) -> Result<V
 #[test]
 fn ext_fn_call() {
     // The return value does not matter
-    assert!(matches!(
-        compile_and_run_with("print(1 + 2);", |vals| {
-            assert_eq!(vals[0], Value::I64(3));
-        }),
-        Ok(_)
-    ));
+    assert!(compile_and_run_with("print(1 + 2);", |vals| {
+        assert_eq!(vals[0], Value::I64(3));
+    })
+    .is_ok());
 }
 
 #[test]

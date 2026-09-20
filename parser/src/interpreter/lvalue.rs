@@ -42,13 +42,10 @@ impl Value {
         Ok(match self {
             Value::Struct(str) => {
                 let str_int = str.borrow();
-                if (idx as usize) < str_int.fields.len() {
-                    LValue::StructRef(str.clone(), idx as usize)
+                if idx < str_int.fields.len() {
+                    LValue::StructRef(str.clone(), idx)
                 } else {
-                    return Err(EvalError::ArrayOutOfBounds(
-                        idx as usize,
-                        str_int.fields.len(),
-                    ));
+                    return Err(EvalError::ArrayOutOfBounds(idx, str_int.fields.len()));
                 }
             }
             _ => return Err(EvalError::IndexNonArray),
@@ -88,7 +85,7 @@ where
                     .variables
                     .borrow_mut()
                     .get(name.as_str())
-                    .ok_or_else(|| EvalError::VarNotFound(name))?
+                    .ok_or(EvalError::VarNotFound(name))?
                     .borrow_mut()
                     .array_get_lvalue(idx)?,
                 LValue::ArrayRef(value, subidx) => {
@@ -130,9 +127,9 @@ where
                     let variables = ctx.variables.borrow();
                     let var = variables
                         .get(name.as_str())
-                        .ok_or_else(|| EvalError::VarNotFound(name))?
+                        .ok_or(EvalError::VarNotFound(name))?
                         .borrow();
-                    resolve_struct(&*var)
+                    resolve_struct(&var)
                 }
                 LValue::ArrayRef(arr, subidx) => {
                     let var = RefCell::borrow(&arr).get(subidx)?;

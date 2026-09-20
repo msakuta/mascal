@@ -27,9 +27,10 @@ use crate::{
     DebugInfo, Span, TypeDecl, Value,
 };
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 enum Target {
     /// A temporary neither literal nor local
+    #[default]
     None,
     /// Literal value with literal index.
     /// Right now whether the target is literal is not utilized, but we may use it for optimization.
@@ -41,12 +42,6 @@ enum Target {
     /// **NOTE** that it is not a stack index.
     #[allow(unused)]
     Local(usize),
-}
-
-impl Default for Target {
-    fn default() -> Target {
-        Self::None
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -88,7 +83,7 @@ impl<'src> UniversalVar<'src> {
     /// Creates a copy of the variable in the target stack and returns its index.
     /// If it was local it will be moved to the topmost element, otherwise loaded from a literal.
     /// Note that this function is infallible.
-    fn into_stack(&self, compiler: &mut Compiler<'_, 'src>) -> usize {
+    fn to_stack(&self, compiler: &mut Compiler<'_, 'src>) -> usize {
         match self {
             UniversalVar::Local(local) => {
                 let arg_target = compiler.target_stack.len();
@@ -296,8 +291,8 @@ impl<'a, 'src> Compiler<'a, 'src> {
 
 type CompileResult<'src, T> = Result<T, CompileError<'src>>;
 
-pub fn compile<'src, 'ast>(
-    stmts: &'ast [Statement<'src>],
+pub fn compile<'src>(
+    stmts: &[Statement<'src>],
     functions: HashMap<String, NativeFn>,
 ) -> CompileResult<'src, Bytecode> {
     CompilerBuilder::new(stmts)
@@ -305,8 +300,8 @@ pub fn compile<'src, 'ast>(
         .compile(&mut std::io::sink())
 }
 
-pub fn disasm<'src, 'ast>(
-    stmts: &'ast [Statement<'src>],
+pub fn disasm<'src>(
+    stmts: &[Statement<'src>],
     functions: HashMap<String, NativeFn>,
 ) -> CompileResult<'src, String> {
     let mut disasm = Vec::<u8>::new();
@@ -409,11 +404,11 @@ impl<'src, 'ast> CompilerBuilder<'src, 'ast> {
     }
 }
 
-fn compile_fn<'src, 'ast>(
+fn compile_fn<'src>(
     env: &mut CompilerEnv<'src>,
     name: String,
     src_pos: &CompSourcePos,
-    stmts: &'ast [Statement<'src>],
+    stmts: &[Statement<'src>],
     args: Vec<LocalVar>,
     fn_args: Vec<BytecodeArg>,
 ) -> CompileResult<'src, (FnProto, FunctionInfo)> {
@@ -438,17 +433,15 @@ fn compile_fn<'src, 'ast>(
 
 fn retrieve_fn_signatures(stmts: &[Statement], env: &mut CompilerEnv) {
     for stmt in stmts {
-        match stmt {
-            Statement::FnDecl {
-                name, args, stmts, ..
-            } => {
-                let args = args.iter().map(|arg| arg.name.to_string()).collect();
-                let bytecode = FnBytecode::proto(name.to_string(), args);
-                env.functions
-                    .insert(name.to_string(), Rc::new(FnProto::Code(bytecode)));
-                retrieve_fn_signatures(stmts, env);
-            }
-            _ => {}
+        if let Statement::FnDecl {
+            name, args, stmts, ..
+        } = stmt
+        {
+            let args = args.iter().map(|arg| arg.name.to_string()).collect();
+            let bytecode = FnBytecode::proto(name.to_string(), args);
+            env.functions
+                .insert(name.to_string(), Rc::new(FnProto::Code(bytecode)));
+            retrieve_fn_signatures(stmts, env);
         }
     }
 }
@@ -469,7 +462,7 @@ fn emit_stmts<'src>(
                     .ok_or_else(|| CompileError::new(*var, CEK::LocalsStackUnderflow))?
                     .len();
                 let init_val = if let Some(init_expr) = init {
-                    let stk_var = emit_expr(init_expr, compiler)?.into_stack(compiler);
+                    let stk_var = emit_expr(init_expr, compiler)?.to_stack(compiler);
                     compiler.target_stack[stk_var] = Target::Local(locals);
                     stk_var
                 } else {
@@ -527,7 +520,7 @@ fn emit_stmts<'src>(
                 dbg_println!("FnDecl actual args: {:?} fn_args: {:?}", a_args, fn_args);
                 let src_pos = (*name).into();
                 let (fun, debug) = compile_fn(
-                    &mut compiler.env,
+                    compiler.env,
                     name.to_string(),
                     &src_pos,
                     stmts,
@@ -541,7 +534,7 @@ fn emit_stmts<'src>(
                 compiler.env.debug.insert(name.to_string(), debug);
             }
             Statement::Expression { ref ex, semicolon } => {
-                let res = emit_expr(ex, compiler)?.into_stack(compiler);
+                let res = emit_expr(ex, compiler)?.to_stack(compiler);
                 last_target = if *semicolon { None } else { Some(res) };
             }
             Statement::Loop(stmts) => {
@@ -609,7 +602,7 @@ fn emit_stmts<'src>(
             }
             Statement::Return(ex) => {
                 let res = if let Some(ex) = ex {
-                    emit_expr(ex, compiler)?.into_stack(compiler)
+                    emit_expr(ex, compiler)?.to_stack(compiler)
                 } else {
                     0
                 };
@@ -673,7 +666,7 @@ fn emit_expr<'src>(
                 // Copy the elements in a contiguous region of the stack.
                 // It is important to not call emit_expr between those elements, since they can push temporary variables.
                 for arg in &arg_values {
-                    arg.into_stack(compiler);
+                    arg.to_stack(compiler);
                 }
 
                 compiler.push_inst(OpCode::MakeArray, arg_values.len() as u8, stk_ret as u16);
@@ -708,7 +701,7 @@ fn emit_expr<'src>(
                 // Emit expressions in each element of the tuple.
                 let arg_values = values
                     .iter()
-                    .map(|value| emit_expr(&value, compiler))
+                    .map(|value| emit_expr(value, compiler))
                     .collect::<CompileResult<Vec<_>>>()?;
 
                 // Reserve the stack slot to return the tuple.
@@ -718,7 +711,7 @@ fn emit_expr<'src>(
                 // Copy the elements in a contiguous region of the stack.
                 // It is important to not call emit_expr between those elements, since they can push temporary variables.
                 for arg in &arg_values {
-                    arg.into_stack(compiler);
+                    arg.to_stack(compiler);
                 }
 
                 compiler.push_inst(OpCode::MakeTuple, arg_values.len() as u8, stk_ret as u16);
@@ -726,12 +719,12 @@ fn emit_expr<'src>(
             }
         }
         ExprEnum::Variable(str) => {
-            let ret = Ok(compiler.find_universal(*str, expr.span)?);
+            let ret = Ok(compiler.find_universal(str, expr.span)?);
             compiler.end_src_pos(expr.span.into());
             return ret;
         }
         ExprEnum::Cast(ex, decl) => {
-            let val = emit_expr(ex, compiler)?.into_stack(compiler);
+            let val = emit_expr(ex, compiler)?.to_stack(compiler);
             // Make a copy of the value to avoid overwriting original variable
             let val_copy = compiler.target_stack.len();
             compiler.push_inst(OpCode::Move, val as u8, val_copy as u16);
@@ -744,17 +737,17 @@ fn emit_expr<'src>(
             Ok(val_copy)
         }
         ExprEnum::Not(val) => {
-            let val = emit_expr(val, compiler)?.into_stack(compiler);
+            let val = emit_expr(val, compiler)?.to_stack(compiler);
             compiler.push_inst(OpCode::Not, val as u8, 0);
             Ok(val)
         }
         ExprEnum::BitNot(val) => {
-            let val = emit_expr(val, compiler)?.into_stack(compiler);
+            let val = emit_expr(val, compiler)?.to_stack(compiler);
             compiler.push_inst(OpCode::BitNot, val as u8, 0);
             Ok(val)
         }
         ExprEnum::Neg(val) => {
-            let val = emit_expr(val, compiler)?.into_stack(compiler);
+            let val = emit_expr(val, compiler)?.to_stack(compiler);
             compiler.push_inst(OpCode::Neg, val as u8, 0);
             Ok(val)
         }
@@ -764,7 +757,7 @@ fn emit_expr<'src>(
         ExprEnum::Div(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::Div, lhs, rhs)?),
         ExprEnum::VarAssign(lhs, rhs) => {
             let lhs_result = emit_lvalue(lhs, compiler)?;
-            let rhs_result = emit_expr(rhs, compiler)?.into_stack(compiler);
+            let rhs_result = emit_expr(rhs, compiler)?.to_stack(compiler);
             match lhs_result {
                 LValue::Variable(name) => {
                     let local_idx = compiler.find_local(&name, expr.span)?.stack_idx;
@@ -789,7 +782,7 @@ fn emit_expr<'src>(
             }
         }
         ExprEnum::FnInvoke(fn_expr, args) => {
-            let uv_fname = emit_expr(&*fn_expr, compiler)?;
+            let uv_fname = emit_expr(fn_expr, compiler)?;
             let fname = match &uv_fname {
                 UniversalVar::Func { name, .. } => Some(name),
                 _ => None,
@@ -865,7 +858,7 @@ fn emit_expr<'src>(
                 dbg_println!("FnProto is behind a local var: {fname:?}");
             }
 
-            let stk_fname = uv_fname.into_stack(compiler);
+            let stk_fname = uv_fname.to_stack(compiler);
 
             // If a named argument is duplicate, you would have a hole in actual args.
             // Until we have the default parameter value, it would be a compile error.
@@ -876,7 +869,7 @@ fn emit_expr<'src>(
 
             // Align arguments to the stack to prepare a call.
             let mut args_stack: Vec<_> = std::iter::once(stk_fname)
-                .chain(arg_values.iter().map(|arg| arg.into_stack(compiler)))
+                .chain(arg_values.iter().map(|arg| arg.to_stack(compiler)))
                 .collect();
 
             // If the function and the arguments are not contiguous, copy them over so that they will be.
@@ -901,10 +894,10 @@ fn emit_expr<'src>(
             Ok(stk_ret)
         }
         ExprEnum::ArrIndex(ex, args) => {
-            let stk_ex = emit_expr(ex, compiler)?.into_stack(compiler);
+            let stk_ex = emit_expr(ex, compiler)?.to_stack(compiler);
             let args = args
                 .iter()
-                .map(|v| emit_expr(v, compiler).map(|uv| uv.into_stack(compiler)))
+                .map(|v| emit_expr(v, compiler).map(|uv| uv.to_stack(compiler)))
                 .collect::<Result<Vec<_>, _>>()?;
             let arg = args[0];
             let arg = if matches!(compiler.target_stack[arg], Target::Local(_)) {
@@ -920,7 +913,7 @@ fn emit_expr<'src>(
             Ok(arg)
         }
         ExprEnum::TupleIndex(ex, index) => {
-            let stk_ex = emit_expr(ex, compiler)?.into_stack(compiler);
+            let stk_ex = emit_expr(ex, compiler)?.to_stack(compiler);
             let stk_idx = compiler.find_or_create_literal(&Value::I64(*index as i64));
             let stk_idx_copy = compiler.target_stack.len();
             compiler.target_stack.push(Target::None);
@@ -935,7 +928,6 @@ fn emit_expr<'src>(
             postfix,
             def,
         } => {
-            let def = def;
             let st_ty = def.as_ref().ok_or_else(|| {
                 CompileError::new(prefix.span, CEK::TypeNameNotFound(expr_to_string(prefix)))
             })?;
@@ -949,7 +941,7 @@ fn emit_expr<'src>(
                     CompileError::new(prefix.span, CEK::FieldNotFound(postfix.to_string()))
                 })?;
 
-            let stk_ex = emit_expr(prefix, compiler)?.into_stack(compiler);
+            let stk_ex = emit_expr(prefix, compiler)?.to_stack(compiler);
             let stk_idx = compiler.find_or_create_literal(&Value::I64(idx as i64));
             let stk_idx_copy = compiler.target_stack.len();
             compiler.target_stack.push(Target::None);
@@ -975,7 +967,7 @@ fn emit_expr<'src>(
         ExprEnum::And(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::And, lhs, rhs)?),
         ExprEnum::Or(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::Or, lhs, rhs)?),
         ExprEnum::Conditional(cond, true_branch, false_branch) => {
-            let cond = emit_expr(cond, compiler)?.into_stack(compiler);
+            let cond = emit_expr(cond, compiler)?.to_stack(compiler);
             let cond_inst_idx = compiler.bytecode.instructions.len();
             compiler.push_inst(OpCode::Jf, cond as u8, 0);
             let true_branch = emit_stmts(true_branch, compiler)?;
@@ -1043,7 +1035,7 @@ fn emit_expr<'src>(
             // Copy the elements in a contiguous region of the stack.
             // It is important to not call emit_expr between those elements, since they can push temporary variables.
             for arg in &arg_values {
-                arg.into_stack(compiler);
+                arg.to_stack(compiler);
             }
 
             compiler.push_inst(OpCode::MakeStruct, arg_values.len() as u8, stk_ret as u16);
@@ -1065,8 +1057,8 @@ fn emit_binary_op<'src>(
     lhs: &Expression<'src>,
     rhs: &Expression<'src>,
 ) -> CompileResult<'src, usize> {
-    let lhs = emit_expr(&lhs, compiler)?.as_stack()?;
-    let rhs = emit_expr(&rhs, compiler)?.as_stack()?;
+    let lhs = emit_expr(lhs, compiler)?.as_stack()?;
+    let rhs = emit_expr(rhs, compiler)?.as_stack()?;
     let lhs = if matches!(compiler.target_stack[lhs], Target::Local(_)) {
         // We move the local variable to another slot because our instructions are destructive
         let top = compiler.target_stack.len();

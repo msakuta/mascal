@@ -61,14 +61,14 @@ impl ArraySize {
                 })
             }
             (Self::Range(lhs), Self::Fixed(rhs)) => {
-                if lhs.contains(&rhs) {
+                if lhs.contains(rhs) {
                     Some(other.clone())
                 } else {
                     None
                 }
             }
             (Self::Fixed(lhs), Self::Range(rhs)) => {
-                if rhs.contains(&lhs) {
+                if rhs.contains(lhs) {
                     Some(self.clone())
                 } else {
                     None
@@ -109,7 +109,7 @@ impl std::fmt::Display for ArraySize {
 }
 
 pub(super) fn write_array_size(value: &ArraySize, writer: &mut impl Write) -> std::io::Result<()> {
-    writer.write_all(&mut [value.tag()])?;
+    writer.write_all(&[value.tag()])?;
     match value {
         ArraySize::Fixed(value) => writer.write_all(&(*value as u64).to_le_bytes())?,
         ArraySize::Range(range) => {

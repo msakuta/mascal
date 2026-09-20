@@ -218,7 +218,6 @@ macro_rules! dprintln {
 fn bin_op<'src>(
     prec: usize,
 ) -> impl Fn(Lexer<'src>) -> Option<(Lexer<'src>, Expression<'src>)> + 'src {
-    use std::convert::TryInto;
     move |mut lexer: Lexer| {
         let (next, mut ret) = term(lexer)?;
         lexer = next;
@@ -234,10 +233,9 @@ fn bin_op<'src>(
             }
             lexer.next()?;
             let inner_next = lexer;
-            let (outer_next, rhs) = term(lexer)?;
+            let (outer_next, mut rhs) = term(lexer)?;
             lexer = outer_next;
             dprintln!("[{prec}] Outer loop Next token: {rhs:?}");
-            let mut rhs: Expression = rhs.try_into().ok()?;
             let Some(p_lookahead) = lexer.peek() else {
                 dprintln!("[{prec}] Exhausted input, returning {ret:?} and {rhs:?}");
                 return Some((lexer, Expression::bin_op(op, ret, rhs)));
@@ -297,7 +295,7 @@ fn term<'src>(mut lexer: Lexer<'src>) -> Option<(Lexer<'src>, Expression<'src>)>
     None
 }
 
-fn token(input: &str) -> Option<(&str, Token)> {
+fn token(input: &str) -> Option<(&str, Token<'_>)> {
     if let Some(r) = lparen(whitespace(input)) {
         return Some((r, Token::LParen));
     }
@@ -323,7 +321,7 @@ fn whitespace(mut input: &str) -> &str {
     input
 }
 
-fn ident(mut input: &str) -> Option<(&str, Token)> {
+fn ident(mut input: &str) -> Option<(&str, Token<'_>)> {
     let start = input;
     if matches!(peek_char(input), Some(_x @ ('a'..='z' | 'A'..='Z'))) {
         input = advance_char(input);
@@ -341,7 +339,7 @@ fn ident(mut input: &str) -> Option<(&str, Token)> {
     }
 }
 
-fn number(mut input: &str) -> Option<(&str, Token)> {
+fn number(mut input: &str) -> Option<(&str, Token<'_>)> {
     let start = input;
     if matches!(peek_char(input), Some(_x @ ('-' | '+' | '.' | '0'..='9'))) {
         input = advance_char(input);
@@ -356,7 +354,7 @@ fn number(mut input: &str) -> Option<(&str, Token)> {
     }
 }
 
-fn operator(input: &str) -> Option<(&str, Token)> {
+fn operator(input: &str) -> Option<(&str, Token<'_>)> {
     match peek_char(input) {
         Some('+') => Some((advance_char(input), Token::Op(OpCode::Add))),
         Some('-') => Some((advance_char(input), Token::Op(OpCode::Sub))),

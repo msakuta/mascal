@@ -9,7 +9,7 @@ use crate::{
 
 pub fn coerce_f64(a: &Value) -> EvalResult<f64> {
     Ok(match a {
-        Value::F64(v) => *v as f64,
+        Value::F64(v) => *v,
         Value::F32(v) => *v as f64,
         Value::I64(v) => *v as f64,
         Value::I32(v) => *v as f64,
@@ -20,7 +20,7 @@ pub fn coerce_f64(a: &Value) -> EvalResult<f64> {
 pub fn coerce_f32(a: &Value) -> EvalResult<f32> {
     Ok(match a {
         Value::F64(v) => *v as f32,
-        Value::F32(v) => *v as f32,
+        Value::F32(v) => *v,
         Value::I64(v) => *v as f32,
         Value::I32(v) => *v as f32,
         _ => 0.,
@@ -31,7 +31,7 @@ pub fn coerce_i64(a: &Value) -> EvalResult<i64> {
     Ok(match a {
         Value::F64(v) => *v as i64,
         Value::F32(v) => *v as i64,
-        Value::I64(v) => *v as i64,
+        Value::I64(v) => *v,
         Value::I32(v) => *v as i64,
         _ => 0,
     })
@@ -42,7 +42,7 @@ pub fn coerce_i32(a: &Value) -> EvalResult<i32> {
         Value::F64(v) => *v as i32,
         Value::F32(v) => *v as i32,
         Value::I64(v) => *v as i32,
-        Value::I32(v) => *v as i32,
+        Value::I32(v) => *v,
         _ => 0,
     })
 }
@@ -75,9 +75,9 @@ fn _coerce_var(value: &Value, target: &Value, typedefs: &TypeMap) -> Result<Valu
                 type_decl: inner_type,
                 values: inner,
             } = &array.borrow() as &ArrayInt;
-            if inner.len() == 0 {
+            if inner.is_empty() {
                 if let Value::Array(array) = value {
-                    if array.borrow().values.len() == 0 {
+                    if array.borrow().values.is_empty() {
                         return Ok(value.clone());
                     }
                 }
@@ -93,7 +93,7 @@ fn _coerce_var(value: &Value, target: &Value, typedefs: &TypeMap) -> Result<Valu
                             .borrow()
                             .values
                             .iter()
-                            .map(|val| -> EvalResult<_> { Ok(coerce_type(val, inner_type)?) })
+                            .map(|val| -> EvalResult<_> { coerce_type(val, inner_type) })
                             .collect::<Result<_, _>>()?,
                     ))
                 } else {
@@ -106,9 +106,9 @@ fn _coerce_var(value: &Value, target: &Value, typedefs: &TypeMap) -> Result<Valu
         }
         Value::Tuple(tuple) => {
             let target_elems = tuple.borrow();
-            if target_elems.len() == 0 {
+            if target_elems.is_empty() {
                 if let Value::Tuple(value_elems) = value {
-                    if value_elems.borrow().len() == 0 {
+                    if value_elems.borrow().is_empty() {
                         return Ok(value.clone());
                     }
                 }
