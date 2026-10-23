@@ -411,6 +411,12 @@ where
             |lhs, rhs| lhs / rhs,
             |lhs, rhs| lhs / rhs,
         )?),
+        ExprEnum::Mod(lhs, rhs) => RunResult::Yield(binary_op(
+            &unwrap_run!(eval(lhs, ctx)?),
+            &unwrap_run!(eval(rhs, ctx)?),
+            |lhs, rhs| lhs % rhs,
+            |lhs, rhs| lhs % rhs,
+        )?),
         ExprEnum::LT(lhs, rhs) => RunResult::Yield(compare_op(
             &unwrap_run!(eval(lhs, ctx)?),
             &unwrap_run!(eval(rhs, ctx)?),

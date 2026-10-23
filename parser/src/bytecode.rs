@@ -30,10 +30,16 @@ pub enum OpCode {
     Move,
     /// Increment the operand arg0
     Incr,
+    /// Addition (+)
     Add,
+    /// Subtraction (-)
     Sub,
+    /// Multiplication (*)
     Mul,
+    /// Division (/)
     Div,
+    /// Modulo (%)
+    Mod,
     /// Bitwise and (&)
     BitAnd,
     /// Bitwise xor (^)
@@ -126,6 +132,7 @@ impl_op_from!(
     Sub,
     Mul,
     Div,
+    Mod,
     BitAnd,
     BitXor,
     BitOr,

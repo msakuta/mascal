@@ -176,7 +176,10 @@ pub(crate) enum ExprEnum<'a> {
     Add(Box<Expression<'a>>, Box<Expression<'a>>),
     Sub(Box<Expression<'a>>, Box<Expression<'a>>),
     Mult(Box<Expression<'a>>, Box<Expression<'a>>),
+    /// Division operator (/)
     Div(Box<Expression<'a>>, Box<Expression<'a>>),
+    /// Modulo operator (%)
+    Mod(Box<Expression<'a>>, Box<Expression<'a>>),
     LT(Box<Expression<'a>>, Box<Expression<'a>>),
     LE(Box<Expression<'a>>, Box<Expression<'a>>),
     GT(Box<Expression<'a>>, Box<Expression<'a>>),
@@ -601,9 +604,7 @@ fn ws_comment<'a, E: ParseError<Span<'a>>>(i: Span<'a>) -> IResult<Span<'a>, (),
 
 /// A combinator that takes a parser `inner` and produces a parser that also consumes both leading and
 /// trailing whitespace, returning the output of `inner`.
-fn ws<'a, F, O, E: ParseError<Span<'a>>>(
-    inner: F,
-) -> impl Parser<Span<'a>, Output = O, Error = E>
+fn ws<'a, F, O, E: ParseError<Span<'a>>>(inner: F) -> impl Parser<Span<'a>, Output = O, Error = E>
 where
     F: 'a + Parser<Span<'a>, Output = O, Error = E>,
 {
@@ -862,17 +863,18 @@ fn term(i: Span) -> IResult<Span, Expression> {
     let (r, init) = not_factor(i)?;
 
     fold_many0(
-        pair(alt((char('*'), char('/'))), not_factor),
+        pair(one_of("*/%"), not_factor),
         move || init.clone(),
         move |acc, (op, val): (char, Expression)| {
             let span = i.subslice(
                 i.offset(&acc.span),
                 acc.span.offset(&val.span) + val.span.len(),
             );
-            if op == '*' {
-                Expression::new(ExprEnum::Mult(Box::new(acc), Box::new(val)), span)
-            } else {
-                Expression::new(ExprEnum::Div(Box::new(acc), Box::new(val)), span)
+            match op {
+                '*' => Expression::new(ExprEnum::Mult(Box::new(acc), Box::new(val)), span),
+                '/' => Expression::new(ExprEnum::Div(Box::new(acc), Box::new(val)), span),
+                '%' => Expression::new(ExprEnum::Mod(Box::new(acc), Box::new(val)), span),
+                _ => unreachable!("Term operator was not one of *, / and %"),
             }
         },
     )

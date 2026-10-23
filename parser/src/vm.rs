@@ -388,6 +388,15 @@ impl<'a> Vm<'a> {
                 )?;
                 self.set(inst.arg0, result);
             }
+            OpCode::Mod => {
+                let result = binary_op(
+                    self.get(inst.arg0),
+                    self.get(inst.arg1),
+                    |lhs, rhs| lhs % rhs,
+                    |lhs, rhs| lhs % rhs,
+                )?;
+                self.set(inst.arg0, result);
+            }
             OpCode::BitAnd => {
                 let result =
                     binary_op_int(self.get(inst.arg0), self.get(inst.arg1), |lhs, rhs| {

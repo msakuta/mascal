@@ -755,6 +755,7 @@ fn emit_expr<'src>(
         ExprEnum::Sub(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::Sub, lhs, rhs)?),
         ExprEnum::Mult(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::Mul, lhs, rhs)?),
         ExprEnum::Div(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::Div, lhs, rhs)?),
+        ExprEnum::Mod(lhs, rhs) => Ok(emit_binary_op(compiler, OpCode::Mod, lhs, rhs)?),
         ExprEnum::VarAssign(lhs, rhs) => {
             let lhs_result = emit_lvalue(lhs, compiler)?;
             let rhs_result = emit_expr(rhs, compiler)?.to_stack(compiler);

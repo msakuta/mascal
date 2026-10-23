@@ -55,6 +55,7 @@ pub fn format_expr(
         ExprEnum::Sub(lhs, rhs) => format_bin_op("-", lhs, rhs, level, f),
         ExprEnum::Mult(lhs, rhs) => format_bin_op("*", lhs, rhs, level, f),
         ExprEnum::Div(lhs, rhs) => format_bin_op("/", lhs, rhs, level, f),
+        ExprEnum::Mod(lhs, rhs) => format_bin_op("%", lhs, rhs, level, f),
         ExprEnum::LT(lhs, rhs) => format_bin_op("<", lhs, rhs, level, f),
         ExprEnum::LE(lhs, rhs) => format_bin_op("<=", lhs, rhs, level, f),
         ExprEnum::GT(lhs, rhs) => format_bin_op(">", lhs, rhs, level, f),

@@ -129,6 +129,7 @@ fn iter_types_expr(ex: &Expression, f: &mut impl FnMut(TypeParams)) {
         | ExprEnum::Sub(lhs, rhs)
         | ExprEnum::Mult(lhs, rhs)
         | ExprEnum::Div(lhs, rhs)
+        | ExprEnum::Mod(lhs, rhs)
         | ExprEnum::LT(lhs, rhs)
         | ExprEnum::LE(lhs, rhs)
         | ExprEnum::GT(lhs, rhs)

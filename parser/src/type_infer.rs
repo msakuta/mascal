@@ -491,6 +491,7 @@ where
         ExprEnum::Sub(lhs, rhs) => binary_op(lhs, rhs, e.span, ctx, "Sub")?,
         ExprEnum::Mult(lhs, rhs) => binary_op(lhs, rhs, e.span, ctx, "Mult")?,
         ExprEnum::Div(lhs, rhs) => binary_op(lhs, rhs, e.span, ctx, "Div")?,
+        ExprEnum::Mod(lhs, rhs) => binary_op(lhs, rhs, e.span, ctx, "Mod")?,
         ExprEnum::LT(lhs, rhs) => binary_cmp(lhs, rhs, e.span, ctx, "LT")?,
         ExprEnum::LE(lhs, rhs) => binary_cmp(lhs, rhs, e.span, ctx, "LE")?,
         ExprEnum::GT(lhs, rhs) => binary_cmp(lhs, rhs, e.span, ctx, "GT")?,
@@ -692,6 +693,7 @@ where
         | ExprEnum::Sub(lhs, rhs)
         | ExprEnum::Mult(lhs, rhs)
         | ExprEnum::Div(lhs, rhs)
+        | ExprEnum::Mod(lhs, rhs)
         | ExprEnum::BitAnd(lhs, rhs)
         | ExprEnum::BitXor(lhs, rhs)
         | ExprEnum::BitOr(lhs, rhs)
@@ -854,6 +856,7 @@ fn forward_lvalue<'src, 'b, 'native>(
         | ExprEnum::Sub(_, _)
         | ExprEnum::Mult(_, _)
         | ExprEnum::Div(_, _)
+        | ExprEnum::Mod(_, _)
         | ExprEnum::LT(_, _)
         | ExprEnum::LE(_, _)
         | ExprEnum::GT(_, _)
