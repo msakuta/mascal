@@ -36,7 +36,7 @@ pub use self::format_ast::format_stmts;
 pub use self::func::{NativeFn, NativeFnRef, UserData};
 pub use self::interpreter::{run, EvalContext, FuncDef, NativeCode, RunResult};
 pub use self::iter_types::{iter_types, TypeParams};
-pub use self::parser::{span_source as source, ArgDecl, ReadError, Span};
+pub use self::parser::{extract_structs, span_source as source, ArgDecl, ReadError, Span};
 pub use self::type_decl::TypeDecl;
 pub use self::type_infer::{type_check, TypeCheckContext, TypeCheckError};
 pub use self::value::Value;

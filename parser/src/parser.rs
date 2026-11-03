@@ -99,6 +99,12 @@ pub struct StructDecl<'src> {
     pub(crate) fields: Vec<StructField<'src>>,
 }
 
+impl<'src> StructDecl<'src> {
+    pub fn get_name(&self) -> Span<'src> {
+        self.name
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 #[allow(clippy::large_enum_variant)]
 pub enum Statement<'a> {
@@ -1274,6 +1280,18 @@ pub fn source(mut input: Span) -> IResult<Span, Vec<Statement>> {
 
 pub fn span_source(input: &str) -> IResult<Span<'_>, Vec<Statement<'_>>> {
     source(Span::new(input))
+}
+
+pub fn extract_structs<'a, 'b>(ast: &'b [Statement<'a>]) -> Vec<StructDecl<'a>> {
+    ast.iter()
+        .filter_map(|s| {
+            if let Statement::Struct(s) = s {
+                Some(s.clone())
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]

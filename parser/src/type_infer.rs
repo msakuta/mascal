@@ -215,6 +215,10 @@ impl<'src, 'native, 'ctx> TypeCheckContext<'src, 'native, 'ctx> {
         }
     }
 
+    pub fn set_type(&mut self, name: impl Into<String>, st: StructDecl<'src>) {
+        self.typedefs.insert(name.into(), Rc::new(st));
+    }
+
     fn get_type(&self, name: &str) -> Option<&Rc<StructDecl<'src>>> {
         self.typedefs.get(name).or_else(|| {
             self.super_context

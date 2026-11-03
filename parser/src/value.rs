@@ -403,6 +403,13 @@ pub struct StructInt {
 }
 
 impl StructInt {
+    pub fn new(name: String, num_fields: usize) -> Self {
+        Self {
+            name,
+            fields: vec![Value::I32(0); num_fields],
+        }
+    }
+
     pub fn get(&self, idx: usize) -> EvalResult<Value> {
         self.fields
             .get(idx)
@@ -412,6 +419,15 @@ impl StructInt {
 
     pub fn fields(&self) -> &[Value] {
         &self.fields
+    }
+
+    pub fn set_field(&mut self, idx: usize, value: Value) -> bool {
+        if let Some(field) = self.fields.get_mut(idx) {
+            *field = value;
+            true
+        } else {
+            false
+        }
     }
 }
 
