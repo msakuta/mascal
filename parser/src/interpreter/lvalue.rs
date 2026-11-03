@@ -4,10 +4,10 @@
 
 use std::{cell::RefCell, rc::Rc};
 
-use super::{eval, EvalContext, EvalError, EvalResult, Expression, RunResult};
+use super::{EvalContext, EvalError, EvalResult, Expression, RunResult, eval};
 use crate::{
-    value::{ArrayInt, StructInt},
     TypeDecl, Value,
+    value::{ArrayInt, StructInt},
 };
 
 /// An LValue is a description of a target memory to be written to.

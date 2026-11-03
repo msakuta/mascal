@@ -1,7 +1,7 @@
 use crate::{
+    TypeDecl,
     interpreter::RetType,
     type_decl::{ArraySize, FuncDecl},
-    TypeDecl,
 };
 
 /// TypeSet with a flag whether it was annotated in the original source code.
@@ -59,6 +59,9 @@ pub struct TypeSetFlags {
     pub tuple: Option<Vec<TypeSet>>,
     pub type_name: Vec<String>,
     pub func: Option<FuncDecl>,
+    pub some: Option<Box<TypeSet>>,
+    /// `None` is a variant of Option, not the same as `void`, which means the lack of option.
+    pub none: bool,
 }
 
 impl TypeSetAnnotated {
@@ -191,10 +194,25 @@ impl TypeSet {
         })
     }
 
+    pub fn some(value: TypeSet) -> Self {
+        Self::Set(TypeSetFlags {
+            some: Some(Box::new(value)),
+            ..TypeSetFlags::default()
+        })
+    }
+
+    pub fn opt_none() -> Self {
+        Self::Set(TypeSetFlags {
+            none: true,
+            ..TypeSetFlags::default()
+        })
+    }
+
     pub fn all() -> Self {
         Self::Any
     }
 
+    /// This means a type set of none, different from a set with Option::None
     pub fn none() -> Self {
         Self::Set(TypeSetFlags::default())
     }
@@ -302,7 +320,7 @@ impl std::ops::BitAnd for TypeSet {
         let TypeSet::Set(set) = &mut self else {
             return rhs;
         };
-        let TypeSet::Set(rhs) = &rhs else {
+        let TypeSet::Set(rhs) = rhs else {
             return self;
         };
         let array = set
@@ -353,6 +371,14 @@ impl std::ops::BitAnd for TypeSet {
             } else {
                 None
             },
+            some: if let Some((lhs, rhs)) = set.some.take().zip(rhs.some)
+                && lhs == rhs
+            {
+                Some(lhs)
+            } else {
+                None
+            },
+            none: set.none,
         })
     }
 }
@@ -425,6 +451,13 @@ impl TypeSet {
             } else {
                 None
             },
+            some: set
+                .some
+                .as_ref()
+                .zip(rhs.some.as_ref())
+                .map(|(lhs, rhs)| lhs.try_intersect(&rhs).map(Box::new))
+                .transpose()?,
+            none: set.none && rhs.none,
         });
 
         if ret.is_none() {
@@ -455,7 +488,7 @@ impl From<&TypeDecl> for TypeSet {
             TypeDecl::Str => ret.string = true,
             TypeDecl::Array(ty, size) => return TypeSet::array(ty.as_ref().into(), size.clone()),
             TypeDecl::Tuple(types) => {
-                return TypeSet::tuple(types.iter().map(|ty| ty.into()).collect())
+                return TypeSet::tuple(types.iter().map(|ty| ty.into()).collect());
             }
             TypeDecl::TypeName(name) => {
                 return TypeSet::type_name(name.clone());
@@ -463,6 +496,8 @@ impl From<&TypeDecl> for TypeSet {
             TypeDecl::Func(func) => {
                 return TypeSet::func(func.clone());
             }
+            TypeDecl::Option(Some(value)) => return TypeSet::some(Self::from(&**value)),
+            TypeDecl::Option(None) => return TypeSet::opt_none(),
         }
         Self::Set(ret)
     }
@@ -486,7 +521,7 @@ impl From<&TypeDecl> for TypeSetAnnotated {
 impl From<&Option<TypeDecl>> for TypeSetAnnotated {
     fn from(value: &Option<TypeDecl>) -> Self {
         match value {
-            Some(ref value) => Self::from(value),
+            Some(value) => Self::from(value),
             None => Self::unannotated(),
         }
     }
@@ -495,7 +530,7 @@ impl From<&Option<TypeDecl>> for TypeSetAnnotated {
 impl From<&mut Option<TypeDecl>> for TypeSetAnnotated {
     fn from(value: &mut Option<TypeDecl>) -> Self {
         match value {
-            Some(ref value) => Self::from(value),
+            Some(value) => Self::from(&*value),
             None => Self::unannotated(),
         }
     }

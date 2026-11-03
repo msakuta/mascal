@@ -1,10 +1,10 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
+    EvalError, TypeDecl, Value,
     interpreter::{EvalResult, TypeMap},
     type_decl::{ArraySize, FuncDecl},
     value::{ArrayInt, TupleEntry},
-    EvalError, TypeDecl, Value,
 };
 
 pub fn coerce_f64(a: &Value) -> EvalResult<f64> {
@@ -58,7 +58,7 @@ fn coerce_str(a: &Value) -> EvalResult<String> {
             return Err(EvalError::CoerceError(
                 TypeDecl::from_value(a).to_string(),
                 "str".to_string(),
-            ))
+            ));
         }
     })
 }
@@ -150,6 +150,14 @@ fn _coerce_var(value: &Value, target: &Value, typedefs: &TypeMap) -> Result<Valu
             Value::Struct(value.clone())
         }
         Value::Func(str) => Value::Func(str.clone()),
+        Value::Option(Some(value)) => return _coerce_var(value, target, typedefs),
+        Value::Option(None) => {
+            if let Value::Option(None) = target {
+                return Ok(Value::Option(None));
+            } else {
+                return Err(EvalError::CoerceError("".to_string(), "".to_string()));
+            }
+        }
     })
 }
 
@@ -207,6 +215,23 @@ pub fn coerce_type(value: &Value, target: &TypeDecl) -> Result<Value, EvalError>
                 value.to_string(),
                 format!("fn({args:?}) -> {ret_ty}"),
             ));
+        }
+        TypeDecl::Option(Some(ty)) => {
+            if let Value::Option(Some(value)) = value {
+                return Ok(Value::Option(Some(value.clone())));
+            } else {
+                return Ok(Value::Option(None));
+            }
+        }
+        TypeDecl::Option(None) => {
+            if let Value::Option(None) = value {
+                return Ok(Value::Option(None));
+            } else {
+                return Err(EvalError::CoerceError(
+                    value.to_string(),
+                    "None".to_string(),
+                ));
+            }
         }
     })
 }

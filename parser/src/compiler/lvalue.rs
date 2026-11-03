@@ -1,12 +1,12 @@
 //! LValue-related types and functions in the compiler. See also: interpreter/lvalue.rs which is defined differently.
 
 use crate::{
-    parser::{ExprEnum, Expression},
     OpCode, Value,
+    parser::{ExprEnum, Expression},
 };
 
 use super::{
-    emit_expr, error::CompileErrorKind as CEK, CompileError, CompileResult, Compiler, Target,
+    CompileError, CompileResult, Compiler, Target, emit_expr, error::CompileErrorKind as CEK,
 };
 
 /// Internal to the compiler

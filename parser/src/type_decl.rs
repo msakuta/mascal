@@ -5,10 +5,10 @@ use self::array_size::{read_array_size, write_array_size};
 use std::io::{Read, Write};
 
 use crate::{
+    EvalContext, ReadError, Value,
     bytecode::{read_bool, write_bool},
     interpreter::RetType,
     type_tags::*,
-    EvalContext, ReadError, Value,
 };
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -24,6 +24,7 @@ pub enum TypeDecl {
     Tuple(Vec<TypeDecl>),
     TypeName(String),
     Func(FuncDecl),
+    Option(Option<Box<TypeDecl>>),
 }
 
 impl TypeDecl {
@@ -51,6 +52,10 @@ impl TypeDecl {
                     })
                 },
             ),
+            Value::Option(Some(value)) => {
+                TypeDecl::Option(Some(Box::new(Self::from_value_with_context(value, ctx))))
+            }
+            Value::Option(None) => TypeDecl::Option(None),
         }
     }
 
@@ -81,6 +86,15 @@ impl TypeDecl {
             }
             Self::TypeName(_) => todo!(),
             Self::Func { .. } => FUNC_TAG,
+            Self::Option(Some(inner)) => {
+                writer.write_all(&OPTION_SOME_TAG.to_le_bytes())?;
+                inner.serialize(writer)?;
+                return Ok(());
+            }
+            Self::Option(None) => {
+                writer.write_all(&OPTION_NONE_TAG.to_le_bytes())?;
+                return Ok(());
+            }
         };
         writer.write_all(&tag.to_le_bytes())?;
         Ok(())
@@ -142,6 +156,8 @@ impl std::fmt::Display for TypeDecl {
             )?,
             Self::TypeName(name) => write!(f, "{name}")?,
             Self::Func(decl) => decl.fmt(f)?,
+            Self::Option(Some(decl)) => write!(f, "?{decl}")?,
+            Self::Option(None) => write!(f, "None")?,
         }
         Ok(())
     }

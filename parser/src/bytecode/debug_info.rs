@@ -5,7 +5,7 @@ use std::{
 
 use crate::ReadError;
 
-use super::{read_str, read_usize, write_str, write_usize, Bytecode};
+use super::{Bytecode, read_str, read_usize, write_str, write_usize};
 
 impl Bytecode {
     pub(super) fn write_debug_info(

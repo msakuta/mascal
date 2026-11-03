@@ -3,8 +3,8 @@
 use crate::format_ast::format_expr;
 
 use super::*;
-use nom::Finish;
 use ExprEnum::*;
+use nom::Finish;
 
 impl<'src> Expression<'src> {
     fn boxed(self) -> Box<Self> {

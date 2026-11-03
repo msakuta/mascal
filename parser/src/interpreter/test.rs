@@ -4,14 +4,13 @@ use nom::{Finish, IResult};
 
 use super::*;
 use crate::{
+    TypeCheckContext,
     parser::{
-        source, span_source, statement,
+        Subslice, source, span_source, statement,
         test::{expr_nosemi, expr_semi},
-        Subslice,
     },
     type_check,
     type_set::TypeSetAnnotated,
-    TypeCheckContext,
 };
 use ExprEnum::*;
 
@@ -826,7 +825,10 @@ fn array_sized_cmp_error_test() {
     let mut ast = source(span).finish().unwrap().1;
     match type_check(&mut ast, &mut TypeCheckContext::new(Some("input"))) {
         Ok(_) => panic!("type check succeeded when it should fail: {:?}", ast),
-        Err(e) => assert_eq!(e.to_string(), "Operation LT between incompatible type [i32; 3] and [i32; 4]: Comparison between incompatible types: [i32; 3] and [i32; 4]: Array size is not compatible: 4 cannot assign to 3\ninput:1:57"),
+        Err(e) => assert_eq!(
+            e.to_string(),
+            "Operation LT between incompatible type [i32; 3] and [i32; 4]: Comparison between incompatible types: [i32; 3] and [i32; 4]: Array size is not compatible: 4 cannot assign to 3\ninput:1:57"
+        ),
     }
     // It will fail at runtime
     assert!(run0(&ast).is_err());

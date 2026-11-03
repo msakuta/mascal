@@ -5,10 +5,10 @@ use std::{
 };
 
 use crate::{
+    EvalError, ReadError,
     interpreter::{EGetExt, EvalResult},
     type_decl::{ArraySize, FuncDecl, TypeDecl},
     type_tags::*,
-    EvalError, ReadError,
 };
 
 #[derive(Debug, PartialEq, Clone)]
@@ -45,6 +45,7 @@ pub enum Value {
     Tuple(Rc<RefCell<TupleInt>>),
     Struct(Rc<RefCell<StructInt>>),
     Func(String),
+    Option(Option<Box<Value>>),
 }
 
 impl Default for Value {
@@ -99,6 +100,8 @@ impl std::fmt::Display for Value {
                 )
             }
             Self::Func(name) => write!(f, "<Func {name}>"),
+            Self::Option(Some(value)) => write!(f, "?{value}"),
+            Self::Option(None) => write!(f, "None"),
         }
     }
 }
@@ -163,6 +166,15 @@ impl Value {
                 writer.write_all(&FUNC_TAG.to_le_bytes())?;
                 writer.write_all(&(name.len() as u32).to_le_bytes())?;
                 writer.write_all(name.as_bytes())?;
+                Ok(())
+            }
+            Self::Option(Some(value)) => {
+                writer.write_all(&OPTION_SOME_TAG.to_le_bytes())?;
+                value.serialize(writer)?;
+                Ok(())
+            }
+            Self::Option(None) => {
+                writer.write_all(&OPTION_NONE_TAG.to_le_bytes())?;
                 Ok(())
             }
         }
@@ -377,6 +389,8 @@ impl std::convert::TryFrom<&Value> for usize {
                 TypeDecl::Func(FuncDecl::default()),
                 TypeDecl::I64,
             )),
+            Value::Option(Some(some)) => usize::try_from(&**some),
+            Value::Option(None) => Err(ValueError::Invalid(TypeDecl::Option(None), TypeDecl::I64)),
         }
     }
 }

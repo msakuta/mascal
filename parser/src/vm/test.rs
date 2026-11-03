@@ -1,10 +1,9 @@
 use super::*;
 use crate::{
-    compile,
+    Span, TypeDecl, compile,
     compiler::CompileError,
     parser::{expr, span_source, test::expr_nosemi},
     value::ArrayInt,
-    Span, TypeDecl,
 };
 
 fn compile_expr(s: &str) -> Bytecode {
@@ -151,10 +150,12 @@ fn compile_and_run_with(src: &str, fun: impl Fn(&[Value]) + 'static) -> Result<V
 #[test]
 fn ext_fn_call() {
     // The return value does not matter
-    assert!(compile_and_run_with("print(1 + 2);", |vals| {
-        assert_eq!(vals[0], Value::I64(3));
-    })
-    .is_ok());
+    assert!(
+        compile_and_run_with("print(1 + 2);", |vals| {
+            assert_eq!(vals[0], Value::I64(3));
+        })
+        .is_ok()
+    );
 }
 
 #[test]

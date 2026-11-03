@@ -1,8 +1,9 @@
 mod lvalue;
 
-use self::lvalue::{eval_lvalue, LValue};
+use self::lvalue::{LValue, eval_lvalue};
 
 use crate::{
+    TypeDecl, Value,
     coercion::{coerce_f64, coerce_i64, coerce_type},
     eval_error::EvalError,
     func::{NativeFnRef, UserData},
@@ -10,7 +11,6 @@ use crate::{
     type_decl::{ArraySize, FuncDecl},
     type_set::TypeSet,
     value::{ArrayInt, StructInt, TupleEntry},
-    TypeDecl, Value,
 };
 use std::{cell::RefCell, collections::HashMap, convert::TryInto, io::Write, rc::Rc};
 
@@ -538,6 +538,8 @@ pub(crate) fn s_print(out: &mut dyn Write, vals: &[Value]) -> EvalResult<Value> 
                 write!(out, ")")?;
             }
             Value::Func(name) => write!(out, "<Func {name}>")?,
+            Value::Option(Some(value)) => write!(out, "?{value}")?,
+            Value::Option(None) => write!(out, "None")?,
         }
         Ok(())
     }
@@ -566,6 +568,8 @@ pub(crate) fn s_puts(out: &mut dyn Write, vals: &[Value]) -> Result<Value, EvalE
                 Value::Tuple(val) => puts_inner(out, &mut val.borrow().iter().map(|v| &v.value))?,
                 Value::Struct(val) => puts_inner(out, &mut val.borrow().fields.iter())?,
                 Value::Func(name) => write!(out, "<Func {name}>")?,
+                Value::Option(Some(value)) => write!(out, "?{value}")?,
+                Value::Option(None) => write!(out, "None")?,
             }
         }
         Ok(())
@@ -595,6 +599,8 @@ pub(crate) fn s_type(_: &UserData, vals: &[Value]) -> Result<Value, EvalError> {
             ),
             Value::Struct(inner) => inner.borrow().name.clone(),
             Value::Func(_s) => "fn".to_string(),
+            Value::Option(Some(value)) => type_str(value),
+            Value::Option(None) => "None".to_string(),
         }
     }
     if let [val, ..] = vals {

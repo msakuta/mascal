@@ -1,7 +1,7 @@
 use crate::{
+    Span, TypeDecl,
     interpreter::RetType,
     parser::{ExprEnum, Expression, Statement},
-    Span, TypeDecl,
 };
 
 pub struct TypeParams<'a> {

@@ -276,7 +276,9 @@ fn bin_op<'src>(
                 };
                 lookahead = p_lookahead;
             }
-            dprintln!("[{prec}] Combining bin_op outer: {ret:?}, {rhs:?}, next: {lexer:?} lookahead: {lookahead:?}");
+            dprintln!(
+                "[{prec}] Combining bin_op outer: {ret:?}, {rhs:?}, next: {lexer:?} lookahead: {lookahead:?}"
+            );
             ret = Expression::bin_op(op, ret, rhs);
         }
 

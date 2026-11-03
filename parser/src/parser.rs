@@ -1,12 +1,13 @@
 use crate::{
+    Value,
     coercion::{coerce_f32, coerce_f64, coerce_i32, coerce_i64},
     interpreter::RetType,
     type_decl::{ArgDeclOwned, ArraySize, FuncDecl, TypeDecl},
     type_set::TypeSetAnnotated,
-    Value,
 };
 
 use nom::{
+    IResult, Input, Offset, Parser,
     branch::alt,
     bytes::complete::{tag, take_until},
     character::complete::{
@@ -16,7 +17,6 @@ use nom::{
     error::ParseError,
     multi::{fold_many0, many0, many1, separated_list0, separated_list1},
     sequence::{delimited, pair, preceded, terminated},
-    IResult, Input, Offset, Parser,
 };
 use nom_locate::LocatedSpan;
 use std::{rc::Rc, string::FromUtf8Error};

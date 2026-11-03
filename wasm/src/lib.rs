@@ -58,6 +58,8 @@ fn s_puts(_: &UserData, vals: &[Value]) -> Result<Value, EvalError> {
                 ),
                 Value::Struct(val) => puts_inner(val.borrow().fields()),
                 Value::Func(f) => wasm_print(&format!("{}()", f)),
+                Value::Option(Some(val)) => puts_inner(&[(**val).clone()]),
+                Value::Option(None) => wasm_print("None"),
             }
         }
     }

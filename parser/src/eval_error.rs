@@ -1,4 +1,4 @@
-use crate::{value::ValueError, TypeDecl};
+use crate::{TypeDecl, value::ValueError};
 
 /// Error type for the AST intepreter and bytecode interpreter.
 /// Note that it is shared among 2 kinds of interpreters, so some of them only happen in either kind.

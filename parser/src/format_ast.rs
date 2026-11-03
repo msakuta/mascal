@@ -1,7 +1,7 @@
 use crate::{
+    ArgDecl,
     parser::{ExprEnum, Expression, Statement},
     type_set::{TypeSet, TypeSetAnnotated},
-    ArgDecl,
 };
 
 pub fn format_expr(

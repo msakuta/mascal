@@ -3,14 +3,14 @@
 use std::{cell::RefCell, collections::HashMap, io::Write, rc::Rc};
 
 use crate::{
+    Value,
     bytecode::{Bytecode, FnBytecode, FnProto, FnProtos, OpCode},
     coercion::{coerce_i64, coerce_type},
     eval_error::EvalError,
     func::UserData,
-    interpreter::{binary_op, binary_op_int, binary_op_str, compare_op, truthy, EvalResult},
+    interpreter::{EvalResult, binary_op, binary_op_int, binary_op_str, compare_op, truthy},
     type_decl::TypeDecl,
     value::{ArrayInt, StructInt, TupleEntry},
-    Value,
 };
 
 macro_rules! dbg_println {
@@ -344,7 +344,7 @@ impl<'a> Vm<'a> {
                             return Err(format!(
                                 "Attempt to increment non-numerical value {:?}",
                                 val
-                            ))
+                            ));
                         }
                     }
                     Ok(())

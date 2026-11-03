@@ -6,12 +6,12 @@
 use std::{collections::HashMap, fmt::Display, marker::PhantomData, rc::Rc};
 
 use crate::{
+    FuncDef, Span,
     format_ast::{format_expr, format_stmt},
-    interpreter::{std_functions, RetType, TypeMapRc},
+    interpreter::{RetType, TypeMapRc, std_functions},
     parser::{ExprEnum, Expression, Statement, StructDecl},
     type_decl::{ArraySize, FuncDecl, TypeDecl},
     type_set::TypeSet,
-    FuncDef, Span,
 };
 
 #[derive(Debug, PartialEq)]

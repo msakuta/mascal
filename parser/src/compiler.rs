@@ -3,7 +3,7 @@ mod lvalue;
 
 use std::{
     cell::RefCell,
-    collections::{hash_map::Entry, HashMap},
+    collections::{HashMap, hash_map::Entry},
     io::Write,
     rc::Rc,
 };
@@ -11,20 +11,20 @@ use std::{
 pub use self::error::CompileError;
 use self::{
     error::CompileErrorKind as CEK,
-    lvalue::{emit_lvalue, LValue},
+    lvalue::{LValue, emit_lvalue},
 };
 
 use crate::{
+    DebugInfo, Span, TypeDecl, Value,
     bytecode::{
-        std_functions, Bytecode, BytecodeArg, FnBytecode, FnProto, FunctionInfo, Instruction,
-        LineInfo, OpCode,
+        Bytecode, BytecodeArg, FnBytecode, FnProto, FunctionInfo, Instruction, LineInfo, OpCode,
+        std_functions,
     },
     format_ast::format_expr,
     func::NativeFn,
-    interpreter::{eval, EvalContext, RunResult, TypeMap},
+    interpreter::{EvalContext, RunResult, TypeMap, eval},
     parser::{ExprEnum, Expression, Statement},
     value::{ArrayInt, TupleEntry},
-    DebugInfo, Span, TypeDecl, Value,
 };
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -533,7 +533,7 @@ fn emit_stmts<'src>(
                     .insert(name.to_string(), Rc::new(fun));
                 compiler.env.debug.insert(name.to_string(), debug);
             }
-            Statement::Expression { ref ex, semicolon } => {
+            Statement::Expression { ex, semicolon } => {
                 let res = emit_expr(ex, compiler)?.to_stack(compiler);
                 last_target = if *semicolon { None } else { Some(res) };
             }
