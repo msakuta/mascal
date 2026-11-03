@@ -983,7 +983,7 @@ fn cmp(i: Span) -> IResult<Span, Expression> {
 
 pub(crate) fn conditional(i: Span) -> IResult<Span, Expression> {
     let (r, _) = ws(tag("if")).parse(i)?;
-    let (r, cond) = or(r)?;
+    let (r, cond) = assign_expr(r)?;
     let (r, true_branch) = delimited(ws(char('{')), source, ws(char('}'))).parse(r)?;
     let (r, false_branch) = opt(preceded(
         ws(tag("else")),

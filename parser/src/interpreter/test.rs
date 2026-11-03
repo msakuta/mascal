@@ -1078,3 +1078,14 @@ fn for_test() {
         }]
     );
 }
+
+#[test]
+fn test_opt_cond() {
+    let span = Span::new("var b = ?42; if ?a = b { a } else { 0 }");
+    let (_, ast) = source(span).unwrap();
+    let res = match run(&ast, &mut EvalContext::default()).unwrap() {
+        RunResult::Yield(res) => res,
+        _ => panic!("Run should yield"),
+    };
+    assert_eq!(res, Value::I64(42));
+}

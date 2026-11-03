@@ -483,7 +483,24 @@ where
             },
         )),
         ExprEnum::Conditional(cond, true_branch, false_branch) => {
-            if truthy(&unwrap_run!(eval(cond, ctx)?)) {
+            if let ExprEnum::VarAssign(lhs, rhs) = &cond.expr
+                && let ExprEnum::Option(lhs) = &lhs.expr
+                && let ExprEnum::Variable(lhs_var) = &lhs.expr
+            {
+                let rhs_res = unwrap_run!(eval(rhs, ctx)?);
+                if let Value::Option(Some(rhs_value)) = rhs_res {
+                    let mut subctx = EvalContext::push_stack(ctx);
+                    subctx
+                        .variables
+                        .borrow_mut()
+                        .insert(lhs_var, Rc::new(RefCell::new(*rhs_value)));
+                    run(true_branch, &mut subctx)?
+                } else if let Some(ast) = false_branch {
+                    run(ast, ctx)?
+                } else {
+                    RunResult::Yield(Value::I32(0))
+                }
+            } else if truthy(&unwrap_run!(eval(cond, ctx)?)) {
                 run(true_branch, ctx)?
             } else if let Some(ast) = false_branch {
                 run(ast, ctx)?
@@ -497,7 +514,7 @@ where
         }
         ExprEnum::Option(ex) => {
             let res = unwrap_run!(eval(ex, ctx)?);
-            RunResult::Yield(res)
+            RunResult::Yield(Value::Option(Some(Box::new(res))))
         }
     })
 }
