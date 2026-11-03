@@ -495,6 +495,10 @@ where
             let mut subctx = EvalContext::push_stack(ctx);
             run(stmts, &mut subctx)?
         }
+        ExprEnum::Option(ex) => {
+            let res = unwrap_run!(eval(ex, ctx)?);
+            RunResult::Yield(res)
+        }
     })
 }
 

@@ -217,8 +217,10 @@ pub fn coerce_type(value: &Value, target: &TypeDecl) -> Result<Value, EvalError>
             ));
         }
         TypeDecl::Option(Some(ty)) => {
-            if let Value::Option(Some(value)) = value {
-                return Ok(Value::Option(Some(value.clone())));
+            if let Value::Option(Some(value)) = value
+                && let Ok(res) = coerce_type(value, ty)
+            {
+                return Ok(Value::Option(Some(Box::new(res))));
             } else {
                 return Ok(Value::Option(None));
             }

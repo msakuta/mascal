@@ -95,6 +95,10 @@ pub enum OpCode {
     /// Make an array with arg0 arguments on the stack at index arg1. arg1 + 1 to arg1 + arg0 are the indices of the
     /// values to read from.
     MakeArray,
+    /// Make an optional `Some` value with a value on the stack at index arg1.
+    MakeSome,
+    /// Make an optional `None` value.
+    MakeNone,
 }
 
 macro_rules! impl_op_from {
@@ -157,7 +161,9 @@ impl_op_from!(
     Cast,
     MakeTuple,
     MakeStruct,
-    MakeArray
+    MakeArray,
+    MakeSome,
+    MakeNone
 );
 
 /// A single instruction in a bytecode. OpCodes can have 0 to 2 arguments.

@@ -1042,6 +1042,11 @@ fn emit_expr<'src>(
             compiler.push_inst(OpCode::MakeStruct, arg_values.len() as u8, stk_ret as u16);
             Ok(stk_ret)
         }
+        ExprEnum::Option(val) => {
+            let stk_ret = emit_expr(val, compiler)?.to_stack(compiler);
+            compiler.push_inst(OpCode::MakeSome, 0, stk_ret as u16);
+            Ok(stk_ret)
+        }
     };
     compiler.end_src_pos(expr.span.into());
     res.map(move |res| {

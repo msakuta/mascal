@@ -148,6 +148,11 @@ pub fn format_expr(
             }
             Ok(())
         }
+        ExprEnum::Option(ex) => {
+            write!(f, "?")?;
+            format_expr(ex, level, f)?;
+            Ok(())
+        }
     }
 }
 

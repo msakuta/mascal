@@ -545,6 +545,11 @@ where
             }
             TypeSet::type_name(name.to_string())
         }
+        ExprEnum::Option(ex) => {
+            let ts = tc_expr_forward(ex, ctx)?;
+            // The result of logical operator should be i32 (bool)
+            TypeSet::some(ts)
+        }
     })
 }
 
@@ -740,6 +745,12 @@ where
             tc_stmts_forward(stmts, &mut subctx)?;
             tc_stmts_reverse(stmts, ts, &mut subctx)?
         }
+        ExprEnum::Option(ex) => {
+            tc_expr_forward(ex, ctx)?;
+            if let Some(ts2) = ts.and_then(|ts| ts.some.as_ref().map(|ts| (*ts).clone())) {
+                tc_expr_reverse(ex, &ts2, ctx)?;
+            }
+        }
     }
     Ok(())
 }
@@ -878,6 +889,7 @@ fn forward_lvalue<'src, 'b, 'native>(
             Err("Arithmetic expression cannot be a lvalue".to_string())
         }
         ExprEnum::Brace(_) => Err("Brace expression cannot be a lvalue".to_string()),
+        ExprEnum::Option(_) => Err("Option expression cannot be a lvalue".to_string()),
     }
 }
 

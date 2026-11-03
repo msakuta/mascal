@@ -768,6 +768,20 @@ fn test_tuple_decl() {
 }
 
 #[test]
+fn test_option_decl() {
+    let span = Span::new("var a: ?i32 = 1;");
+    assert_eq!(
+        statement(span).finish().unwrap().1,
+        Statement::VarDecl {
+            name: span.subslice(4, 1),
+            ty: TypeDecl::Option(Some(Box::new(TypeDecl::I32))),
+            ty_annotated: true,
+            init: Some(Expression::new(int(1), span.subslice(14, 1)))
+        }
+    );
+}
+
+#[test]
 fn test_array_decl() {
     let span = Span::new("var a: [i32] = [1, 2];");
     assert_eq!(
@@ -1128,5 +1142,22 @@ fn test_return() {
             ),
             src.subslice(7, 5)
         )))
+    );
+}
+
+#[test]
+fn test_option_lit() {
+    let span = Span::new("var a = ?1;");
+    assert_eq!(
+        statement(span).finish().unwrap().1,
+        Statement::VarDecl {
+            name: span.subslice(4, 1),
+            ty: TypeDecl::Any,
+            ty_annotated: false,
+            init: Some(Expression::new(
+                ExprEnum::Option(Box::new(Expression::new(int(1), span.subslice(9, 1)))),
+                span.subslice(8, 2)
+            ))
+        }
     );
 }

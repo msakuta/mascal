@@ -606,6 +606,14 @@ impl<'a> Vm<'a> {
                 let tuple = Value::Array(ArrayInt::new(ty, values));
                 self.set(inst.arg1, tuple);
             }
+            OpCode::MakeSome => {
+                let stk_val = inst.arg1 as usize;
+                let value = Value::Option(Some(Box::new(self.get(stk_val).clone())));
+                self.set(inst.arg1, value);
+            }
+            OpCode::MakeNone => {
+                self.set(inst.arg1, Value::Option(None));
+            }
         }
 
         // self.dump_stack();

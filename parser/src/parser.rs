@@ -203,6 +203,7 @@ pub(crate) enum ExprEnum<'a> {
         Option<Vec<Statement<'a>>>,
     ),
     Brace(Vec<Statement<'a>>),
+    Option(Box<Expression<'a>>),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -368,6 +369,11 @@ fn array_size_fixed(input: Span) -> IResult<Span, ArraySize> {
     ))
 }
 
+fn type_option(input: Span) -> IResult<Span, TypeDecl> {
+    let (r, ty) = preceded(ws(char('?')), type_decl).parse(input)?;
+    Ok((r, TypeDecl::Option(Some(Box::new(ty)))))
+}
+
 fn type_array(input: Span) -> IResult<Span, TypeDecl> {
     let (r, (arr, range)) = delimited(
         ws(char('[')),
@@ -411,7 +417,15 @@ fn type_name(i: Span) -> IResult<Span, TypeDecl> {
 }
 
 pub(crate) fn type_decl(input: Span) -> IResult<Span, TypeDecl> {
-    alt((type_array, type_tuple, fn_type, type_scalar, type_name)).parse(input)
+    alt((
+        type_option,
+        type_array,
+        type_tuple,
+        fn_type,
+        type_scalar,
+        type_name,
+    ))
+    .parse(input)
 }
 
 fn cast<'src>((start, prefix, i): &PostfixInput<'src>) -> IResult<Span<'src>, Expression<'src>> {
@@ -549,6 +563,14 @@ fn str_literal(i: Span) -> IResult<Span, Expression> {
             calc_offset(r0, r),
         ),
     ))
+}
+
+pub(crate) fn option_literal(i: Span) -> IResult<Span, Expression> {
+    let (r, _) = multispace0(i)?;
+    let (r, _) = char('?').parse(r)?;
+    let (r, val) = primary_expression(r)?;
+    let span = i.subslice(0, i.offset(&r));
+    Ok((r, Expression::new(ExprEnum::Option(Box::new(val)), span)))
 }
 
 pub(crate) fn array_literal(i: Span) -> IResult<Span, Expression> {
@@ -744,6 +766,7 @@ pub(crate) fn primary_expression(i: Span) -> IResult<Span, Expression> {
     alt((
         numeric_literal_expression,
         str_literal,
+        option_literal,
         array_literal,
         parens,
         brace_expr,
@@ -984,6 +1007,15 @@ pub(crate) fn conditional(i: Span) -> IResult<Span, Expression> {
             ExprEnum::Conditional(Box::new(cond), true_branch, false_branch),
             calc_offset(i, r),
         ),
+    ))
+}
+
+pub(crate) fn condition_expr(i: Span) -> IResult<Span, Expression> {
+    let (r, _) = tag("?").parse(i)?;
+    let (r2, ex) = or(r)?;
+    Ok((
+        r2,
+        Expression::new(ExprEnum::Option(Box::new(ex)), calc_offset(r, r2)),
     ))
 }
 

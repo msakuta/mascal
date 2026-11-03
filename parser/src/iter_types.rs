@@ -152,5 +152,6 @@ fn iter_types_expr(ex: &Expression, f: &mut impl FnMut(TypeParams)) {
             }
         }
         ExprEnum::Brace(stmts) => iter_types(stmts, f),
+        ExprEnum::Option(ex) => iter_types_expr(ex, f),
     }
 }
