@@ -1161,3 +1161,30 @@ fn test_option_lit() {
         }
     );
 }
+
+#[test]
+fn test_opt_condition() {
+    let span = Span::new("?a = ?1");
+    assert_eq!(
+        statement(span).finish().unwrap().1,
+        Statement::Expression {
+            ex: Expression::new(
+                ExprEnum::VarAssign(
+                    Box::new(Expression::new(
+                        ExprEnum::Option(Box::new(Expression::new(
+                            ExprEnum::Variable(*span.subslice(1, 1)),
+                            span.subslice(1, 1)
+                        ))),
+                        span.subslice(0, 3)
+                    )),
+                    Box::new(Expression::new(
+                        ExprEnum::Option(Box::new(Expression::new(int(1), span.subslice(6, 1)))),
+                        span.subslice(4, 3)
+                    ))
+                ),
+                span,
+            ),
+            semicolon: false,
+        }
+    );
+}
