@@ -1,0 +1,41 @@
+var x: i32;
+x = 123;
+
+/* We do not allow closures with this syntax */
+/*
+fn f(y: i32) {
+    x * y;
+}
+
+print(f(5 + 5));
+*/
+
+fn g(x: f64) -> f64 {
+    x * 1.5;
+}
+
+print(g(x: 10.3));
+
+fn h(x: i64) -> i64 {
+    x * 10;
+}
+
+print(h(x : 103));
+
+fn digits(a: f64, b: f64) -> f64 {
+    a + b * 10.
+}
+
+print(digits(a: 1. + 2., b: 5.));
+print(digits(b: 1. + 2., a: 5.));
+
+fn my_pow(base: f64 = 10., p: i64 = 2) -> f64 {
+    var ret = 1.;
+    for i in 0..p {
+        ret = ret * base;
+    }
+    ret;
+}
+
+print(my_pow(base: 10.));
+print(my_pow(p: 2));

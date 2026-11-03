@@ -1,0 +1,8 @@
+
+var i: i32 = 8;
+var j: i32 = 16;
+
+print(i | j);
+print(i & j);
+print(i ^ j);
+print(~i);

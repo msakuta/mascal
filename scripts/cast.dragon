@@ -1,0 +1,5 @@
+var a: i64 = 123;
+
+var b: i32 = a as i32;
+
+print(type(a), type(b));

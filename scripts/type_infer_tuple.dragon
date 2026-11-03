@@ -1,0 +1,4 @@
+
+var bbb = (1, "hey");
+var c: i32 = 123;
+c = bbb.0;

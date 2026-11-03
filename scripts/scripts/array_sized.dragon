@@ -1,0 +1,10 @@
+var a: [i32; 3] = [1,3,5];
+
+// Pushing to a fixed size array is prohibited
+// push(a, a[0]);
+
+fn f(b: [i32; 3]) {
+    print(b, type(b));
+}
+
+f(a);
